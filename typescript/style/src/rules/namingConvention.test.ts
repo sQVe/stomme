@@ -1,4 +1,4 @@
-import { jsxRuleTester, ruleTester } from '../fixtures/ruleTester.ts';
+import { jsxRuleTester, ruleTester } from '../../tests/ruleTester.ts';
 import { namingConventionRule } from './namingConvention.ts';
 
 const camelCase = (name: string) => ({ messageId: 'name', data: { format: 'camelCase', name } });
@@ -53,6 +53,26 @@ jsxRuleTester.run('naming-convention with JSX components', namingConventionRule,
     };`,
     'export const OptionalView = (shown: boolean) => shown && <box />;',
     'export const renderView = () => <box />;',
+    "import { memo } from 'react';\n\nexport const MemoView = memo(() => <box />);",
+    "import { memo } from 'react';\n\nconst View = () => <box />;\nexport const MemoizedView = memo(View);",
+    "import { forwardRef } from 'react';\n\nexport const InputView = forwardRef((props: object, ref) => <input {...props} ref={ref} />);",
+    "import React from 'react';\n\nexport const ReactMemoView = React.memo(() => <box />);",
+    "import React from 'react';\n\nexport const ReactInputView = React.forwardRef((props: object, ref) => <input {...props} ref={ref} />);",
+    "import { forwardRef, memo } from 'react';\n\nexport const NestedView = memo(forwardRef((props: object, ref) => <input {...props} ref={ref} />));",
+    "import { memo } from 'react';\n\nexport const memoizedValue = memo(() => <box />);",
+    "import { memo as reactMemo } from 'react';\n\nexport const AliasView = reactMemo(() => <box />);",
+    "import * as R from 'react';\n\nexport const NamespaceView = R.memo(() => <box />);",
+    "import * as R from 'react';\n\nexport const NamespaceInput = R.forwardRef((props: object, ref) => <input {...props} ref={ref} />);",
+    "import Preact from 'react';\n\nexport const DefaultView = Preact.memo(() => <box />);",
+    'const EmptyView = () => null;\nexport const Page = () => <EmptyView />;',
+    'function HiddenView() { return null; }\nexport const Screen = () => <><HiddenView /></>;',
+    'export const Button = ({ icon: Icon }: { icon: () => null }) => <Icon />;',
+    'export function Row(Cell: () => null) { return <Cell />; }',
+    'const icons = { check: () => null };\nconst Icon = icons.check;\nexport const Badge = () => <Icon />;',
+    "import { lazy } from 'react';\n\nconst View = lazy(() => import('./view.js'));\nexport const Page = () => <View />;",
+    "import styled from 'styled-components';\n\nconst Box = styled.div;\nexport const Card = () => <Box />;",
+    'let MutableEmpty = () => null;\nMutableEmpty = () => null;\nexport const Page = () => <MutableEmpty />;',
+    'export function Row(Cell: () => null, plain: boolean) { if (plain) { Cell = () => null; } return <Cell />; }',
   ],
   invalid: [
     { code: 'export const MaxItems = 3;', errors: [camelCase('MaxItems')] },
@@ -75,6 +95,66 @@ jsxRuleTester.run('naming-convention with JSX components', namingConventionRule,
     {
       code: 'export const { length: Arity } = function () { return <box />; };',
       errors: [camelCase('Arity')],
+    },
+    {
+      code: "import { memo } from 'react';\n\nexport const MEMO_VIEW = memo(() => <box />);",
+      errors: [pascalCase('MEMO_VIEW')],
+    },
+    {
+      code: "import { memo } from 'react';\n\nexport let MutableMemo = memo(() => <box />);",
+      errors: [camelCase('MutableMemo')],
+    },
+    {
+      code: "import { memo } from 'react';\n\nexport const { type: MemoType } = memo(() => <box />);",
+      errors: [camelCase('MemoType')],
+    },
+    {
+      code: 'const memo = (value: number) => value;\nexport const MaxItems = memo(3);',
+      errors: [camelCase('MaxItems')],
+    },
+    {
+      code: "import { memo } from './cache.js';\n\nexport const MaxItems = memo(3);",
+      errors: [camelCase('MaxItems')],
+    },
+    {
+      code: "import React from './react.js';\n\nexport const MaxItems = React.memo(3);",
+      errors: [camelCase('MaxItems')],
+    },
+    {
+      code: "import { memo as forwardRef } from './cache.js';\n\nexport const MaxItems = forwardRef(3);",
+      errors: [camelCase('MaxItems')],
+    },
+    {
+      code: "import { useMemo as memo } from 'react';\n\nexport const MaxItems = memo(() => 3, []);",
+      errors: [camelCase('MaxItems')],
+    },
+    {
+      code: 'export const React = { memo: (value: number) => value };\nexport const MaxItems = React.memo(3);',
+      errors: [camelCase('React'), camelCase('MaxItems')],
+    },
+    {
+      code: 'const wrap = (render: () => unknown) => render;\nexport const Wrapped = wrap(() => <box />);',
+      errors: [camelCase('Wrapped')],
+    },
+    {
+      code: 'export const Helper = () => null;\nexport const page = () => <helper />;',
+      errors: [camelCase('Helper')],
+    },
+    {
+      code: 'export const pick = (Fallback: () => null) => { Fallback = () => null; return Fallback; };',
+      errors: [camelCase('Fallback')],
+    },
+    {
+      code: 'const icons = { Check: () => null };\nexport const Icons = icons;\nexport const Badge = () => <Icons.Check />;',
+      errors: [camelCase('Icons')],
+    },
+    {
+      code: 'export const shown = (Box: unknown) => Box;\nexport const Page = () => { const Box = () => null; return <Box />; };',
+      errors: [camelCase('Box')],
+    },
+    {
+      code: 'export const Lower = 1;\nexport const Page = () => <lower />;',
+      errors: [camelCase('Lower')],
     },
     {
       code: 'export function ParameterView(Label: string) { return <box>{Label}</box>; }',

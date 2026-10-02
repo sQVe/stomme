@@ -1,4 +1,4 @@
-import { ruleTester } from '../fixtures/ruleTester.ts';
+import { ruleTester } from '../../tests/ruleTester.ts';
 import { helperBeforeUseRule } from './helperBeforeUse.ts';
 
 const order = { messageId: 'order', data: { name: 'helper' } };

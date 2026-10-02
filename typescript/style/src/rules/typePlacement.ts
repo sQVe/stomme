@@ -57,7 +57,8 @@ const lineStartWithComments = (statement: ESTree.Node, sourceCode: SourceCode): 
   const comments = sourceCode.getCommentsBefore(statement);
 
   for (const comment of comments.toReversed()) {
-    const previous = sourceCode.getTokenBefore(comment);
+    // A comment that trails another comment belongs to the statement before both.
+    const previous = sourceCode.getTokenBefore(comment, { includeComments: true });
     const trailsPrevious = previous?.loc.end.line === comment.loc.start.line;
 
     if (trailsPrevious || comment.loc.end.line + 1 < first.loc.start.line) {
@@ -67,9 +68,35 @@ const lineStartWithComments = (statement: ESTree.Node, sourceCode: SourceCode): 
     first = comment;
   }
 
-  const sharesLine = sourceCode.getTokenBefore(first)?.loc.end.line === first.loc.start.line;
+  // A comment that ends on this line counts as code before it, so the line start would split it.
+  const before = sourceCode.getTokenBefore(first, { includeComments: true });
+  const sharesLine = before?.loc.end.line === first.loc.start.line;
 
   return sharesLine ? first.range[0] : first.range[0] - first.loc.start.column;
+};
+
+// Where a statement ends once the comments that start on its last line are counted with it. Code
+// after it on the same line stays out; otherwise the whole line goes.
+const lineEndWithComments = (statement: ESTree.Node, sourceCode: SourceCode): number => {
+  let last: ESTree.Span = statement;
+
+  for (const comment of sourceCode.getCommentsAfter(statement)) {
+    if (comment.loc.start.line !== last.loc.end.line) {
+      break;
+    }
+
+    last = comment;
+  }
+
+  const next = sourceCode.getTokenAfter(last);
+
+  if (next !== null && next.loc.start.line === last.loc.end.line) {
+    return next.range[0];
+  }
+
+  const lineEnd = sourceCode.text.indexOf('\n', last.range[1]);
+
+  return lineEnd === -1 ? sourceCode.text.length : lineEnd + 1;
 };
 
 const moduleValues = (program: ESTree.Program, sourceCode: SourceCode) => {
@@ -114,15 +141,12 @@ const misplacedTypes = (
       continue;
     }
 
-    // Code after the type on its line stays put; otherwise the whole line goes.
-    const next = sourceCode.getTokenAfter(statement);
-    const lineEnd = sourceCode.text.indexOf('\n', statement.range[1]);
-    const sharesLine = next !== null && next.loc.start.line === statement.loc.end.line;
-    const end = lineEnd === -1 ? sourceCode.text.length : lineEnd + 1;
-
     types.push({
       declaration,
-      range: [lineStartWithComments(statement, sourceCode), sharesLine ? next.range[0] : end],
+      range: [
+        lineStartWithComments(statement, sourceCode),
+        lineEndWithComments(statement, sourceCode),
+      ],
     });
   }
 

@@ -1,4 +1,4 @@
-import { ruleTester } from '../fixtures/ruleTester.ts';
+import { ruleTester } from '../../tests/ruleTester.ts';
 import { maxConditionChecksRule } from './maxConditionChecks.ts';
 
 ruleTester.run('max-condition-checks', maxConditionChecksRule, {

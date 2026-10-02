@@ -104,6 +104,10 @@ describe.each(runtimes)(
             '// eslint-disable-next-line no-console',
             "console.info('started');",
           ),
+          'view.tsx': lines(
+            'export const MAIN_VIEW = (): unknown => <box />;',
+            'export const NotView = (): number => 1;',
+          ),
         },
         onTestFinished,
       );
@@ -130,6 +134,12 @@ describe.each(runtimes)(
         expect(ordinary.stdout).not.toContain(rule);
         expect(style.stdout).toContain(rule);
       }
+
+      expect(
+        linesWith(style.stdout, 'view.tsx:')
+          .filter((line) => line.includes('stickler(naming-convention)'))
+          .map((line) => /"(\w+)"/.exec(line)?.[1]),
+      ).toEqual(expect.arrayContaining(['MAIN_VIEW', 'NotView']));
     });
 
     it('lints only the paths it is given', async ({ onTestFinished }) => {
@@ -400,6 +410,38 @@ describe.each(runtimes)(
       );
     });
 
+    it('keeps code inside the lines a moved type comment spans', async ({ onTestFinished }) => {
+      const { directory, folder } = await caseFolder(
+        {
+          'comment.ts': lines(
+            'export const count = 1;',
+            '',
+            'type Label = string; /* This comment',
+            '   continues on a second line. */',
+            '',
+            "export const label: Label = 'ready';",
+          ),
+        },
+        onTestFinished,
+      );
+
+      const fix = consumer.stickler(['--fix', folder]);
+
+      expect(fix.error).toBeUndefined();
+      expect(fix.status).toBe(0);
+
+      expect(await readFile(join(directory, 'comment.ts'), 'utf8')).toBe(
+        lines(
+          'type Label = string; /* This comment',
+          '   continues on a second line. */',
+          '',
+          'export const count = 1;',
+          '',
+          "export const label: Label = 'ready';",
+        ),
+      );
+    });
+
     it('passes a long function, a long file, and five parameters', async ({ onTestFinished }) => {
       const { folder } = await caseFolder(
         {
@@ -420,65 +462,6 @@ describe.each(runtimes)(
 
       expect(result.stdout).toBe('');
       expect(result.status).toBe(0);
-    });
-
-    it('limits the checks joined in one condition and rejects mixed operators', async ({
-      onTestFinished,
-    }) => {
-      const { folder } = await caseFolder(
-        {
-          'valid.ts': lines(
-            'export const three = (a: boolean, b: boolean, c: boolean): boolean => a || b || c;',
-            'export const fallback = (a?: string, b?: string, c?: string, d?: string): string | undefined => a ?? b ?? c ?? d;',
-            'export const negated = (a: boolean, b: boolean, c: boolean): boolean => !(a || b || c);',
-          ),
-          'invalid.ts': lines(
-            'export const four = (a: boolean, b: boolean, c: boolean, d: boolean): boolean => a || b || c || d;',
-            'export const mixed = (a: boolean, b: boolean, c: boolean): boolean => a && (b || c);',
-            'export const negated = (a: boolean, b: boolean, c: boolean): boolean => a && !(b || c);',
-          ),
-        },
-        onTestFinished,
-      );
-
-      const result = consumer.stickler([folder]);
-      const diagnostics = linesWith(result.stdout, 'max-condition-checks');
-
-      expect(result.status).toBe(1);
-      expect(linesWith(diagnostics.join('\n'), '/valid.ts:')).toEqual([]);
-      expect(linesWith(diagnostics.join('\n'), 'invalid.ts:')).toHaveLength(3);
-    });
-
-    it('allows PascalCase names only for JSX components', async ({ onTestFinished }) => {
-      const { folder } = await caseFolder(
-        {
-          'valid.tsx': lines(
-            'export function DeclaredView(): unknown { return <box />; }',
-            'export const ArrowView = (): unknown => <box>text</box>;',
-          ),
-          'invalid.tsx': lines(
-            'export const MaxItems = 3;',
-            'export function NotView(): number { return 1; }',
-            'export const MAIN_VIEW = (): unknown => <box />;',
-            'export function ParameterView(Label: string): unknown { return <box>{Label}</box>; }',
-            'export function DestructuredView({ title: Title }: { title: string }): unknown {',
-            '  return <box>{Title}</box>;',
-            '}',
-          ),
-        },
-        onTestFinished,
-      );
-
-      const result = consumer.stickler([folder]);
-      const diagnostics = linesWith(result.stdout, 'stickler(naming-convention)');
-
-      expect(linesWith(diagnostics.join('\n'), '/valid.tsx:')).toEqual([]);
-
-      expect(
-        diagnostics
-          .map((line) => /"(\w+)"/.exec(line)?.[1] ?? '')
-          .toSorted((left, right) => left.localeCompare(right)),
-      ).toEqual(['Label', 'MAIN_VIEW', 'MaxItems', 'NotView', 'Title']);
     });
 
     it('type-checks consumer code against the declarations without skipping libraries', async ({
@@ -611,6 +594,61 @@ describe.each(runtimes)(
 
         expect(diagnostics, name).toEqual(expect.arrayContaining([expect.stringContaining(rule)]));
       }
+    });
+
+    it('runs a local plugin of the consumer beside the house rules', async ({ onTestFinished }) => {
+      const project = join(consumer.directory, 'local');
+
+      await writeFiles(project, {
+        'package.json': JSON.stringify({ name: 'local', private: true, type: 'module' }),
+        'tsconfig.json': JSON.stringify({ extends: '../tsconfig.json' }),
+        'vite.config.ts': lines(
+          "import { lint } from '@sqve/stickler';",
+          "import { defineConfig } from 'vite-plus';",
+          '',
+          'export default defineConfig({',
+          '  lint: {',
+          '    extends: [lint],',
+          "    jsPlugins: ['./localPlugin.js'],",
+          "    rules: { 'local/no-forbidden-name': 'error' },",
+          '  },',
+          '});',
+        ),
+        'localPlugin.js': lines(
+          'export default {',
+          "  meta: { name: 'local' },",
+          '  rules: {',
+          "    'no-forbidden-name': {",
+          "      meta: { type: 'problem', schema: [], messages: { forbidden: 'Rename this value.' } },",
+          '      create(context) {',
+          '        return {',
+          '          Identifier(node) {',
+          "            if (node.name === 'forbidden') {",
+          "              context.report({ node, messageId: 'forbidden' });",
+          '            }',
+          '          },',
+          '        };',
+          '      },',
+          '    },',
+          '  },',
+          '};',
+        ),
+        'cases/names.ts': lines('export const forbidden = 1;', 'export const MAX_RETRIES = 1;'),
+      });
+
+      onTestFinished(() => rm(project, { recursive: true, force: true }));
+
+      const ordinary = consumer.ordinaryLint(['cases'], project);
+      const style = consumer.stickler(['cases'], project);
+
+      expect(ordinary.error).toBeUndefined();
+      expect(ordinary.status).toBe(1);
+      expect(ordinary.stdout).toContain('local(no-forbidden-name)');
+      expect(ordinary.stdout).not.toContain('stickler(');
+      expect(style.error).toBeUndefined();
+      expect(style.status).toBe(1);
+      expect(style.stdout).toContain('local(no-forbidden-name)');
+      expect(style.stdout).toContain('stickler(naming-convention)');
     });
 
     it('loads the React and Vitest presets through extends', async ({ onTestFinished }) => {

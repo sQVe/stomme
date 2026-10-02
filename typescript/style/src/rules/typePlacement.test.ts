@@ -1,4 +1,4 @@
-import { ruleTester } from '../fixtures/ruleTester.ts';
+import { ruleTester } from '../../tests/ruleTester.ts';
 import { typePlacementRule } from './typePlacement.ts';
 
 const lines = (...text: string[]) => `${text.join('\n')}\n`;
@@ -101,6 +101,68 @@ ruleTester.run('type-placement', typePlacementRule, {
         '',
         'paths.pop(); ',
       ].join('\n'),
+    },
+    {
+      code: lines(
+        'export const count = 1;',
+        '',
+        'type Label = string; /* This comment',
+        '   continues on a second line. */',
+        '',
+        "export const label: Label = 'ready';",
+      ),
+      errors: [{ messageId: 'placement', data: { names: 'Label' }, line: 3 }],
+      // A block comment that trails the type moves whole, so no value ends up inside it.
+      output: lines(
+        'type Label = string; /* This comment',
+        '   continues on a second line. */',
+        '',
+        'export const count = 1;',
+        '',
+        '',
+        "export const label: Label = 'ready';",
+      ),
+    },
+    {
+      code: lines(
+        'export const count = 1; /* Trails the value',
+        '   and ends beside the type. */ type Label = string;',
+        '',
+        "export const label: Label = 'ready';",
+      ),
+      errors: [{ messageId: 'placement', data: { names: 'Label' }, line: 2 }],
+      // The type starts on a line that a comment opened, so it moves from its own start.
+      output: lines(
+        'type Label = string;',
+        '',
+        'export const count = 1; /* Trails the value',
+        '   and ends beside the type. */ ',
+        "export const label: Label = 'ready';",
+      ),
+    },
+    {
+      code: lines(
+        'export const count = 1;',
+        '',
+        'type First = string; /* first',
+        ' */ /* second */',
+        'type Second = number;',
+        '',
+        "export const label: First | Second = 'ready';",
+      ),
+      errors: [{ messageId: 'placement', data: { names: 'First", "Second' }, line: 3 }],
+      // Each comment moves with exactly one type, so the two moved ranges never overlap.
+      output: lines(
+        'type First = string; /* first',
+        ' */ /* second */',
+        '',
+        'type Second = number;',
+        '',
+        'export const count = 1;',
+        '',
+        '',
+        "export const label: First | Second = 'ready';",
+      ),
     },
   ],
 });

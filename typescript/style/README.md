@@ -92,6 +92,19 @@ export default defineConfig({
 });
 ```
 
+A project can add its own JS plugin next to Stickler's. The plugin path is relative to
+`vite.config.ts`, and its rules run in plain `vp lint` and through `stickler`:
+
+```ts
+export default defineConfig({
+  lint: {
+    extends: [lint],
+    jsPlugins: ['./lint/localPlugin.js'],
+    rules: { 'local/no-forbidden-name': 'error' },
+  },
+});
+```
+
 ### Plugin
 
 The `stickler` plugin is also exported on its own, as `@sqve/stickler/plugin`. Its rules are named

@@ -1,7 +1,10 @@
-import type { Definition, ESTree, Rule, Variable } from '@oxlint/plugins';
+import type { Definition, ESTree, Reference, Rule, SourceCode, Variable } from '@oxlint/plugins';
 
 import { forEachBinding, isUnusedMarker } from '../shared/bindings.ts';
+import { resolveVariable } from '../shared/variables.ts';
 import { unwrapExpression } from '../shared/wrappedExpression.ts';
+
+type Identifier = Extract<ESTree.Node, { type: 'Identifier' }>;
 
 const isFunction = (node: ESTree.Node): boolean =>
   node.type === 'FunctionDeclaration' ||
@@ -58,6 +61,89 @@ const definedFunctionOf = (definition: Definition): ESTree.Node | undefined => {
   return initializer !== undefined && isFunction(initializer) ? initializer : undefined;
 };
 
+// React returns a component from these wrappers, whatever they wrap.
+const componentWrappers = new Set(['memo', 'forwardRef']);
+
+const exportedNameOf = (name: ESTree.ModuleExportName): string =>
+  name.type === 'Literal' ? name.value : name.name;
+
+const importSpecifierTypes = new Set<string>([
+  'ImportSpecifier',
+  'ImportDefaultSpecifier',
+  'ImportNamespaceSpecifier',
+]);
+
+const isImportSpecifier = (node: ESTree.Node): node is ESTree.ImportDeclarationSpecifier =>
+  importSpecifierTypes.has(node.type);
+
+// The import specifier that declares this name, when the module it imports from is `react`.
+const reactImportOf = (
+  sourceCode: SourceCode,
+  identifier: Identifier,
+): ESTree.ImportDeclarationSpecifier | undefined => {
+  const definition = resolveVariable(sourceCode, identifier)?.defs[0];
+
+  if (definition?.type !== 'ImportBinding') {
+    return undefined;
+  }
+
+  const specifier = definition.node;
+
+  if (!isImportSpecifier(specifier)) {
+    return undefined;
+  }
+
+  const declaration = specifier.parent;
+
+  const fromReact =
+    declaration.type === 'ImportDeclaration' && declaration.source.value === 'react';
+
+  return fromReact ? specifier : undefined;
+};
+
+// `memo` and `memo as alias` from a named import, or `React.memo` on the default or namespace
+// import. A local or another module's function of the same name is not React's.
+const wrapperNameOf = (sourceCode: SourceCode, callee: ESTree.Expression): string | undefined => {
+  if (callee.type === 'Identifier') {
+    const specifier = reactImportOf(sourceCode, callee);
+
+    return specifier?.type === 'ImportSpecifier' ? exportedNameOf(specifier.imported) : undefined;
+  }
+
+  if (
+    callee.type !== 'MemberExpression' ||
+    callee.computed ||
+    callee.object.type !== 'Identifier'
+  ) {
+    return undefined;
+  }
+
+  const specifier = reactImportOf(sourceCode, callee.object);
+  const wholeModule = specifier !== undefined && specifier.type !== 'ImportSpecifier';
+
+  return wholeModule ? callee.property.name : undefined;
+};
+
+const isComponentWrapper = (sourceCode: SourceCode, node: ESTree.Node): boolean => {
+  if (node.type !== 'CallExpression') {
+    return false;
+  }
+
+  const wrapperName = wrapperNameOf(sourceCode, node.callee);
+
+  return wrapperName !== undefined && componentWrappers.has(wrapperName);
+};
+
+// `<Icon />` reads the binding as a component; `<icons.Check />` and `{Icon}` do not.
+const isPlainTag = (node: ESTree.Node): boolean =>
+  node.type === 'JSXIdentifier' && node.parent.type === 'JSXOpeningElement';
+
+// The types declare a plain identifier, but Oxlint records JSX tags as references too.
+const isTagReference = (reference: Reference): boolean => isPlainTag(reference.identifier);
+
+// JSX needs an uppercase name to render a binding as a component, whatever kind of binding it is.
+const isRenderedAsTag = (variable: Variable): boolean => variable.references.some(isTagReference);
+
 export const namingConventionRule: Rule = {
   meta: {
     type: 'suggestion',
@@ -80,6 +166,22 @@ export const namingConventionRule: Rule = {
       }
     };
 
+    const isComponent = (definition: Definition, variable: Variable): boolean => {
+      if (isRenderedAsTag(variable)) {
+        return true;
+      }
+
+      const initializer = constantInitializerOf(definition);
+
+      if (initializer !== undefined && isComponentWrapper(context.sourceCode, initializer)) {
+        return true;
+      }
+
+      const definedFunction = definedFunctionOf(definition);
+
+      return definedFunction !== undefined && components.has(definedFunction);
+    };
+
     const checkDefinition = (definition: Definition, variable: Variable) => {
       const unusedMarker = isUnusedMarker(definition, variable);
       const name = unusedMarker ? definition.name.name.slice(1) : definition.name.name;
@@ -88,10 +190,7 @@ export const namingConventionRule: Rule = {
         return;
       }
 
-      const definedFunction = definedFunctionOf(definition);
-
-      const componentName =
-        definedFunction !== undefined && components.has(definedFunction) && /^[A-Z]/.test(name);
+      const componentName = /^[A-Z]/.test(name) && isComponent(definition, variable);
 
       const pascalCase = definition.type === 'ClassName' || componentName;
 
