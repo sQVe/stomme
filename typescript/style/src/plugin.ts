@@ -15,8 +15,8 @@ import { requireDisableReasonRule } from './rules/requireDisableReason.ts';
 import { requireSafetyCommentForTypeAssertionRule } from './rules/requireSafetyCommentForTypeAssertion.ts';
 import { typePlacementRule } from './rules/typePlacement.ts';
 
-const sticklerPlugin: Plugin = {
-  meta: { name: 'stickler' },
+const seamPlugin: Plugin = {
+  meta: { name: 'seam' },
   rules: {
     'helper-before-use': helperBeforeUseRule,
     'max-condition-checks': maxConditionChecksRule,
@@ -35,4 +35,4 @@ const sticklerPlugin: Plugin = {
   },
 };
 
-export default sticklerPlugin;
+export default seamPlugin;

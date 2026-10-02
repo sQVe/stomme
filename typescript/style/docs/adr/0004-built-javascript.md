@@ -7,7 +7,7 @@
 
 - Node 24 strips TypeScript types, but refuses TypeScript files inside `node_modules` with
   `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`. Bun loads them.
-- Consumers run Stickler on Node or Bun, and Oxlint imports the plugin with the consumer's runtime.
+- Consumers run Seam on Node or Bun, and Oxlint imports the plugin with the consumer's runtime.
 
 ## Options considered
 

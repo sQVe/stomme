@@ -5,8 +5,8 @@
 
 ## Context
 
-- Stickler exists to make agent-written TypeScript consistent across projects. A rule that one
-  project turns off no longer gives that guarantee.
+- Seam exists to make agent-written TypeScript consistent across projects. A rule that one project
+  turns off no longer gives that guarantee.
 - Some rules only make sense for one area, such as React hooks or Vitest tests.
 - Both source projects keep function size, file size, and parameter count advisory. With
   `--deny-warnings`, a warning rule fails the check like an error.
@@ -33,8 +33,8 @@ A consumer passes the exported `lint` config unchanged, and every rule in it is 
 - There is no Bun preset until Oxlint's test rules recognize `bun:test`.
 - `typescript/explicit-function-return-type` and `typescript/prefer-readonly-parameter-types` stay
   out of the package.
-- `stickler/no-abbreviations` replaces `eslint/id-denylist`. It splits names into words, so it
-  catches `onBtnClick` as well as `btn`. It checks only names the file declares, so object keys that
+- `seam/no-abbreviations` replaces `eslint/id-denylist`. It splits names into words, so it catches
+  `onBtnClick` as well as `btn`. It checks only names the file declares, so object keys that
   external APIs require stay allowed.
 
 ## Tradeoffs

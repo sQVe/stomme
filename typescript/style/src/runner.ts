@@ -16,7 +16,7 @@ export const runVitePlus: RunVitePlus = (commandArguments, styleEnabled) => {
   return spawnSync(process.execPath, [executable, ...commandArguments], {
     stdio: 'inherit',
     // eslint-disable-next-line node/no-process-env -- Only the lint child enables house style.
-    env: { ...process.env, STICKLER_STYLE: styleEnabled ? '1' : '0' },
+    env: { ...process.env, SEAM_STYLE: styleEnabled ? '1' : '0' },
   });
 };
 
@@ -28,7 +28,7 @@ const statusOf = (result: ChildResult): number => {
   return result.status ?? 1;
 };
 
-export const runStickler = (argumentsList: readonly string[], run: RunVitePlus): number => {
+export const runSeam = (argumentsList: readonly string[], run: RunVitePlus): number => {
   const fixing = argumentsList[0] === '--fix';
   const paths = fixing ? argumentsList.slice(1) : argumentsList;
   const lintArguments = ['lint', '--deny-warnings'];

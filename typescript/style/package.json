@@ -1,5 +1,5 @@
 {
-  "name": "@sqve/stickler",
+  "name": "@sqve/seam",
   "version": "0.1.0",
   "description": "Zero-config Oxlint house style for TypeScript projects, run through Vite Plus.",
   "keywords": [
@@ -9,16 +9,16 @@
     "typescript",
     "vite-plus"
   ],
-  "homepage": "https://github.com/sQVe/stickler#readme",
-  "bugs": "https://github.com/sQVe/stickler/issues",
+  "homepage": "https://github.com/sQVe/seam#readme",
+  "bugs": "https://github.com/sQVe/seam/issues",
   "license": "MIT",
   "author": "Oskar Grunning",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sQVe/stickler.git"
+    "url": "git+https://github.com/sQVe/seam.git"
   },
   "bin": {
-    "stickler": "./dist/cli.js"
+    "seam": "./dist/cli.js"
   },
   "files": [
     "dist",

@@ -9,21 +9,21 @@
   Stylistic.
 - Oxlint resolves `jsPlugins` specifiers from the consumer's config. Under pnpm, a consumer cannot
   resolve the dependencies of a package it installed.
-- The `stickler` command must run the consumer's Vite Plus. A second copy could load a different
-  Oxlint than the one the consumer's editor uses.
+- The `seam` command must run the consumer's Vite Plus. A second copy could load a different Oxlint
+  than the one the consumer's editor uses.
 
 ## Options considered
 
-- Range versions. Rejected: an alpha API change would reach consumers without a Stickler release.
+- Range versions. Rejected: an alpha API change would reach consumers without a Seam release.
 - Ask consumers to install Stylistic themselves. Rejected: it breaks zero configuration.
 - Exact pins, with each tool in the dependency kind that matches who owns it. Chosen.
 
 ## Decision
 
-Stickler pins `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, `oxlint`,
-`oxlint-tsgolint`, and `vitest` to exact versions.
+Seam pins `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, `oxlint`, `oxlint-tsgolint`,
+and `vitest` to exact versions.
 
-- `vite-plus` is an exact peer dependency. The consumer owns it, and the `stickler` command resolves
+- `vite-plus` is an exact peer dependency. The consumer owns it, and the `seam` command resolves
   `vite-plus/bin` from the package, which reaches the consumer's copy.
 - `@stylistic/eslint-plugin` is an exact dependency. The config passes its absolute path to Oxlint,
   resolved from the package with `import.meta.resolve`, so pnpm and Bun consumers need not install
@@ -37,11 +37,11 @@ Stickler pins `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, `oxlin
   test the rules against another Oxlint than the one consumers run.
 - `oxlint`, `oxlint-tsgolint`, `vitest`, and `@oxlint/plugins` match the versions Vite Plus
   declares, and a test fails when they differ.
-- The `stickler` plugin is loaded by absolute path from the package, under the name `stickler`.
-- A Vite Plus upgrade is a Stickler release: update all pins together and run the full check.
+- The `seam` plugin is loaded by absolute path from the package, under the name `seam`.
+- A Vite Plus upgrade is a Seam release: update all pins together and run the full check.
 
 ## Tradeoffs
 
 - Consumers get a tested combination of tools.
-- Cost: consumers must use the Vite Plus version Stickler pins, and wait for a Stickler release to
-  upgrade it.
+- Cost: consumers must use the Vite Plus version Seam pins, and wait for a Seam release to upgrade
+  it.
