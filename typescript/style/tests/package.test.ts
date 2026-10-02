@@ -103,7 +103,10 @@ describe.each(runtimes)(
             '};',
             '// eslint-disable-next-line no-console',
             "console.info('started');",
+            'export type Payload = unknown;',
+            "export const label = 'a' as string;",
           ),
+          'fake.test.ts': lines("export const fakeLabel = 'a' as string;"),
           'view.tsx': lines(
             'export const MAIN_VIEW = (): unknown => <box />;',
             'export const NotView = (): number => 1;',
@@ -127,6 +130,8 @@ describe.each(runtimes)(
         'stickler(helper-before-use)',
         'stickler(no-reference-comments)',
         'stickler(require-disable-reason)',
+        'stickler(no-unknown-type-aliases)',
+        'stickler(require-safety-comment-for-type-assertion)',
         'padding-line-between-statements',
         'one-var',
         'no-cond-assign',
@@ -140,6 +145,8 @@ describe.each(runtimes)(
           .filter((line) => line.includes('stickler(naming-convention)'))
           .map((line) => /"(\w+)"/.exec(line)?.[1]),
       ).toEqual(expect.arrayContaining(['MAIN_VIEW', 'NotView']));
+
+      expect(linesWith(style.stdout, 'fake.test.ts:')).toEqual([]);
     });
 
     it('lints only the paths it is given', async ({ onTestFinished }) => {
@@ -578,6 +585,22 @@ describe.each(runtimes)(
           'typescript(explicit-module-boundary-types)',
           'export const twice = (value: number) => value + value;',
         ],
+        'voidPromise.ts': [
+          'typescript(no-floating-promises)',
+          "export const start = (): void => { void Promise.reject(new Error('stopped')); };",
+        ],
+        'methodSignature.ts': [
+          'typescript(method-signature-style)',
+          'export interface Store { read(): string }',
+        ],
+        'extraneousClass.ts': [
+          'typescript(no-extraneous-class)',
+          'export class Paths { static readonly root = "/"; }',
+        ],
+        'lengthCheck.ts': [
+          'unicorn(explicit-length-check)',
+          'export const isEmpty = (items: string[]): boolean => !items.length;',
+        ],
       };
 
       const files = Object.fromEntries(
@@ -671,6 +694,7 @@ describe.each(runtimes)(
           '  expect(1).toBe(1);',
           '});',
         ),
+        'mocked.test.ts': lines("import { vi } from 'vitest';", '', "vi.mock('./hooks.tsx');"),
       };
 
       const { folder } = await caseFolder(files, onTestFinished, 'presets');
@@ -680,8 +704,10 @@ describe.each(runtimes)(
 
       expect(withPresets.stdout).toContain('(rules-of-hooks)');
       expect(withPresets.stdout).toContain('(no-focused-tests)');
+      expect(withPresets.stdout).toContain('(prefer-import-in-mock)');
       expect(withoutPresets.stdout).not.toContain('rules-of-hooks');
       expect(withoutPresets.stdout).not.toContain('no-focused-tests');
+      expect(withoutPresets.stdout).not.toContain('prefer-import-in-mock');
     });
   },
   spawnedTestTimeout,
