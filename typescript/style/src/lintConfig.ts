@@ -7,18 +7,16 @@ import { testFiles } from './shared/testFiles.ts';
 
 type Rules = NonNullable<OxlintConfig['rules']>;
 
-// The `stickler` command sets this for its lint child only, so editors keep ordinary diagnostics.
+// The `seam` command sets this for its lint child only, so editors keep ordinary diagnostics.
 // eslint-disable-next-line node/no-process-env -- The style switch is the runner's contract with this config.
-const styleEnabled = process.env.STICKLER_STYLE === '1';
+const styleEnabled = process.env.SEAM_STYLE === '1';
 
 // Oxlint resolves plugin specifiers from the consumer's config, where a strict package manager
 // hides this package's dependencies. Absolute paths load the copies installed with this package.
 const stylisticPlugin = fileURLToPath(import.meta.resolve('@stylistic/eslint-plugin'));
 
 // The plugin sits beside this module: `.ts` in this repository and `.js` in the published package.
-const sticklerPlugin = fileURLToPath(
-  new URL(`./plugin${extname(import.meta.url)}`, import.meta.url),
-);
+const seamPlugin = fileURLToPath(new URL(`./plugin${extname(import.meta.url)}`, import.meta.url));
 
 const blockStatements = ['if', 'for', 'while', 'do', 'switch', 'try'];
 
@@ -55,20 +53,20 @@ const declarationPadding = [
 const paddingRule = (...entries: object[]): ['error', ...object[]] => ['error', ...entries];
 
 const houseRules: Rules = {
-  'stickler/naming-convention': 'error',
-  'stickler/helper-before-use': 'error',
-  'stickler/max-condition-checks': 'error',
-  'stickler/type-placement': 'error',
-  'stickler/no-abbreviations': 'error',
-  'stickler/no-reference-comments': 'error',
-  'stickler/require-disable-reason': 'error',
-  'stickler/no-object-parameters': 'error',
-  'stickler/no-reduce-accumulator-copy': 'error',
-  'stickler/no-reflect-apply': 'error',
-  'stickler/no-reflect-get': 'error',
-  'stickler/no-unknown-type-aliases': 'error',
-  'stickler/no-widen-then-assert': 'error',
-  'stickler/require-safety-comment-for-type-assertion': 'error',
+  'seam/naming-convention': 'error',
+  'seam/helper-before-use': 'error',
+  'seam/max-condition-checks': 'error',
+  'seam/type-placement': 'error',
+  'seam/no-abbreviations': 'error',
+  'seam/no-reference-comments': 'error',
+  'seam/require-disable-reason': 'error',
+  'seam/no-object-parameters': 'error',
+  'seam/no-reduce-accumulator-copy': 'error',
+  'seam/no-reflect-apply': 'error',
+  'seam/no-reflect-get': 'error',
+  'seam/no-unknown-type-aliases': 'error',
+  'seam/no-widen-then-assert': 'error',
+  'seam/require-safety-comment-for-type-assertion': 'error',
   'eslint/no-cond-assign': ['error', 'always'],
   'eslint/one-var': ['error', 'never'],
   '@stylistic/padding-line-between-statements': paddingRule(
@@ -86,7 +84,7 @@ const houseTestOverride = {
       ...multilinePadding,
     ),
     // Tests assert fakes into the types they stand in for.
-    'stickler/require-safety-comment-for-type-assertion': 'off',
+    'seam/require-safety-comment-for-type-assertion': 'off',
   },
 } satisfies NonNullable<OxlintConfig['overrides']>[number];
 
@@ -384,7 +382,7 @@ const testOverride = {
 const houseConfig = {
   jsPlugins: [
     { name: '@stylistic', specifier: stylisticPlugin },
-    { name: 'stickler', specifier: sticklerPlugin },
+    { name: 'seam', specifier: seamPlugin },
   ],
   rules: houseRules,
   overrides: [houseTestOverride],

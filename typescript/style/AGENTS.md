@@ -1,11 +1,10 @@
-# Stickler
+# Seam
 
-Zero-config Oxlint house style for TypeScript projects, published as `@sqve/stickler`. Read the
+Zero-config Oxlint house style for TypeScript projects, published as `@sqve/seam`. Read the
 [README](README.md) for usage.
 
-- Run `pnpm run check` before finishing changes. It runs typechecking, the self-lint through
-  `stickler`, the format check, the build, and all tests, including the end-to-end tests on Node and
-  Bun.
+- Run `pnpm run check` before finishing changes. It runs typechecking, the self-lint through `seam`,
+  the format check, the build, and all tests, including the end-to-end tests on Node and Bun.
 - Fix style with `pnpm style:fix`; it lints with the house rules, then formats.
 - Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
   guide before adding an ADR. Do not write documents that explain how a rule works.

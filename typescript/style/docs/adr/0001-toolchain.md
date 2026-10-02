@@ -5,7 +5,7 @@
 
 ## Context
 
-- Stickler is an Oxlint configuration and plugin. Consumers run it through Vite Plus, which bundles
+- Seam is an Oxlint configuration and plugin. Consumers run it through Vite Plus, which bundles
   Oxlint, Oxfmt, and Vitest.
 - The package must lint and format itself with its own rules, so it needs the same tools its
   consumers use.
@@ -23,10 +23,10 @@
 
 ## Decision
 
-Stickler uses pnpm, Vite Plus, and `tsc`.
+Seam uses pnpm, Vite Plus, and `tsc`.
 
 - `pnpm-lock.yaml` is the only lockfile. `packageManager` pins the pnpm version.
-- `vp lint` runs through the package's own `stickler` command, `vp fmt` formats, and `vp test` runs
+- `vp lint` runs through the package's own `seam` command, `vp fmt` formats, and `vp test` runs
   Vitest.
 - `tsc -p tsconfig.build.json` builds `dist/`. Source imports use `.ts` extensions, and the build
   rewrites them to `.js`.

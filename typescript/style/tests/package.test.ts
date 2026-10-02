@@ -34,7 +34,7 @@ let temporaryRoot = '';
 let tarball = '';
 
 beforeAll(async () => {
-  temporaryRoot = await mkdtemp(join(tmpdir(), 'stickler-package-'));
+  temporaryRoot = await mkdtemp(join(tmpdir(), 'seam-package-'));
   tarball = await packPackage(join(temporaryRoot, 'pack'));
 }, 300_000);
 
@@ -83,14 +83,14 @@ describe.each(runtimes)(
         onTestFinished,
       );
 
-      const result = consumer.stickler([folder]);
+      const result = consumer.seam([folder]);
 
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(1);
       expect(result.stdout).toContain('eslint(no-console)');
     });
 
-    it('enforces house rules only through the stickler command', async ({ onTestFinished }) => {
+    it('enforces house rules only through the seam command', async ({ onTestFinished }) => {
       const { folder } = await caseFolder(
         {
           'style.ts': lines(
@@ -125,7 +125,7 @@ describe.each(runtimes)(
       );
 
       const ordinary = consumer.ordinaryLint([folder]);
-      const style = consumer.stickler([folder]);
+      const style = consumer.seam([folder]);
 
       expect(ordinary.error).toBeUndefined();
       expect(diagnosticOutput(ordinary.stdout)).toBe('');
@@ -134,13 +134,13 @@ describe.each(runtimes)(
       expect(style.status).toBe(1);
 
       for (const rule of [
-        'stickler(naming-convention)',
-        'stickler(no-abbreviations)',
-        'stickler(helper-before-use)',
-        'stickler(no-reference-comments)',
-        'stickler(require-disable-reason)',
-        'stickler(no-unknown-type-aliases)',
-        'stickler(require-safety-comment-for-type-assertion)',
+        'seam(naming-convention)',
+        'seam(no-abbreviations)',
+        'seam(helper-before-use)',
+        'seam(no-reference-comments)',
+        'seam(require-disable-reason)',
+        'seam(no-unknown-type-aliases)',
+        'seam(require-safety-comment-for-type-assertion)',
         'padding-line-between-statements',
         'one-var',
         'no-cond-assign',
@@ -151,7 +151,7 @@ describe.each(runtimes)(
 
       expect(
         linesWith(style.stdout, 'view.tsx:')
-          .filter((line) => line.includes('stickler(naming-convention)'))
+          .filter((line) => line.includes('seam(naming-convention)'))
           .map((line) => /"(\w+)"/.exec(line)?.[1]),
       ).toEqual(expect.arrayContaining(['MAIN_VIEW', 'NotView']));
 
@@ -167,8 +167,8 @@ describe.each(runtimes)(
         onTestFinished,
       );
 
-      const clean = consumer.stickler([`${folder}/clean.ts`]);
-      const whole = consumer.stickler([folder]);
+      const clean = consumer.seam([`${folder}/clean.ts`]);
+      const whole = consumer.seam([folder]);
 
       expect(clean.status).toBe(0);
       expect(whole.status).toBe(1);
@@ -201,7 +201,7 @@ describe.each(runtimes)(
       );
 
       const spacing = join(directory, 'spacing.ts');
-      const fix = consumer.stickler(['--fix', `${folder}/spacing.ts`]);
+      const fix = consumer.seam(['--fix', `${folder}/spacing.ts`]);
 
       expect(fix.error).toBeUndefined();
       expect(fix.stdout + fix.stderr).not.toMatch(/\berror\b/);
@@ -226,12 +226,12 @@ describe.each(runtimes)(
       );
 
       const fixed = await readFile(spacing, 'utf8');
-      const repeated = consumer.stickler(['--fix', `${folder}/spacing.ts`]);
+      const repeated = consumer.seam(['--fix', `${folder}/spacing.ts`]);
 
       expect(repeated.status).toBe(0);
       expect(await readFile(spacing, 'utf8')).toBe(fixed);
 
-      const manual = consumer.stickler(['--fix', `${folder}/manual.ts`]);
+      const manual = consumer.seam(['--fix', `${folder}/manual.ts`]);
 
       expect(manual.error).toBeUndefined();
       expect(manual.status).toBe(1);
@@ -286,12 +286,12 @@ describe.each(runtimes)(
         onTestFinished,
       );
 
-      const check = consumer.stickler([folder]);
+      const check = consumer.seam([folder]);
 
       expect(check.status).toBe(1);
       expect(linesWith(check.stdout, 'padding-line-between-statements')).toHaveLength(5);
 
-      const fix = consumer.stickler(['--fix', folder]);
+      const fix = consumer.seam(['--fix', folder]);
 
       expect(fix.status).toBe(0);
 
@@ -335,7 +335,7 @@ describe.each(runtimes)(
         ),
       );
 
-      expect(consumer.stickler([folder]).status).toBe(0);
+      expect(consumer.seam([folder]).status).toBe(0);
     });
 
     it('moves types above unrelated values but leaves types derived from a value beside it', async ({
@@ -378,13 +378,13 @@ describe.each(runtimes)(
         onTestFinished,
       );
 
-      const check = consumer.stickler([folder]);
+      const check = consumer.seam([folder]);
       const diagnostics = linesWith(check.stdout, 'type-placement');
 
       expect(check.status).toBe(1);
       expect(diagnostics).toEqual([expect.stringContaining('types.ts:6:')]);
 
-      const fix = consumer.stickler(['--fix', folder]);
+      const fix = consumer.seam(['--fix', folder]);
 
       expect(fix.status).toBe(0);
 
@@ -441,7 +441,7 @@ describe.each(runtimes)(
         onTestFinished,
       );
 
-      const fix = consumer.stickler(['--fix', folder]);
+      const fix = consumer.seam(['--fix', folder]);
 
       expect(fix.error).toBeUndefined();
       expect(fix.status).toBe(0);
@@ -474,7 +474,7 @@ describe.each(runtimes)(
         onTestFinished,
       );
 
-      const result = consumer.stickler([folder]);
+      const result = consumer.seam([folder]);
 
       expect(diagnosticOutput(result.stdout)).toBe('');
       expect(result.status).toBe(0);
@@ -497,8 +497,8 @@ describe.each(runtimes)(
       const { folder } = await caseFolder(
         {
           'usage.ts': lines(
-            "import { format, lint, react, vitest } from '@sqve/stickler';",
-            "import plugin from '@sqve/stickler/plugin';",
+            "import { format, lint, react, vitest } from '@sqve/seam';",
+            "import plugin from '@sqve/seam/plugin';",
             "import type { OxlintConfig } from 'vite-plus/lint';",
             '',
             'export const configs: OxlintConfig[] = [lint, react, vitest];',
@@ -506,7 +506,7 @@ describe.each(runtimes)(
             'export const ruleNames: string[] = Object.keys(plugin.rules);',
           ),
           'misuse.ts': lines(
-            "import { lint } from '@sqve/stickler';",
+            "import { lint } from '@sqve/seam';",
             '',
             'export const wrong: number = lint;',
           ),
@@ -617,7 +617,7 @@ describe.each(runtimes)(
       );
 
       const { folder } = await caseFolder(files, onTestFinished);
-      const result = consumer.stickler([folder]);
+      const result = consumer.seam([folder]);
 
       expect(result.status).toBe(1);
 
@@ -635,7 +635,7 @@ describe.each(runtimes)(
         'package.json': JSON.stringify({ name: 'local', private: true, type: 'module' }),
         'tsconfig.json': JSON.stringify({ extends: '../tsconfig.json' }),
         'vite.config.ts': lines(
-          "import { lint } from '@sqve/stickler';",
+          "import { lint } from '@sqve/seam';",
           "import { defineConfig } from 'vite-plus';",
           '',
           'export default defineConfig({',
@@ -671,16 +671,16 @@ describe.each(runtimes)(
       onTestFinished(() => rm(project, { recursive: true, force: true }));
 
       const ordinary = consumer.ordinaryLint(['cases'], project);
-      const style = consumer.stickler(['cases'], project);
+      const style = consumer.seam(['cases'], project);
 
       expect(ordinary.error).toBeUndefined();
       expect(ordinary.status).toBe(1);
       expect(ordinary.stdout).toContain('local(no-forbidden-name)');
-      expect(ordinary.stdout).not.toContain('stickler(');
+      expect(ordinary.stdout).not.toContain('seam(');
       expect(style.error).toBeUndefined();
       expect(style.status).toBe(1);
       expect(style.stdout).toContain('local(no-forbidden-name)');
-      expect(style.stdout).toContain('stickler(naming-convention)');
+      expect(style.stdout).toContain('seam(naming-convention)');
     });
 
     it('loads the React and Vitest presets through extends', async ({ onTestFinished }) => {
@@ -707,9 +707,9 @@ describe.each(runtimes)(
       };
 
       const { folder } = await caseFolder(files, onTestFinished, 'presets');
-      const withPresets = consumer.stickler([folder], join(consumer.directory, 'presets'));
+      const withPresets = consumer.seam([folder], join(consumer.directory, 'presets'));
       const base = await caseFolder(files, onTestFinished);
-      const withoutPresets = consumer.stickler([base.folder]);
+      const withoutPresets = consumer.seam([base.folder]);
 
       expect(withPresets.stdout).toContain('(rules-of-hooks)');
       expect(withPresets.stdout).toContain('(no-focused-tests)');
