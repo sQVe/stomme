@@ -18,6 +18,15 @@ const lines = (...text: string[]) => `${text.join('\n')}\n`;
 const linesWith = (output: string, text: string) =>
   output.split('\n').filter((line) => line.includes(text));
 
+// On GitHub Actions the linter also prints a run summary when it finds nothing.
+const summaryPattern = /^(?:Found \d+ warnings? and \d+ errors?\.|Finished in .*)$/;
+
+const diagnosticOutput = (output: string) =>
+  output
+    .split('\n')
+    .filter((line) => line.trim() !== '' && !summaryPattern.test(line))
+    .join('\n');
+
 // Each test spawns up to three commands, and a fix runs lint and the formatter.
 const spawnedTestTimeout = 120_000;
 
@@ -119,7 +128,7 @@ describe.each(runtimes)(
       const style = consumer.stickler([folder]);
 
       expect(ordinary.error).toBeUndefined();
-      expect(ordinary.stdout).toBe('');
+      expect(diagnosticOutput(ordinary.stdout)).toBe('');
       expect(ordinary.status).toBe(0);
       expect(style.error).toBeUndefined();
       expect(style.status).toBe(1);
@@ -467,7 +476,7 @@ describe.each(runtimes)(
 
       const result = consumer.stickler([folder]);
 
-      expect(result.stdout).toBe('');
+      expect(diagnosticOutput(result.stdout)).toBe('');
       expect(result.status).toBe(0);
     });
 
