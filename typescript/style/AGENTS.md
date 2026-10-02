@@ -13,8 +13,9 @@ Zero-config Oxlint house style for TypeScript projects, published as `@sqve/stic
   to turn off, and do not add options for turning rules off. Area-specific rules go in a preset.
 - Put each plugin rule in its own file under `src/rules/`, with its `RuleTester` test beside it.
   Shared helpers go in `src/shared/`.
-- Pin `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, and `oxlint-tsgolint` to exact
-  versions, and upgrade them together.
+- Pin `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, `oxlint`, `oxlint-tsgolint`, and
+  `vitest` to exact versions, and upgrade them together. `tests/pins.test.ts` fails when a pin
+  differs from the version Vite Plus declares.
 - Name values in camelCase and types in PascalCase. Never SCREAMING_CASE, not even for module
   constants.
 - Declare a helper before the code that uses it. Join at most three checks in one condition, and do

@@ -20,8 +20,8 @@
 
 ## Decision
 
-Stickler pins `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, and `oxlint-tsgolint` to
-exact versions.
+Stickler pins `vite-plus`, `@stylistic/eslint-plugin`, `@oxlint/plugins`, `oxlint`,
+`oxlint-tsgolint`, and `vitest` to exact versions.
 
 - `vite-plus` is an exact peer dependency. The consumer owns it, and the `stickler` command resolves
   `vite-plus/bin` from the package, which reaches the consumer's copy.
@@ -32,6 +32,11 @@ exact versions.
 - `oxlint-tsgolint` is an exact development dependency. Vite Plus depends on its own exact version
   and finds it, so consumers get it with Vite Plus. The pin keeps this repository on the same
   version.
+- `oxlint` and `vitest` are exact development dependencies. Vite Plus depends on exact versions of
+  both. The rule tests import `oxlint/plugins-dev` and run on `vitest`, so a different version would
+  test the rules against another Oxlint than the one consumers run.
+- `oxlint`, `oxlint-tsgolint`, `vitest`, and `@oxlint/plugins` match the versions Vite Plus
+  declares, and a test fails when they differ.
 - The `stickler` plugin is loaded by absolute path from the package, under the name `stickler`.
 - A Vite Plus upgrade is a Stickler release: update all pins together and run the full check.
 
