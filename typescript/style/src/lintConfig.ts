@@ -62,6 +62,13 @@ const houseRules: Rules = {
   'stickler/no-abbreviations': 'error',
   'stickler/no-reference-comments': 'error',
   'stickler/require-disable-reason': 'error',
+  'stickler/no-object-parameters': 'error',
+  'stickler/no-reduce-accumulator-copy': 'error',
+  'stickler/no-reflect-apply': 'error',
+  'stickler/no-reflect-get': 'error',
+  'stickler/no-unknown-type-aliases': 'error',
+  'stickler/no-widen-then-assert': 'error',
+  'stickler/require-safety-comment-for-type-assertion': 'error',
   'eslint/no-cond-assign': ['error', 'always'],
   'eslint/one-var': ['error', 'never'],
   '@stylistic/padding-line-between-statements': paddingRule(
@@ -78,8 +85,10 @@ const houseTestOverride = {
       ...statementPadding,
       ...multilinePadding,
     ),
+    // Tests assert fakes into the types they stand in for.
+    'stickler/require-safety-comment-for-type-assertion': 'off',
   },
-};
+} satisfies NonNullable<OxlintConfig['overrides']>[number];
 
 const ordinaryRules: Rules = {
   'typescript/no-unnecessary-condition': 'error',
@@ -105,9 +114,9 @@ const ordinaryRules: Rules = {
   'unicorn/prefer-top-level-await': 'error',
   'eslint/no-warning-comments': 'error',
   'typescript/unbound-method': 'error',
+  'typescript/method-signature-style': 'error',
   'typescript/no-unsafe-enum-comparison': 'error',
   'typescript/explicit-module-boundary-types': 'error',
-  'typescript/no-extraneous-class': 'off',
   'oxc/no-async-endpoint-handlers': 'off',
   'oxc/no-this-in-exported-function': 'off',
 
@@ -156,7 +165,8 @@ const ordinaryRules: Rules = {
   'typescript/no-explicit-any': 'error',
   'typescript/no-non-null-assertion': 'error',
   'typescript/no-misused-promises': 'error',
-  'typescript/no-floating-promises': 'error',
+  // `void` hides a rejection; a discarded promise must handle it.
+  'typescript/no-floating-promises': ['error', { ignoreVoid: false }],
   'typescript/await-thenable': 'error',
   'typescript/no-unsafe-argument': 'error',
   'typescript/no-unsafe-assignment': 'error',
@@ -216,6 +226,7 @@ const ordinaryRules: Rules = {
   'unicorn/prefer-type-error': 'error',
   'unicorn/no-new-buffer': 'error',
   'unicorn/no-length-as-slice-end': 'error',
+  'unicorn/explicit-length-check': 'error',
   'unicorn/no-abusive-eslint-disable': 'error',
   'unicorn/no-document-cookie': 'error',
   'unicorn/no-useless-error-capture-stack-trace': 'error',

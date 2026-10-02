@@ -58,7 +58,10 @@ The command runs Vite Plus with the runtime that started it. Under Bun, run it w
 
 House rules check style: names, abbreviations, helper order, type placement, condition size,
 comments that cite tickets or reviews, disable comments without a reason, and blank lines between
-statements. They load only when `STICKLER_STYLE=1`, which the `stickler` command sets. Editors and
+statements. Rules ported from [anti-slop](https://github.com/dmmulroy/anti-slop) reject object
+parameters, accumulator copies in `reduce`, `Reflect.apply` and `Reflect.get`, type aliases that
+hide `unknown`, and widen-then-assert casts. Outside tests, a type assertion needs a `SAFETY:`
+comment. They load only when `STICKLER_STYLE=1`, which the `stickler` command sets. Editors and
 plain `vp lint` show the ordinary rules only.
 
 ### Presets
@@ -77,7 +80,7 @@ export default defineConfig({
 
 - `react`: `react/rules-of-hooks` and `react/exhaustive-deps`, plus the React plugin's correctness
   rules.
-- `vitest`: Oxlint's native Vitest rules for test files.
+- `vitest`: Oxlint's native Vitest rules for test files, plus `vitest/prefer-import-in-mock`.
 
 There is no Bun test preset. Oxlint's test rules do not recognize imports from `bun:test`.
 
@@ -134,4 +137,4 @@ trusted publisher in the package settings on npmjs.com.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Notices for ported code are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
