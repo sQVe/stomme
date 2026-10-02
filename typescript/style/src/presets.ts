@@ -1,6 +1,6 @@
 import type { OxlintConfig } from 'vite-plus/lint';
 
-import { testFiles } from './lintConfig.ts';
+import { testFiles } from './shared/testFiles.ts';
 
 export const react: OxlintConfig = {
   plugins: ['react'],

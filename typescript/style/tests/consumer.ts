@@ -14,7 +14,7 @@ export interface Runtime {
 export interface Consumer {
   directory: string;
   stickler: (argumentsList: string[], cwd?: string) => SpawnSyncReturns<string>;
-  ordinaryLint: (argumentsList: string[]) => SpawnSyncReturns<string>;
+  ordinaryLint: (argumentsList: string[], cwd?: string) => SpawnSyncReturns<string>;
   typecheck: (project: string) => SpawnSyncReturns<string>;
 }
 
@@ -143,11 +143,11 @@ export const installConsumer = async (
     directory,
     stickler: (argumentsList, cwd = directory) =>
       run(runtime.executable, [cli, ...argumentsList], cwd, environmentWithoutStyle()),
-    ordinaryLint: (argumentsList) =>
+    ordinaryLint: (argumentsList, cwd = directory) =>
       run(
         runtime.executable,
         [vitePlus, 'lint', '--deny-warnings', ...argumentsList],
-        directory,
+        cwd,
         environmentWithoutStyle(),
       ),
     typecheck: (project) => run(process.execPath, [typescriptCompiler, '-p', project], directory),

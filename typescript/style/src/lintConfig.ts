@@ -3,13 +3,13 @@ import { fileURLToPath } from 'node:url';
 
 import type { OxlintConfig } from 'vite-plus/lint';
 
+import { testFiles } from './shared/testFiles.ts';
+
 type Rules = NonNullable<OxlintConfig['rules']>;
 
 // The `stickler` command sets this for its lint child only, so editors keep ordinary diagnostics.
 // eslint-disable-next-line node/no-process-env -- The style switch is the runner's contract with this config.
 const styleEnabled = process.env.STICKLER_STYLE === '1';
-
-export const testFiles = ['**/*.test.{ts,tsx}', '**/fixtures/**', 'tests/*.ts'];
 
 // Oxlint resolves plugin specifiers from the consumer's config, where a strict package manager
 // hides this package's dependencies. Absolute paths load the copies installed with this package.

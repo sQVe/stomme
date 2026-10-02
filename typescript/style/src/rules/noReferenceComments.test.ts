@@ -1,4 +1,4 @@
-import { ruleTester } from '../fixtures/ruleTester.ts';
+import { ruleTester } from '../../tests/ruleTester.ts';
 import { noReferenceCommentsRule } from './noReferenceComments.ts';
 
 const reference = (citation: string) => ({ messageId: 'reference', data: { citation } });

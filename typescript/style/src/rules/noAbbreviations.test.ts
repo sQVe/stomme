@@ -1,4 +1,4 @@
-import { jsxRuleTester, ruleTester } from '../fixtures/ruleTester.ts';
+import { jsxRuleTester, ruleTester } from '../../tests/ruleTester.ts';
 import { noAbbreviationsRule } from './noAbbreviations.ts';
 
 const abbreviation = (name: string, word: string, replacement: string) => ({

@@ -1,4 +1,4 @@
-import { ruleTester } from '../fixtures/ruleTester.ts';
+import { ruleTester } from '../../tests/ruleTester.ts';
 import { requireDisableReasonRule } from './requireDisableReason.ts';
 
 const missing = { messageId: 'missing' };
