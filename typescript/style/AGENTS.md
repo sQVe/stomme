@@ -6,6 +6,7 @@ Zero-config Oxlint house style for TypeScript projects, published as `@sqve/seam
 - Run `pnpm run check` before finishing changes. It runs typechecking, the self-lint through `seam`,
   the format check, the build, and all tests, including the end-to-end tests on Node and Bun.
 - Fix style with `pnpm style:fix`; it lints with the house rules, then formats.
+- A change to `src/` needs a changeset. Create it with `pnpm changeset`.
 - Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
   guide before adding an ADR. Do not write documents that explain how a rule works.
 - Every rule in the package is on for every consumer. Do not add a rule that a consumer would need
