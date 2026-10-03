@@ -76,6 +76,25 @@ const importSpecifierTypes = new Set<string>([
 const isImportSpecifier = (node: ESTree.Node): node is ESTree.ImportDeclarationSpecifier =>
   importSpecifierTypes.has(node.type);
 
+// `import { name }` keeps the exporter's name; a rename, a default, a namespace import, or an
+// `import name =` is the file's choice.
+const isChosenImportName = (definition: Definition): boolean => {
+  const specifier = definition.node;
+
+  if (specifier.type === 'TSImportEqualsDeclaration') {
+    return true;
+  }
+
+  if (!isImportSpecifier(specifier)) {
+    return false;
+  }
+
+  return (
+    specifier.type !== 'ImportSpecifier' ||
+    exportedNameOf(specifier.imported) !== specifier.local.name
+  );
+};
+
 // The import specifier that declares this name, when the module it imports from is `react`.
 const reactImportOf = (
   sourceCode: SourceCode,
@@ -144,6 +163,10 @@ const isTagReference = (reference: Reference): boolean => isPlainTag(reference.i
 // JSX needs an uppercase name to render a binding as a component, whatever kind of binding it is.
 const isRenderedAsTag = (variable: Variable): boolean => variable.references.some(isTagReference);
 
+const isCamelCase = (name: string): boolean => /^[a-z][a-zA-Z0-9]*$/.test(name);
+
+const isPascalCase = (name: string): boolean => /^[A-Z][a-zA-Z0-9]*$/.test(name);
+
 export const namingConventionRule: Rule = {
   meta: {
     type: 'suggestion',
@@ -159,9 +182,9 @@ export const namingConventionRule: Rule = {
       format: 'camelCase' | 'PascalCase',
       name = node.name,
     ) => {
-      const pattern = format === 'camelCase' ? /^[a-z][a-zA-Z0-9]*$/ : /^[A-Z][a-zA-Z0-9]*$/;
+      const valid = format === 'camelCase' ? isCamelCase(name) : isPascalCase(name);
 
-      if (!pattern.test(name)) {
+      if (!valid) {
         context.report({ node, messageId: 'name', data: { format, name: node.name } });
       }
     };
@@ -197,6 +220,26 @@ export const namingConventionRule: Rule = {
       checkName(definition.name, pascalCase ? 'PascalCase' : 'camelCase', name);
     };
 
+    // The file cannot see whether an imported value is a class or a component, so a chosen import
+    // name may use either case unless JSX renders it.
+    const checkImport = (definition: Definition, variable: Variable) => {
+      if (isRenderedAsTag(variable)) {
+        checkName(definition.name, 'PascalCase');
+      } else if (!isPascalCase(definition.name.name)) {
+        checkName(definition.name, 'camelCase');
+      }
+    };
+
+    const checkImports = () => {
+      for (const scope of context.sourceCode.scopeManager.scopes) {
+        for (const variable of scope.variables) {
+          for (const definition of variable.defs.filter(isChosenImportName)) {
+            checkImport(definition, variable);
+          }
+        }
+      }
+    };
+
     return {
       ReturnStatement(node) {
         const returningFunction = enclosingFunctionOf(node);
@@ -212,6 +255,7 @@ export const namingConventionRule: Rule = {
       },
       'Program:exit'() {
         forEachBinding(context.sourceCode.scopeManager.scopes, checkDefinition);
+        checkImports();
       },
       TSInterfaceDeclaration(node) {
         checkName(node.id, 'PascalCase');
