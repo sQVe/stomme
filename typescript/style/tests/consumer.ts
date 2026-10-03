@@ -1,5 +1,4 @@
-import { spawnSync } from 'node:child_process';
-import type { SpawnSyncReturns } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -11,11 +10,18 @@ export interface Runtime {
   install: string[];
 }
 
+export interface CommandResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error: Error | undefined;
+}
+
 export interface Consumer {
   directory: string;
-  seam: (argumentsList: string[], cwd?: string) => SpawnSyncReturns<string>;
-  ordinaryLint: (argumentsList: string[], cwd?: string) => SpawnSyncReturns<string>;
-  typecheck: (project: string) => SpawnSyncReturns<string>;
+  seam: (argumentsList: string[], cwd?: string) => Promise<CommandResult>;
+  ordinaryLint: (argumentsList: string[], cwd?: string) => Promise<CommandResult>;
+  typecheck: (project: string) => Promise<CommandResult>;
 }
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -24,21 +30,64 @@ const commandTimeout = 120_000;
 const typescriptCompiler = join(root, 'node_modules/typescript/bin/tsc');
 
 // pnpm installs a strict, non-hoisted tree, so the package must resolve its own dependencies.
-export const runtimes: Runtime[] = [
-  { name: 'Node with pnpm', executable: process.execPath, install: ['pnpm', 'install'] },
-  { name: 'Bun', executable: 'bun', install: ['bun', 'install'] },
-];
+export const nodeRuntime: Runtime = {
+  name: 'Node with pnpm',
+  executable: process.execPath,
+  install: ['pnpm', 'install'],
+};
 
-const run = (command: string, argumentsList: string[], cwd: string, environment = process.env) =>
-  spawnSync(command, argumentsList, {
-    cwd,
-    encoding: 'utf8',
-    env: environment,
-    timeout: commandTimeout,
+export const bunRuntime: Runtime = { name: 'Bun', executable: 'bun', install: ['bun', 'install'] };
+
+const run = (
+  command: string,
+  argumentsList: string[],
+  cwd: string,
+  environment = process.env,
+): Promise<CommandResult> =>
+  new Promise((resolve) => {
+    const child = spawn(command, argumentsList, {
+      cwd,
+      env: environment,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let error: Error | undefined;
+
+    // Node's own spawn timeout keeps its timer alive after a spawn error, so this one is cleared.
+    const timer = setTimeout(() => {
+      error = new Error(`${command} timed out after ${commandTimeout} ms`);
+      child.kill();
+    }, commandTimeout);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+
+    child.stdout.on('data', (text: string) => {
+      stdout += text;
+    });
+
+    child.stderr.on('data', (text: string) => {
+      stderr += text;
+    });
+
+    child.on('error', (spawnError) => {
+      clearTimeout(timer);
+      error ??= spawnError;
+    });
+
+    child.on('close', (status, signal) => {
+      clearTimeout(timer);
+
+      const stopped = signal === null ? undefined : new Error(`${command} stopped by ${signal}`);
+
+      resolve({ status, stdout, stderr, error: error ?? stopped });
+    });
   });
 
-const succeed = (command: string, argumentsList: string[], cwd: string) => {
-  const result = run(command, argumentsList, cwd);
+const succeed = async (command: string, argumentsList: string[], cwd: string) => {
+  const result = await run(command, argumentsList, cwd);
 
   if (result.error !== undefined) {
     throw result.error;
@@ -63,7 +112,7 @@ const environmentWithoutStyle = () => {
 };
 
 export const packPackage = async (destination: string): Promise<string> => {
-  succeed('pnpm', ['pack', '--pack-destination', destination], root);
+  await succeed('pnpm', ['pack', '--pack-destination', destination], root);
 
   const tarball = (await readdir(destination)).find((name) => name.endsWith('.tgz'));
 
@@ -136,7 +185,7 @@ export const installConsumer = async (
 
   const [installer = 'pnpm', ...installArguments] = runtime.install;
 
-  succeed(installer, installArguments, directory);
+  await succeed(installer, installArguments, directory);
 
   const cli = join(directory, 'node_modules/@sqve/seam/dist/cli.js');
   const vitePlus = join(directory, 'node_modules/vite-plus/dist/bin.js');
