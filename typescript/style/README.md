@@ -129,12 +129,15 @@ Decisions and their reasons are in [docs/adr](docs/adr/README.md).
 
 ## Release
 
-Pushing a `v*` tag runs the release workflow. It runs the full check, builds, and publishes with
-`npm publish --access public --provenance` through npm trusted publishing.
+Releases use [Changesets](https://github.com/changesets/changesets).
 
-Trusted publishing needs the package to exist on npm first. Publish the first version by hand from a
-clean checkout with `npm publish --access public`, then add this repository's release workflow as a
-trusted publisher in the package settings on npmjs.com.
+1. Add a changeset with `pnpm changeset` for each user-facing change. A pull request that changes
+   `src/` fails CI without one.
+2. When changesets reach `main`, the release workflow opens or updates a release pull request. It
+   bumps the version and updates `CHANGELOG.md`.
+3. Merging the release pull request runs the full check and publishes to npm through npm trusted
+   publishing, with provenance. The workflow also creates the git tag and the GitHub release. No npm
+   token is needed.
 
 ## License
 
