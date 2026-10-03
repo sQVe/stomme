@@ -121,8 +121,9 @@ pnpm run check
 ```
 
 `check` runs typechecking, the self-lint through `seam`, the format check, the build, and all tests.
-The end-to-end tests pack the package, install it into temporary projects with pnpm and Bun, and run
-it on both runtimes. They need Bun on the path.
+The end-to-end tests pack the package and install it into temporary projects with pnpm and Bun. Node
+runs every end-to-end test. Bun runs the tests that load the config, plugin, and presets. They need
+Bun on the path.
 
 Decisions and their reasons are in [docs/adr](docs/adr/README.md).
 

@@ -27,7 +27,9 @@ Zero-config Oxlint house style for TypeScript projects, published as `@sqve/seam
 - Test behavior a caller can observe: a rule's diagnostics and fixes, or the command's exit status
   and output.
 - Rule tests run in process with `RuleTester`. Behavior that depends on loading the package, such as
-  plugin paths, the style switch, presets, and the runner, goes in `tests/package.test.ts`, which
-  runs the packed package.
+  plugin paths, the style switch, presets, and the runner, goes in `tests/packageSuite.ts`, which
+  runs the packed package. Node runs every test. Bun runs only `loadingTests`, the tests that load
+  the config, plugin, and presets. The tests run concurrently, so give each test its own fixture
+  folder.
 - Use temporary directories for fixtures and remove them when the test finishes.
 - Never drop assertions or failure cases to save time.
