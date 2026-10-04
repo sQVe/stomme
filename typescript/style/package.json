@@ -1,6 +1,6 @@
 {
   "name": "@sqve/seam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-config Oxlint house style for TypeScript projects, run through Vite Plus.",
   "keywords": [
     "lint",
