@@ -433,6 +433,28 @@ export const behaviorTests: PackageTests = (context) => {
     expect(result.status).toBe(0);
   });
 
+  it('accepts a type assertion that a reasoned disable comment covers', async ({
+    expect,
+    onTestFinished,
+  }) => {
+    const { folder } = await context.caseFolder(
+      {
+        'paneId.ts': lines(
+          "export type PaneId = string & { readonly brand: 'PaneId' };",
+          '',
+          '// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The brand exists only in the type.',
+          `export const paneId = (number: number): PaneId => \`pane-\${number}\` as PaneId;`,
+        ),
+      },
+      onTestFinished,
+    );
+
+    const result = await context.consumer.seam([folder]);
+
+    expect(diagnosticOutput(result.stdout)).toBe('');
+    expect(result.status).toBe(0);
+  });
+
   it('type-checks consumer code against the declarations without skipping libraries', async ({
     expect,
     onTestFinished,

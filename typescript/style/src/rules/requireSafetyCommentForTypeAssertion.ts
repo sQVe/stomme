@@ -1,5 +1,7 @@
 import type { ESTree, Rule, SourceCode } from '@oxlint/plugins';
 
+import { hasDisableReason, lineDisableScope } from '../shared/comments.ts';
+
 type TypeAssertion = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
 
 // `SAFETY:` followed by text, not preceded by a letter, digit, or underscore.
@@ -80,18 +82,47 @@ const hasSafetyComment = (sourceCode: SourceCode, assertion: TypeAssertion): boo
   return true;
 };
 
+// Lines where a one-line directive with a reason turns off the rule this comment replaces.
+const disabledLinesOf = (sourceCode: SourceCode): Set<number> => {
+  const disabled = new Set<number>();
+
+  for (const comment of sourceCode.getAllComments()) {
+    const scope = lineDisableScope(comment, 'typescript/no-unsafe-type-assertion');
+
+    if (scope === undefined || !hasDisableReason(comment)) {
+      continue;
+    }
+
+    disabled.add(scope === 'line' ? comment.loc.start.line : comment.loc.end.line + 1);
+  }
+
+  return disabled;
+};
+
 export const requireSafetyCommentForTypeAssertionRule: Rule = {
   meta: {
     type: 'problem',
     schema: [],
     messages: {
       missingSafetyComment:
-        'This type assertion has no `SAFETY:` comment. State the checked invariant right before the assertion or its statement.',
+        'This type assertion has no `SAFETY:` comment. State the checked invariant right before the assertion or its statement, or disable `typescript/no-unsafe-type-assertion` with a reason after " -- " in an `oxlint-disable-next-line` comment on the line above the assertion or an `oxlint-disable-line` comment on its line.',
     },
   },
   create(context) {
+    let disabledLines: Set<number> | undefined;
+
+    const isJustified = (node: TypeAssertion): boolean => {
+      if (hasSafetyComment(context.sourceCode, node)) {
+        return true;
+      }
+
+      disabledLines ??= disabledLinesOf(context.sourceCode);
+
+      return disabledLines.has(node.loc.start.line);
+    };
+
     const checkAssertion = (node: TypeAssertion) => {
-      if (!isConstAssertion(node) && !hasSafetyComment(context.sourceCode, node)) {
+      if (!isConstAssertion(node) && !isJustified(node)) {
         context.report({ node, messageId: 'missingSafetyComment' });
       }
     };
