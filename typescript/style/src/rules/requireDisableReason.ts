@@ -1,8 +1,6 @@
 import type { Rule } from '@oxlint/plugins';
 
-import { isDisableDirective } from '../shared/comments.ts';
-
-const reasonPattern = /\s--\s*\S/;
+import { hasDisableReason, isDisableDirective } from '../shared/comments.ts';
 
 export const requireDisableReasonRule: Rule = {
   meta: {
@@ -16,7 +14,7 @@ export const requireDisableReasonRule: Rule = {
     return {
       Program() {
         for (const comment of context.sourceCode.getAllComments()) {
-          if (isDisableDirective(comment) && !reasonPattern.test(comment.value)) {
+          if (isDisableDirective(comment) && !hasDisableReason(comment)) {
             context.report({ node: comment, messageId: 'missing' });
           }
         }
