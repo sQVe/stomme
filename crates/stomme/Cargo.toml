@@ -1,0 +1,11 @@
+[package]
+name = "stomme"
+version = "0.0.0"
+description = "A shared foundation for project structure, coding rules, and documentation."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
