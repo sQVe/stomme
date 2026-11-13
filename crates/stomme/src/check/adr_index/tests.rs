@@ -208,6 +208,8 @@ fn check_reports_an_index_line_that_is_not_a_plain_entry() {
         "- [scope]",
         "- <./0001-documentation-scope.md>",
         "- 0001-documentation-scope.md",
+        "- [Template](./TEMPLATE.md)",
+        "- [Notes](./notes.md)",
     ];
 
     for line in cases {

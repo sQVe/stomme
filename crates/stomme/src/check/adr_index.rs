@@ -232,9 +232,10 @@ fn index_entry(line: &str) -> Option<IndexEntry<'_>> {
     let entry = list_item(line)?.strip_prefix('[')?.strip_suffix(')')?;
     let (label, target) = entry.split_once("](")?;
     let file = target.strip_prefix("./").unwrap_or(target);
-    let is_plain_file = !file.is_empty() && !file.contains(['/', '(', ')', ' ']);
+    let is_plain_file = !file.contains(['/', '(', ')', ' ']);
+    let is_adr_file = adr_number(file).is_some();
 
-    if is_plain_file {
+    if is_plain_file && is_adr_file {
         Some(IndexEntry { label, file })
     } else {
         None
