@@ -193,7 +193,6 @@ fn adr_number(name: &str) -> Option<&str> {
     }
 }
 
-// An indented `#` line counts as the first heading, so indentation cannot hide a wrong heading.
 fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
     let heading = text
         .lines()

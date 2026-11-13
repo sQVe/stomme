@@ -285,7 +285,6 @@ fn report_value(
                 "mutator": survivor.mutator,
                 "original": survivor.original,
                 "replacement": survivor.replacement,
-                // cargo-mutants measures no coverage, so every missed mutant counts as covered.
                 "covered": true,
             })
         })
