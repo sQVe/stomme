@@ -105,6 +105,22 @@ fn check_reports_every_problem_in_one_run() {
 }
 
 #[test]
+fn check_reports_an_adr_it_cannot_read() {
+    let root = complete_project();
+    let path = "docs/adr/0001-documentation-scope.md";
+
+    fs::write(root.path().join(path), [0xff, 0xfe, b'\n']).expect("write invalid UTF-8");
+
+    let output = stomme(root.path(), &["check"]);
+    let lines = stderr_lines(&output);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("stomme: "), "{lines:?}");
+    assert!(lines[0].contains(path), "{lines:?}");
+}
+
+#[test]
 fn stomme_prints_usage_without_the_check_command() {
     let root = complete_project();
     let cases: [&[&str]; 3] = [&[], &["lint"], &["check", "extra"]];
