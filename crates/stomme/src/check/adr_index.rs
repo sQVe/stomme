@@ -262,7 +262,6 @@ fn retired_numbers(index: &str) -> BTreeSet<&str> {
     section(index, "## Retired")
         .filter_map(|line| line.trim().strip_prefix('|')?.split('|').next())
         .map(str::trim)
-        .filter(|cell| !cell.is_empty() && cell.bytes().all(|byte| byte.is_ascii_digit()))
         .collect()
 }
 

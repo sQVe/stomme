@@ -48,6 +48,19 @@ fn check_skips_a_project_without_an_index() {
 }
 
 #[test]
+fn check_ignores_files_that_are_not_numbered_adrs() {
+    let names = ["abcd-title.md", "0001-.md", "0001.md", "0001-scope.txt"];
+
+    for name in names {
+        let root = complete_project();
+
+        write_file(root.path(), &format!("docs/adr/{name}"), "No heading\n");
+
+        assert_eq!(check(root.path()).expect("read the ADRs"), [], "{name}");
+    }
+}
+
+#[test]
 fn check_reports_two_files_with_one_number() {
     let root = complete_project();
 
