@@ -16,8 +16,8 @@ capability names, so sharing a foundation must not force them to share applicati
 
 stomme owns one versioned foundation of shared rules, skeletons, checks, and a sync command for
 personal Rust and TypeScript projects. Each project pins a version, and its full check fails on
-drift. This is the target design; the initial repository contains only the Rust CLI stub and
-repository tooling.
+drift. This is the target design; the repository so far holds `stomme check` and repository
+tooling.
 
 ### Shared rules and local choices
 

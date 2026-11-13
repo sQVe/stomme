@@ -20,7 +20,7 @@ A shared foundation for project structure, coding rules, and documentation. Read
 
 - stomme owns shared rules and checks. Projects own their modules, nouns, and project decisions.
   See [ADR 0002](docs/adr/0002-purpose-and-design.md).
-- `crates/stomme` is a CLI stub. `xtask` holds repository checks and mutation tooling.
+- `crates/stomme` is the `stomme` CLI, with one command: `stomme check`. `xtask` holds repository checks and mutation tooling.
 - The toolchain is pinned in `rust-toolchain.toml`. Lint levels live in `[workspace.lints]`, and CI
   fails on warnings. Add single clippy lints, not whole groups. See
   [ADR 0003](docs/adr/0003-toolchain-and-quality-gates.md).
