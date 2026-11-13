@@ -76,6 +76,13 @@ const STEPS: &[Step] = &[
         arguments: &["doc", "--workspace", "--no-deps", "--locked"],
         environment: &[DENY_WARNINGS, ("RUSTDOCFLAGS", "-D warnings")],
     },
+    Step {
+        name: "stomme",
+        group: Group::Build,
+        program: "cargo",
+        arguments: &["run", "--locked", "--quiet", "-p", "stomme", "--", "check"],
+        environment: &[DENY_WARNINGS],
+    },
 ];
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -196,7 +203,10 @@ mod tests {
             names(Group::Tidy),
             ["rustfmt", "typos", "taplo", "cargo-deny", "cargo-shear"]
         );
-        assert_eq!(names(Group::Build), ["clippy", "nextest", "rustdoc"]);
+        assert_eq!(
+            names(Group::Build),
+            ["clippy", "nextest", "rustdoc", "stomme"]
+        );
     }
 
     #[test]

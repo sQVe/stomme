@@ -18,8 +18,9 @@
 
 ## Workspace
 
-- `crates/stomme` is the `stomme` binary. `cargo run` prints usage to stderr and exits 1.
-  It has no commands yet.
+- `crates/stomme` is the `stomme` binary. `stomme check` checks the project in the current
+  directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
+  on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 
 ## Check your work
@@ -30,8 +31,8 @@ Run every check before you open a pull request:
 cargo xtask check
 ```
 
-It changes no files. It runs rustfmt, typos, taplo, cargo-deny, cargo-shear, clippy, nextest, and
-rustdoc, and reports every failed check at the end. Warnings fail clippy, the tests, and rustdoc.
+It changes no files. It runs rustfmt, typos, taplo, cargo-deny, cargo-shear, clippy, nextest,
+rustdoc, and `stomme check`, and reports every failed check at the end. Warnings fail clippy, the tests, and rustdoc.
 Every Cargo build runs with `--locked`, so a stale `Cargo.lock` fails too.
 
 `cargo xtask check tidy` runs only the checks that do not compile code. `cargo xtask check build`

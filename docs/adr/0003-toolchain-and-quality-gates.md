@@ -36,7 +36,8 @@ checks dependencies with cargo-deny, and runs mutation testing as advice.
   compatible with an MIT tool and rejects GPL.
 - prek runs formatting and lint checks before commits, without changing files.
 - `cargo xtask check` is the entry point for rustfmt, typos, taplo, cargo-deny, cargo-shear,
-  clippy, nextest, and rustdoc. It reports all failed steps, rather than stopping at the first.
+  clippy, nextest, rustdoc, and `stomme check` on the repository. It reports all failed steps,
+  rather than stopping at the first.
 - Cargo builds use the lockfile. Build warnings fail the check.
 - CI keeps jobs named `Check` and `Test (Linux)` so branch rules can require them.
 
