@@ -172,6 +172,48 @@ fn catalog_reports_two_rules_with_one_id_naming_both_owners() {
 }
 
 #[test]
+fn duplicate_rule_id_message_names_both_owners() {
+    let cases = [
+        (
+            Owner::Common,
+            Owner::Layer("gpui"),
+            "rule `required-part` belongs to the common rules and to layer `gpui`",
+        ),
+        (
+            Owner::Language(Language::TypeScript),
+            Owner::Layer("react"),
+            "rule `required-part` belongs to the typescript language and to layer `react`",
+        ),
+    ];
+
+    for (first, second, expected) in cases {
+        let error = CatalogError::DuplicateRuleId {
+            id: "required-part",
+            first,
+            second,
+        };
+
+        assert_eq!(error.to_string(), expected);
+    }
+}
+
+#[test]
+fn catalog_check_sees_the_compiled_in_rules() {
+    let mut rules = rule_owners();
+
+    rules.push((Owner::Layer("gpui"), "required-part"));
+
+    assert_eq!(
+        Catalog::new(REGISTRY, &rules).map(|_| ()),
+        Err(CatalogError::DuplicateRuleId {
+            id: "required-part",
+            first: Owner::Common,
+            second: Owner::Layer("gpui"),
+        })
+    );
+}
+
+#[test]
 fn registry_matches_the_layer_folders() {
     let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../layers");
     let folders: BTreeSet<String> = fs::read_dir(&folder)
