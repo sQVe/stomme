@@ -14,7 +14,7 @@ capability names, so sharing a foundation must not force them to share applicati
 
 ## Decision
 
-stomme owns one versioned foundation of shared rules, skeletons, checks, and a sync command for
+stomme owns one versioned foundation of shared rules, starter files, checks, and a sync command for
 personal Rust and TypeScript projects. Each project pins a version, and its full check fails on
 drift. This is the target design; the repository so far holds `stomme check` and repository
 tooling.
@@ -22,11 +22,12 @@ tooling.
 ### Shared rules and local choices
 
 stomme owns general, Rust, and TypeScript coding guides, shared ADRs, the ADR template, structural
-role names, and project skeletons. The kinds are Rust CLI, Rust GPUI app, TypeScript web app, and
-TypeScript package. Shared roles have shared names in each language's normal case.
+role names, and starter files. Projects select languages and framework layers as defined in
+[ADR 0005](./0005-languages-and-layers.md). Shared roles have shared names in each language's normal
+case.
 
 Projects own their capability names, module import tables, and project decisions. `stomme.toml`
-holds the pinned version, project kind, role paths, module table, and bounded exceptions.
+holds the pinned version, language, layers, role paths, module table, and bounded exceptions.
 `docs/stomme/` holds synced shared text that projects never edit. `docs/adr/` holds only project
 ADRs, with independent numbering.
 
@@ -63,7 +64,7 @@ repository setup.
 ### Negative
 
 - A faulty shared rule can break several projects at once.
-- Skeletons and language-specific checks need continued maintenance.
+- Starter files and language-specific checks need continued maintenance.
 - Adoption requires checking enforcement parity before removing existing checks.
 - Automated sync needs permission to push to update branches.
 

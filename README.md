@@ -2,7 +2,7 @@
 
 A shared foundation for project structure, coding rules, and documentation.
 
-stomme will provide versioned rules, project skeletons, and a Rust command-line tool to keep
+stomme will provide versioned rules, starter files, and a Rust command-line tool to keep
 projects in sync. Each project keeps its own modules and decisions. Drift from the shared rules
 will fail the project's full check.
 
