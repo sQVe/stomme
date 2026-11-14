@@ -1,2 +1,5 @@
 schema = 1
-kind = "rust-cli"
+language = "rust"
+
+[roles]
+cli = "crates/stomme"

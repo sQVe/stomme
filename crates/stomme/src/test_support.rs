@@ -22,7 +22,10 @@ Follow the template for every new ADR.
 ";
 
 const FILES: &[(&str, &str)] = &[
-    ("stomme.toml", "schema = 1\nkind = \"rust-cli\"\n"),
+    (
+        "stomme.toml",
+        "schema = 1\nlanguage = \"rust\"\n\n[roles]\ncli = \"crates/cli\"\n",
+    ),
     ("AGENTS.md", "# Fixture\n"),
     ("LICENSE", "MIT License\n"),
     ("renovate.json", "{}\n"),

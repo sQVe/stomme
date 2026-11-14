@@ -1,8 +1,11 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::Path;
 
 use serde::Deserialize;
+
+use crate::layer::{self, Language};
 
 pub(crate) const CONFIG_FILE: &str = "stomme.toml";
 const SCHEMA: i64 = 1;
@@ -10,23 +13,25 @@ const SCHEMA: i64 = 1;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Installation {
     NoStomme,
-    Valid(Config),
+    Valid(Selection),
     Broken(String),
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Config {
-    kind: Kind,
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Selection {
+    pub(crate) language: Language,
+    pub(crate) layers: BTreeSet<String>,
+    pub(crate) roles: BTreeMap<String, String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Kind {
-    RustGpuiApp,
-    RustCli,
-    TsWebApp,
-    TsPackage,
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Config {
+    language: Language,
+    #[serde(default)]
+    layers: Vec<String>,
+    #[serde(default)]
+    roles: BTreeMap<String, String>,
 }
 
 pub(crate) fn read(root: &Path) -> Installation {
@@ -37,12 +42,12 @@ pub(crate) fn read(root: &Path) -> Installation {
     };
 
     match parse(&text) {
-        Ok(config) => Installation::Valid(config),
+        Ok(selection) => Installation::Valid(selection),
         Err(reason) => Installation::Broken(reason),
     }
 }
 
-fn parse(text: &str) -> Result<Config, String> {
+fn parse(text: &str) -> Result<Selection, String> {
     let mut table: toml::Table = text
         .parse()
         .map_err(|error: toml::de::Error| format!("is not valid TOML: {}", error.message()))?;
@@ -56,11 +61,26 @@ fn parse(text: &str) -> Result<Config, String> {
         ));
     }
 
-    toml::Value::Table(table)
-        .try_into()
-        .map_err(|error: toml::de::Error| {
-            format!("does not match schema {SCHEMA}: {}", error.message())
-        })
+    if table.contains_key("kind") {
+        return Err(format!(
+            "has `kind`, which schema {SCHEMA} does not read; declare `language`, `layers`, and `[roles]` instead"
+        ));
+    }
+
+    let config: Config =
+        toml::Value::Table(table)
+            .try_into()
+            .map_err(|error: toml::de::Error| {
+                format!("does not match schema {SCHEMA}: {}", error.message())
+            })?;
+    let layers = layer::select(layer::catalog(), config.language, config.layers)
+        .map_err(|error| error.to_string())?;
+
+    Ok(Selection {
+        language: config.language,
+        layers,
+        roles: config.roles,
+    })
 }
 
 #[cfg(test)]
