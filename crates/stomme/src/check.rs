@@ -2,7 +2,7 @@ use std::fmt;
 use std::path::Path;
 
 use crate::config::{self, CONFIG_FILE, Installation};
-use crate::layer::Language;
+use crate::layer::{Catalog, Language};
 
 mod adr_index;
 mod required_parts;
@@ -110,8 +110,8 @@ impl fmt::Display for Owner {
     }
 }
 
-pub(crate) fn run(root: &Path) -> anyhow::Result<Vec<Problem>> {
-    let installation = config::read(root);
+pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>> {
+    let installation = config::read(root, catalog);
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
 
     problems.extend(required_parts::check(root)?);
@@ -136,3 +136,6 @@ fn installation_problem(installation: &Installation) -> Option<Problem> {
         message,
     })
 }
+
+#[cfg(test)]
+mod tests;

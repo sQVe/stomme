@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::layer::{self, Language};
+use crate::layer::{self, Catalog, Language};
 
 pub(crate) const CONFIG_FILE: &str = "stomme.toml";
 const SCHEMA: i64 = 1;
@@ -34,20 +34,20 @@ struct Config {
     roles: BTreeMap<String, String>,
 }
 
-pub(crate) fn read(root: &Path) -> Installation {
+pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
     let text = match fs::read_to_string(root.join(CONFIG_FILE)) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Installation::NoStomme,
         Err(error) => return Installation::Broken(format!("could not read the file: {error}")),
     };
 
-    match parse(&text) {
+    match parse(&text, catalog) {
         Ok(selection) => Installation::Valid(selection),
         Err(reason) => Installation::Broken(reason),
     }
 }
 
-fn parse(text: &str) -> Result<Selection, String> {
+fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
     let mut table: toml::Table = text
         .parse()
         .map_err(|error: toml::de::Error| format!("is not valid TOML: {}", error.message()))?;
@@ -73,7 +73,7 @@ fn parse(text: &str) -> Result<Selection, String> {
             .map_err(|error: toml::de::Error| {
                 format!("does not match schema {SCHEMA}: {}", error.message())
             })?;
-    let layers = layer::select(layer::catalog(), config.language, config.layers)
+    let layers = layer::select(catalog, config.language, config.layers)
         .map_err(|error| error.to_string())?;
 
     Ok(Selection {

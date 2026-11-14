@@ -8,7 +8,7 @@ fn installation(text: &str) -> Installation {
 
     fs::write(root.path().join(CONFIG_FILE), text).expect("write stomme.toml");
 
-    read(root.path())
+    read(root.path(), layer::catalog())
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn read_reports_a_layer_of_another_language_as_broken() {
 fn read_reports_a_missing_file_as_no_stomme() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
-    assert_eq!(read(root.path()), Installation::NoStomme);
+    assert_eq!(read(root.path(), layer::catalog()), Installation::NoStomme);
 }
 
 #[test]
@@ -153,5 +153,8 @@ fn read_reports_a_file_it_cannot_read_as_broken() {
 
     fs::create_dir(root.path().join(CONFIG_FILE)).expect("create a stomme.toml directory");
 
-    assert!(matches!(read(root.path()), Installation::Broken(_)));
+    assert!(matches!(
+        read(root.path(), layer::catalog()),
+        Installation::Broken(_)
+    ));
 }

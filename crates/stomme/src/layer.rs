@@ -274,4 +274,14 @@ fn rule_owners() -> Vec<(Owner, &'static str)> {
 }
 
 #[cfg(test)]
+pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalog {
+    let sources: Vec<Source> = manifests
+        .iter()
+        .map(|&(name, manifest)| Source { name, manifest })
+        .collect();
+
+    Catalog::new(&sources, &[]).expect("a test catalog is valid")
+}
+
+#[cfg(test)]
 mod tests;

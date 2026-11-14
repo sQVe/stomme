@@ -54,5 +54,5 @@ fn run_check() -> ExitCode {
 fn check_current_directory() -> anyhow::Result<Vec<check::Problem>> {
     let root = env::current_dir().context("Could not read the current directory")?;
 
-    check::run(&root)
+    check::run(&root, layer::catalog())
 }
