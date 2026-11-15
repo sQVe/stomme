@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +7,7 @@ use super::*;
 use crate::{check, layer};
 
 const RULES_FILE: &str = "../../shared/rules.md";
+const LAYERS_FOLDER: &str = "../../layers";
 
 fn crate_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
@@ -38,6 +40,66 @@ fn mentions(text: &str, rule: Rule) -> bool {
 
         !next.is_some_and(|character| character.is_alphanumeric() || character == '_')
     })
+}
+
+fn guide_rule_ids(guide: &str) -> BTreeSet<String> {
+    guide
+        .lines()
+        .filter_map(|line| line.strip_prefix("- `"))
+        .filter_map(|rest| rest.split_once("`:"))
+        .map(|(id, _)| id.to_string())
+        .collect()
+}
+
+#[test]
+fn each_layer_guide_lists_exactly_the_rules_its_layer_owns() {
+    let mut guides: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for entry in fs::read_dir(crate_path(LAYERS_FOLDER)).expect("list the layers") {
+        let folder = entry.expect("read a layer entry").path();
+        let name = folder
+            .file_name()
+            .expect("a layer folder has a name")
+            .to_string_lossy()
+            .into_owned();
+        let guide = fs::read_to_string(folder.join("guide.md")).expect("read a layer guide");
+
+        guides.insert(name, guide_rule_ids(&guide));
+    }
+
+    let mut owned: BTreeMap<String, BTreeSet<String>> = guides
+        .keys()
+        .map(|name| (name.clone(), BTreeSet::new()))
+        .collect();
+
+    for rule in Rule::ALL {
+        if let Owner::Layer(layer) = rule.metadata().owner {
+            owned
+                .entry(layer.to_string())
+                .or_default()
+                .insert(rule.id().to_string());
+        }
+    }
+
+    assert_eq!(guides, owned);
+}
+
+#[test]
+fn guide_rule_ids_reads_only_list_items_that_start_with_an_id() {
+    let guide = "\
+# Guide
+
+- `first-rule`: Do one thing.
+- `second-rule`: Do another thing.
+- Use `code` without an ID.
+See `not-a-rule`: in prose.
+";
+    let expected: BTreeSet<String> = ["first-rule", "second-rule"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+    assert_eq!(guide_rule_ids(guide), expected);
 }
 
 #[test]
