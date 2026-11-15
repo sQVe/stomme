@@ -16,12 +16,18 @@ pub(crate) enum Owner {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Status {
-    Enforced,
+pub(crate) enum Enforcement {
+    Enforced(Check),
     #[expect(dead_code, reason = "no rule is partly enforced yet")]
-    Partial,
+    Partial(Check),
     GuidanceOnly,
     ProjectLocal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Check {
+    pub(crate) checker: &'static str,
+    pub(crate) fixtures: &'static str,
 }
 
 #[derive(Debug)]
@@ -38,9 +44,7 @@ pub(crate) struct Metadata {
     pub(crate) owner: Owner,
     pub(crate) applies: &'static str,
     pub(crate) fields: &'static [&'static str],
-    pub(crate) checker: Option<&'static str>,
-    pub(crate) fixtures: Option<&'static str>,
-    pub(crate) status: Status,
+    pub(crate) enforcement: Enforcement,
 }
 
 #[cfg(test)]
@@ -86,9 +90,10 @@ rules! {
         owner: Owner::Common,
         applies: "always",
         fields: &[],
-        checker: Some("src/check.rs"),
-        fixtures: Some("tests/fixtures/rules/no-stomme"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check.rs",
+            fixtures: "tests/fixtures/rules/no-stomme",
+        }),
     },
     BrokenInstallation => Metadata {
         id: "broken-installation",
@@ -96,9 +101,10 @@ rules! {
         owner: Owner::Common,
         applies: "`stomme.toml` exists",
         fields: &["schema", "language", "layers", "roles"],
-        checker: Some("src/check.rs"),
-        fixtures: Some("tests/fixtures/rules/broken-installation"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check.rs",
+            fixtures: "tests/fixtures/rules/broken-installation",
+        }),
     },
     RequiredPart => Metadata {
         id: "required-part",
@@ -106,9 +112,10 @@ rules! {
         owner: Owner::Common,
         applies: "always",
         fields: &[],
-        checker: Some("src/check/required_parts.rs"),
-        fixtures: Some("tests/fixtures/rules/required-part"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/required_parts.rs",
+            fixtures: "tests/fixtures/rules/required-part",
+        }),
     },
     TauFullCheck => Metadata {
         id: "tau-full-check",
@@ -116,9 +123,10 @@ rules! {
         owner: Owner::Common,
         applies: "`.pi/tau.json` exists",
         fields: &[],
-        checker: Some("src/check/required_parts.rs"),
-        fixtures: Some("tests/fixtures/rules/tau-full-check"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/required_parts.rs",
+            fixtures: "tests/fixtures/rules/tau-full-check",
+        }),
     },
     AdrDuplicateNumber => Metadata {
         id: "adr-duplicate-number",
@@ -126,9 +134,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-duplicate-number"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-duplicate-number",
+        }),
     },
     AdrHeading => Metadata {
         id: "adr-heading",
@@ -136,9 +145,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-heading"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-heading",
+        }),
     },
     AdrRetiredNumber => Metadata {
         id: "adr-retired-number",
@@ -146,9 +156,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-retired-number"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-retired-number",
+        }),
     },
     AdrIndexCount => Metadata {
         id: "adr-index-count",
@@ -156,9 +167,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-index-count"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-index-count",
+        }),
     },
     AdrIndexLabel => Metadata {
         id: "adr-index-label",
@@ -166,9 +178,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-index-label"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-index-label",
+        }),
     },
     AdrIndexMissingFile => Metadata {
         id: "adr-index-missing-file",
@@ -176,9 +189,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-index-missing-file"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-index-missing-file",
+        }),
     },
     AdrIndexEntry => Metadata {
         id: "adr-index-entry",
@@ -186,9 +200,10 @@ rules! {
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
-        checker: Some("src/check/adr_index.rs"),
-        fixtures: Some("tests/fixtures/rules/adr-index-entry"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-index-entry",
+        }),
     },
     RustConfigFile => Metadata {
         id: "rust-config-file",
@@ -246,9 +261,7 @@ rules! {
         owner: Owner::Common,
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ModuleListed => Metadata {
         id: "module-listed",
@@ -256,9 +269,7 @@ rules! {
         owner: Owner::Common,
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ModuleTableClosed => Metadata {
         id: "module-table-closed",
@@ -266,9 +277,7 @@ rules! {
         owner: Owner::Common,
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ModuleTableOrder => Metadata {
         id: "module-table-order",
@@ -276,9 +285,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ModuleTableDocumented => Metadata {
         id: "module-table-documented",
@@ -286,9 +293,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ModulePrivateFile => Metadata {
         id: "module-private-file",
@@ -296,9 +301,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     CompositionRootImport => Metadata {
         id: "composition-root-import",
@@ -306,9 +309,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a composition root",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ExtensionIsolation => Metadata {
         id: "extension-isolation",
@@ -316,9 +317,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has extensions",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     ExtensionDirection => Metadata {
         id: "extension-direction",
@@ -326,9 +325,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has extensions",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     LiteralImport => Metadata {
         id: "literal-import",
@@ -336,9 +333,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     CrateRootPath => Metadata {
         id: "crate-root-path",
@@ -346,9 +341,7 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     PureDependencies => Metadata {
         id: "pure-dependencies",
@@ -356,9 +349,7 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "the project has a module table",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     PureModuleEffects => Metadata {
         id: "pure-module-effects",
@@ -366,9 +357,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project registers pure modules",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     UiDependency => Metadata {
         id: "ui-dependency",
@@ -376,9 +365,7 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "the workspace has UI packages",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     NoIndexFile => Metadata {
         id: "no-index-file",
@@ -386,9 +373,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     OneFileFolder => Metadata {
         id: "one-file-folder",
@@ -396,9 +381,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     FolderModuleEntry => Metadata {
         id: "folder-module-entry",
@@ -406,9 +389,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     TestFileName => Metadata {
         id: "test-file-name",
@@ -416,9 +397,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     FixtureImport => Metadata {
         id: "fixture-import",
@@ -426,9 +405,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     VersionedRecord => Metadata {
         id: "versioned-record",
@@ -436,9 +413,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project writes versioned records",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     TestProject => Metadata {
         id: "test-project",
@@ -446,9 +421,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project splits tests into projects",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     TestEnvironment => Metadata {
         id: "test-environment",
@@ -456,9 +429,7 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "the project caches test tasks",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::ProjectLocal,
+        enforcement: Enforcement::ProjectLocal,
     },
     GpuiPlainCore => Metadata {
         id: "gpui-plain-core",
@@ -466,9 +437,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "the project has a `core` or `cli` role",
         fields: &["roles"],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiAppLifetime => Metadata {
         id: "gpui-app-lifetime",
@@ -476,9 +445,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "the project has an `app` role",
         fields: &["roles"],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiContextNames => Metadata {
         id: "gpui-context-names",
@@ -486,9 +453,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiBuilderChain => Metadata {
         id: "gpui-builder-chain",
@@ -496,9 +461,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiBuilderSize => Metadata {
         id: "gpui-builder-size",
@@ -506,9 +469,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiElementId => Metadata {
         id: "gpui-element-id",
@@ -516,9 +477,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiUpdateClosure => Metadata {
         id: "gpui-update-closure",
@@ -526,9 +485,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiReentrantUpdate => Metadata {
         id: "gpui-reentrant-update",
@@ -536,9 +493,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiWeakParent => Metadata {
         id: "gpui-weak-parent",
@@ -546,9 +501,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiPureRender => Metadata {
         id: "gpui-pure-render",
@@ -556,9 +509,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiNotify => Metadata {
         id: "gpui-notify",
@@ -566,9 +517,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiTaskOwner => Metadata {
         id: "gpui-task-owner",
@@ -576,9 +525,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiSubscriptionOwner => Metadata {
         id: "gpui-subscription-owner",
@@ -586,9 +533,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiNoDiscardBinding => Metadata {
         id: "gpui-no-discard-binding",
@@ -596,9 +541,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiStaleResult => Metadata {
         id: "gpui-stale-result",
@@ -606,9 +549,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiComponentKit => Metadata {
         id: "gpui-component-kit",
@@ -616,9 +557,7 @@ rules! {
         owner: Owner::Layer("gpui-component"),
         applies: "the project has a `kit` role",
         fields: &["roles"],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     ReactJsxExtension => Metadata {
         id: "react-jsx-extension",
@@ -626,9 +565,7 @@ rules! {
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     ReactComponentFile => Metadata {
         id: "react-component-file",
@@ -636,9 +573,7 @@ rules! {
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     ReactTestPlacement => Metadata {
         id: "react-test-placement",
@@ -646,9 +581,7 @@ rules! {
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     PiDiscoveredPath => Metadata {
         id: "pi-discovered-path",
@@ -656,9 +589,7 @@ rules! {
         owner: Owner::Layer("pi"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     PiRegisteredName => Metadata {
         id: "pi-registered-name",
@@ -666,9 +597,7 @@ rules! {
         owner: Owner::Layer("pi"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     HerdrModBundle => Metadata {
         id: "herdr-mod-bundle",
@@ -676,9 +605,7 @@ rules! {
         owner: Owner::Layer("herdr"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     HerdrModFiles => Metadata {
         id: "herdr-mod-files",
@@ -686,9 +613,7 @@ rules! {
         owner: Owner::Layer("herdr"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     HerdrDeclarations => Metadata {
         id: "herdr-declarations",
@@ -696,9 +621,7 @@ rules! {
         owner: Owner::Layer("herdr"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
 }
 
@@ -709,11 +632,18 @@ impl Rule {
 }
 
 #[cfg(test)]
-impl Status {
+impl Enforcement {
+    pub(crate) fn check(self) -> Option<Check> {
+        match self {
+            Self::Enforced(check) | Self::Partial(check) => Some(check),
+            Self::GuidanceOnly | Self::ProjectLocal => None,
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
-            Self::Enforced => "enforced",
-            Self::Partial => "partial",
+            Self::Enforced(_) => "enforced",
+            Self::Partial(_) => "partial",
             Self::GuidanceOnly => "guidance only",
             Self::ProjectLocal => "project-local",
         }
@@ -778,21 +708,17 @@ fn table_row(metadata: &Metadata) -> String {
 
         quoted.join(", ")
     };
-    let checker = optional_cell(metadata.checker);
-    let fixtures = optional_cell(metadata.fixtures);
+    let check = metadata.enforcement.check();
+    let checker = check.map_or("none", |check| check.checker);
+    let fixtures = check.map_or("none", |check| check.fixtures);
 
     format!(
         "| `{}` | {} | {owner} | {} | {fields} | {checker} | {fixtures} | {} |\n",
         metadata.id,
         metadata.summary,
         metadata.applies,
-        metadata.status.label()
+        metadata.enforcement.label()
     )
-}
-
-#[cfg(test)]
-fn optional_cell(value: Option<&str>) -> &str {
-    value.unwrap_or("none")
 }
 
 #[cfg(test)]
