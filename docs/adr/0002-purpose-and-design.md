@@ -16,8 +16,8 @@ capability names, so sharing a foundation must not force them to share applicati
 
 stomme owns one versioned foundation of shared rules, starter files, checks, and a sync command for
 personal Rust and TypeScript projects. Each project pins a version, and its full check fails on
-drift. This is the target design; the repository so far holds `stomme check` and repository
-tooling.
+drift. This is the target design; the repository currently holds `stomme check`, repository
+tooling, and the TypeScript style package in `typescript/style`.
 
 ### Shared rules and local choices
 
@@ -32,8 +32,9 @@ holds the pinned version, language, layers, role paths, module table, and bounde
 ADRs, with independent numbering.
 
 Side effects in Rust are records of functions declared by the consuming module, not
-single-implementation traits. Existing lint and mutation packages stay separate; stomme pins
-versions instead of absorbing them.
+single-implementation traits. Seam lives in stomme as `typescript/style`, published as
+`@sqve/stomme-ts-style` with its own version. `@sqve/mutation` stays separate, and stomme pins
+its version.
 
 ### Distribution and enforcement
 

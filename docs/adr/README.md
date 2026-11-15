@@ -44,6 +44,14 @@ the commit in its row.
 - [0004: A Rust coding guide adapts Tau's coding rules](./0004-rust-coding-guide.md)
 - [0006: Check the shared Rust lint policy as a floor](./0006-shared-rust-lint-policy.md)
 
+### TypeScript style package
+
+- [0006: Vite Plus, pnpm, and tsc as the toolchain](./0006-toolchain.md)
+- [0007: Zero configuration, with every rule on](./0007-zero-configuration.md)
+- [0008: One environment switch for house rules](./0008-house-rule-switch.md)
+- [0009: Ship built JavaScript](./0009-built-javascript.md)
+- [0010: Exact tool pins and dependency kinds](./0010-exact-pins.md)
+
 ## Retired
 
 | ADR | Title | Replaced by | Last commit |

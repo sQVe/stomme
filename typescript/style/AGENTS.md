@@ -9,8 +9,8 @@ the [README](README.md) for usage.
 - Fix style with `pnpm --filter @sqve/stomme-ts-style style:fix`; it lints with the house rules,
   then formats.
 - A change to `src/` needs a changeset. Create it with `pnpm changeset` from the repository root.
-- Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
-  guide before adding an ADR. Do not write documents that explain how a rule works.
+- Follow the decisions in [docs/adr](../../docs/adr/README.md), and record new decisions there. Read
+  that guide before adding an ADR. Do not write documents that explain how a rule works.
 - Every rule in the package is on for every consumer. Do not add a rule that a consumer would need
   to turn off, and do not add options for turning rules off. Area-specific rules go in a preset.
 - Put each plugin rule in its own file under `src/rules/`, with its `RuleTester` test beside it.
