@@ -135,6 +135,20 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
 }
 
 #[test]
+fn each_enforced_rule_has_a_checker_and_no_other_rule_has_one() {
+    for &rule in Rule::ALL {
+        let metadata = rule.metadata();
+
+        assert_eq!(
+            metadata.checker.is_some(),
+            produces_problems(metadata.status),
+            "{}",
+            metadata.id
+        );
+    }
+}
+
+#[test]
 fn only_the_checker_of_an_enforced_rule_reports_it() {
     let mut sources = Vec::new();
 
@@ -148,7 +162,9 @@ fn only_the_checker_of_an_enforced_rule_reports_it() {
             .map(|(path, _)| path.clone())
             .collect();
         let expected = if produces_problems(metadata.status) {
-            vec![crate_path(metadata.checker)]
+            let checker = metadata.checker.expect("an enforced rule has a checker");
+
+            vec![crate_path(checker)]
         } else {
             Vec::new()
         };
