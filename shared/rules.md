@@ -21,25 +21,25 @@ paths are relative to the stomme crate.
 | `rust-lint-inheritance` | Every workspace member has `[lints] workspace = true`. | rust | always | none | src/check/rust_members.rs | tests/fixtures/rules/rust-lint-inheritance | enforced |
 | `rust-required-ban` | `clippy.toml` holds each shared Rust `disallowed-methods` ban with its reason. | rust | always | none | none | none | guidance only |
 | `gpui-required-ban` | `clippy.toml` holds each GPUI `disallowed-methods` ban with its reason. | layer `gpui` | always | none | none | none | guidance only |
-| `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | none | project-local | none | project-local |
-| `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | none | project-local | none | project-local |
-| `module-table-closed` | Every module the module table allows as an import has its own row. | common | the project has a module table | none | project-local | none | project-local |
-| `module-table-order` | Module registries and their lists are sorted and free of duplicates. | typescript | the project has a module table | none | project-local | none | project-local |
-| `module-table-documented` | The import table in the module ADR equals the enforced module table. | typescript | the project has a module table | none | project-local | none | project-local |
-| `module-private-file` | Other modules import a folder module through its entry or public files only. | typescript | the project has a module table | none | project-local | none | project-local |
-| `composition-root-import` | No module imports the composition root. | typescript | the project has a composition root | none | project-local | none | project-local |
-| `extension-isolation` | An extension does not import another extension. | typescript | the project has extensions | none | project-local | none | project-local |
-| `extension-direction` | A shared module does not import an extension. | typescript | the project has extensions | none | project-local | none | project-local |
-| `literal-import` | A dynamic import names a literal path, not a computed one. | typescript | the project has a module table | none | project-local | none | project-local |
-| `crate-root-path` | A module uses other modules through their module paths, not items at the crate root. | rust | the project has a module table | none | project-local | none | project-local |
-| `pure-dependencies` | A module uses only pure modules; no module uses an I/O module. | rust | the project has a module table | none | project-local | none | project-local |
-| `pure-module-effects` | A registered pure module performs no reads or effects and imports only types and other pure modules. | typescript | the project registers pure modules | none | project-local | none | project-local |
-| `ui-dependency` | Core and CLI packages do not depend on UI packages, directly or through other packages. | rust | the workspace has UI packages | none | project-local | none | project-local |
-| `no-index-file` | Source folders hold no index files. | typescript | always | none | project-local | none | project-local |
-| `one-file-folder` | A module with one production source file is a flat file, not a folder. | typescript | always | none | project-local | none | project-local |
-| `folder-module-entry` | A folder module has an entry file named after its folder. | typescript | always | none | project-local | none | project-local |
-| `test-file-name` | A source test file is named after a module beside it. | typescript | always | none | project-local | none | project-local |
-| `fixture-import` | Production code does not load fixtures. | typescript | always | none | project-local | none | project-local |
-| `versioned-record` | A versioned record format has a version literal and current, newer, and malformed fixtures. | typescript | the project writes versioned records | none | project-local | none | project-local |
-| `test-project` | Every test file belongs to exactly one test project. | typescript | the project splits tests into projects | none | project-local | none | project-local |
-| `test-environment` | The cached test tasks declare every environment variable that test code reads. | typescript | the project caches test tasks | none | project-local | none | project-local |
+| `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | none | none | none | project-local |
+| `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | none | none | none | project-local |
+| `module-table-closed` | Every module the module table allows as an import has its own row. | common | the project has a module table | none | none | none | project-local |
+| `module-table-order` | Module registries and their lists are sorted and free of duplicates. | typescript | the project has a module table | none | none | none | project-local |
+| `module-table-documented` | The import table in the module ADR equals the enforced module table. | typescript | the project has a module table | none | none | none | project-local |
+| `module-private-file` | Other modules import a folder module through its entry or public files only. | typescript | the project has a module table | none | none | none | project-local |
+| `composition-root-import` | No module imports the composition root. | typescript | the project has a composition root | none | none | none | project-local |
+| `extension-isolation` | An extension does not import another extension. | typescript | the project has extensions | none | none | none | project-local |
+| `extension-direction` | A shared module does not import an extension. | typescript | the project has extensions | none | none | none | project-local |
+| `literal-import` | A dynamic import names a literal path, not a computed one. | typescript | the project has a module table | none | none | none | project-local |
+| `crate-root-path` | A module uses other modules through their module paths, not items at the crate root. | rust | the project has a module table | none | none | none | project-local |
+| `pure-dependencies` | A module uses only pure modules; no module uses an I/O module. | rust | the project has a module table | none | none | none | project-local |
+| `pure-module-effects` | A registered pure module performs no reads or effects and imports only types and other pure modules. | typescript | the project registers pure modules | none | none | none | project-local |
+| `ui-dependency` | Core and CLI packages do not depend on UI packages, directly or through other packages. | rust | the workspace has UI packages | none | none | none | project-local |
+| `no-index-file` | Source folders hold no index files. | typescript | always | none | none | none | project-local |
+| `one-file-folder` | A module with one production source file is a flat file, not a folder. | typescript | always | none | none | none | project-local |
+| `folder-module-entry` | A folder module has an entry file named after its folder. | typescript | always | none | none | none | project-local |
+| `test-file-name` | A source test file is named after a module beside it. | typescript | always | none | none | none | project-local |
+| `fixture-import` | Production code does not load fixtures. | typescript | always | none | none | none | project-local |
+| `versioned-record` | A versioned record format has a version literal and current, newer, and malformed fixtures. | typescript | the project writes versioned records | none | none | none | project-local |
+| `test-project` | Every test file belongs to exactly one test project. | typescript | the project splits tests into projects | none | none | none | project-local |
+| `test-environment` | The cached test tasks declare every environment variable that test code reads. | typescript | the project caches test tasks | none | none | none | project-local |
