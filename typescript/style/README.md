@@ -128,7 +128,7 @@ all tests. The end-to-end tests pack the package and install it into temporary p
 and Bun. Node runs every end-to-end test. Bun runs the tests that load the config, plugin, and
 presets. They need Bun on the path.
 
-Decisions and their reasons are in [docs/adr](docs/adr/README.md).
+Decisions and their reasons are in [docs/adr](../../docs/adr/README.md).
 
 ## Release
 
