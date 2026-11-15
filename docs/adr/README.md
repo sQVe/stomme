@@ -42,6 +42,7 @@ the commit in its row.
 
 - [0003: Toolchain and quality gates](./0003-toolchain-and-quality-gates.md)
 - [0004: A Rust coding guide adapts Tau's coding rules](./0004-rust-coding-guide.md)
+- [0006: Check the shared Rust lint policy as a floor](./0006-shared-rust-lint-policy.md)
 
 ## Retired
 
