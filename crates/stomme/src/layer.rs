@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::check::{Owner, Rule};
+use crate::rule::{Owner, Rule};
 use policy::{LintPolicy, RequiredBan};
 
 mod gpui;
@@ -362,7 +362,7 @@ fn check_rule_ids(rules: &[(Owner, &'static str)]) -> Result<(), CatalogError> {
 fn rule_owners() -> Vec<(Owner, &'static str)> {
     Rule::ALL
         .iter()
-        .map(|rule| (rule.owner(), rule.id()))
+        .map(|rule| (rule.metadata().owner, rule.id()))
         .collect()
 }
 

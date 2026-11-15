@@ -4,7 +4,8 @@ use std::path::Path;
 
 use anyhow::Context as _;
 
-use super::{Problem, Rule};
+use super::Problem;
+use crate::rule::Rule;
 
 const ADR_DIRECTORY: &str = "docs/adr";
 const INDEX_PATH: &str = "docs/adr/README.md";

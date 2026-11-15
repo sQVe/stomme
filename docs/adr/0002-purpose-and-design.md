@@ -44,8 +44,12 @@ the project's synced text and uses its bundled guides only when stomme is absent
 
 Checks reject changed synced text, missing required files, invalid ADR indexes, broken layout or
 imports, and dependency version drift. Existing projects may record violations by path and rule,
-but the list may only shrink. A local check is removed only after stomme passes its fixtures;
-rules not enforced remain explicitly identified as such.
+but the list may only shrink.
+
+Rule metadata in the binary generates the shared rules table, so the table cannot drift from the
+checks. Each row names the rule's ID, owner, and status. Each enforced rule has a passing and a
+failing fixture. A local check is removed only after stomme passes its fixtures; rules not enforced
+remain explicitly identified as such.
 
 Renovate groups version pins into one update. A workflow syncs shared files on that branch and
 runs CI on the final commit. Sync must be idempotent and stop on a push conflict.
