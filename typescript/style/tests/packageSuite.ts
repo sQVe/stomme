@@ -47,7 +47,10 @@ export const loadingTests: PackageTests = (context) => {
     expect(await vitePlusSeenByPackage(context.consumer.directory)).toBe(consumerVitePlus);
   });
 
-  it('enforces house rules only through the seam command', async ({ expect, onTestFinished }) => {
+  it('enforces house rules only through the stomme-ts-style command', async ({
+    expect,
+    onTestFinished,
+  }) => {
     const { folder } = await context.caseFolder(
       {
         'style.ts': lines(
@@ -125,7 +128,7 @@ export const loadingTests: PackageTests = (context) => {
       'package.json': JSON.stringify({ name: 'local', private: true, type: 'module' }),
       'tsconfig.json': JSON.stringify({ extends: '../tsconfig.json' }),
       'vite.config.ts': lines(
-        "import { lint } from '@sqve/seam';",
+        "import { lint } from '@sqve/stomme-ts-style';",
         "import { defineConfig } from 'vite-plus';",
         '',
         'export default defineConfig({',
@@ -473,8 +476,8 @@ export const behaviorTests: PackageTests = (context) => {
     const { folder } = await context.caseFolder(
       {
         'usage.ts': lines(
-          "import { format, lint, react, vitest } from '@sqve/seam';",
-          "import plugin from '@sqve/seam/plugin';",
+          "import { format, lint, react, vitest } from '@sqve/stomme-ts-style';",
+          "import plugin from '@sqve/stomme-ts-style/plugin';",
           "import type { OxlintConfig } from 'vite-plus/lint';",
           '',
           'export const configs: OxlintConfig[] = [lint, react, vitest];',
@@ -482,7 +485,7 @@ export const behaviorTests: PackageTests = (context) => {
           'export const ruleNames: string[] = Object.keys(plugin.rules);',
         ),
         'misuse.ts': lines(
-          "import { lint } from '@sqve/seam';",
+          "import { lint } from '@sqve/stomme-ts-style';",
           '',
           'export const wrong: number = lint;',
         ),

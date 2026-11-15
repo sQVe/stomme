@@ -1,3 +1,6 @@
+packages:
+  - typescript/*
+
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
 # Vite+ uses its own version for the Vite-compatible core.

@@ -111,6 +111,15 @@ overrides:
 importers:
 
   .:
+    devDependencies:
+      '@changesets/changelog-github':
+        specifier: 1.0.1
+        version: 1.0.1
+      '@changesets/cli':
+        specifier: 3.0.2
+        version: 3.0.2
+
+  typescript/style:
     dependencies:
       '@oxlint/plugins':
         specifier: 1.79.0
@@ -119,12 +128,6 @@ importers:
         specifier: 5.10.0
         version: 5.10.0(eslint@10.11.0)
     devDependencies:
-      '@changesets/changelog-github':
-        specifier: 1.0.1
-        version: 1.0.1
-      '@changesets/cli':
-        specifier: 3.0.2
-        version: 3.0.2
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3

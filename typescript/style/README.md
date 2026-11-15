@@ -1,34 +1,34 @@
-# Seam
+# stomme-ts-style
 
-Seam is a zero-config Oxlint house style for TypeScript projects. It runs through
+stomme-ts-style is a zero-config Oxlint house style for TypeScript projects. It runs through
 [Vite Plus](https://viteplus.dev) on Node 24 and Bun 1.4.
 
 It ships three parts:
 
 - `lint`: the rule set for `defineConfig({ lint })`. Every rule in it is on.
 - `format`: the Oxfmt settings for `defineConfig({ fmt })`.
-- `seam`: the command that runs lint with the house rules, and formats in fix mode.
+- `stomme-ts-style`: the command that runs lint with the house rules, and formats in fix mode.
 
 ## Install
 
 ```sh
-pnpm add --save-dev --save-exact @sqve/seam vite-plus@0.3.0
+pnpm add --save-dev --save-exact @sqve/stomme-ts-style vite-plus@0.3.0
 ```
 
 With Bun:
 
 ```sh
-bun add --dev --exact @sqve/seam vite-plus@0.3.0
+bun add --dev --exact @sqve/stomme-ts-style vite-plus@0.3.0
 ```
 
-Seam pins the Vite Plus version it supports. Install that exact version.
+stomme-ts-style pins the Vite Plus version it supports. Install that exact version.
 
 ## Use
 
 Pass the configs to Vite Plus in `vite.config.ts`:
 
 ```ts
-import { format, lint } from '@sqve/seam';
+import { format, lint } from '@sqve/stomme-ts-style';
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({ lint, fmt: format });
@@ -39,17 +39,17 @@ Add scripts to `package.json`:
 ```json
 {
   "scripts": {
-    "lint": "seam",
-    "lint:fix": "seam --fix",
+    "lint": "stomme-ts-style",
+    "lint:fix": "stomme-ts-style --fix",
     "format": "vp fmt",
     "format:check": "vp fmt --check"
   }
 }
 ```
 
-`seam [--fix] [paths...]` runs `vp lint --deny-warnings` with the house rules on. Warnings fail the
-check. With `--fix` as the first argument, it fixes what it can, then runs `vp fmt` on the same
-paths, even when some lint errors remain. Paths default to the whole project.
+`stomme-ts-style [--fix] [paths...]` runs `vp lint --deny-warnings` with the house rules on.
+Warnings fail the check. With `--fix` as the first argument, it fixes what it can, then runs
+`vp fmt` on the same paths, even when some lint errors remain. Paths default to the whole project.
 
 The command runs Vite Plus with the runtime that started it. Under Bun, run it with
 `bun run --bun lint` so Vite Plus also runs on Bun.
@@ -63,14 +63,14 @@ parameters, accumulator copies in `reduce`, `Reflect.apply` and `Reflect.get`, t
 hide `unknown`, and widen-then-assert casts. Outside tests, a type assertion needs a `SAFETY:`
 comment, or a one-line disable comment for `typescript/no-unsafe-type-assertion` with a reason after
 `--` that covers the line where the assertion starts. They load only when `SEAM_STYLE=1`, which the
-`seam` command sets. Editors and plain `vp lint` show the ordinary rules only.
+`stomme-ts-style` command sets. Editors and plain `vp lint` show the ordinary rules only.
 
 ### Presets
 
 Add a preset with `extends`:
 
 ```ts
-import { format, lint, react, vitest } from '@sqve/seam';
+import { format, lint, react, vitest } from '@sqve/stomme-ts-style';
 import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
@@ -96,8 +96,8 @@ export default defineConfig({
 });
 ```
 
-A project can add its own JS plugin next to Seam's. The plugin path is relative to `vite.config.ts`,
-and its rules run in plain `vp lint` and through `seam`:
+A project can add its own JS plugin next to stomme-ts-style's. The plugin path is relative to
+`vite.config.ts`, and its rules run in plain `vp lint` and through `stomme-ts-style`:
 
 ```ts
 export default defineConfig({
@@ -111,20 +111,22 @@ export default defineConfig({
 
 ### Plugin
 
-The `seam` plugin is also exported on its own, as `@sqve/seam/plugin`. Its rules are named
-`seam/<rule>`.
+The `seam` plugin is also exported on its own, as `@sqve/stomme-ts-style/plugin`. Its rules are
+named `seam/<rule>`.
 
 ## Development
 
+From the repository root:
+
 ```sh
 pnpm install
-pnpm run check
+pnpm --filter @sqve/stomme-ts-style run check
 ```
 
-`check` runs typechecking, the self-lint through `seam`, the format check, the build, and all tests.
-The end-to-end tests pack the package and install it into temporary projects with pnpm and Bun. Node
-runs every end-to-end test. Bun runs the tests that load the config, plugin, and presets. They need
-Bun on the path.
+`check` runs typechecking, the self-lint through `stomme-ts-style`, the format check, the build, and
+all tests. The end-to-end tests pack the package and install it into temporary projects with pnpm
+and Bun. Node runs every end-to-end test. Bun runs the tests that load the config, plugin, and
+presets. They need Bun on the path.
 
 Decisions and their reasons are in [docs/adr](docs/adr/README.md).
 
@@ -132,8 +134,8 @@ Decisions and their reasons are in [docs/adr](docs/adr/README.md).
 
 Releases use [Changesets](https://github.com/changesets/changesets).
 
-1. Add a changeset with `pnpm changeset` for each user-facing change. A pull request that changes
-   `src/` fails CI without one.
+1. From the repository root, add a changeset with `pnpm changeset` for each user-facing change. A
+   pull request that changes `typescript/style/src/` fails CI without one.
 2. When changesets reach `main`, the release workflow opens or updates a release pull request. It
    bumps the version and updates `CHANGELOG.md`.
 3. Merging the release pull request runs the full check and publishes to npm through npm trusted

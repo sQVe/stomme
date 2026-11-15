@@ -140,7 +140,7 @@ const consumerFiles = (tarball: string) => ({
     name: 'consumer',
     private: true,
     type: 'module',
-    devDependencies: { '@sqve/seam': `file:${tarball}`, 'vite-plus': '0.3.0' },
+    devDependencies: { '@sqve/stomme-ts-style': `file:${tarball}`, 'vite-plus': '0.3.0' },
   }),
   'tsconfig.json': JSON.stringify({
     compilerOptions: {
@@ -154,7 +154,7 @@ const consumerFiles = (tarball: string) => ({
     include: ['**/*.ts', '**/*.tsx'],
   }),
   'vite.config.ts': [
-    "import { format, lint } from '@sqve/seam';",
+    "import { format, lint } from '@sqve/stomme-ts-style';",
     "import { defineConfig } from 'vite-plus';",
     '',
     'export default defineConfig({ lint, fmt: format });',
@@ -162,7 +162,7 @@ const consumerFiles = (tarball: string) => ({
   ].join('\n'),
   // A second project in the same install shows how presets compose with the base config.
   'presets/vite.config.ts': [
-    "import { lint, react, vitest } from '@sqve/seam';",
+    "import { lint, react, vitest } from '@sqve/stomme-ts-style';",
     "import { defineConfig } from 'vite-plus';",
     '',
     'export default defineConfig({ lint: { extends: [lint, react, vitest] } });',
@@ -187,7 +187,7 @@ export const installConsumer = async (
 
   await succeed(installer, installArguments, directory);
 
-  const cli = join(directory, 'node_modules/@sqve/seam/dist/cli.js');
+  const cli = join(directory, 'node_modules/@sqve/stomme-ts-style/dist/cli.js');
   const vitePlus = join(directory, 'node_modules/vite-plus/dist/bin.js');
 
   return {
@@ -213,7 +213,7 @@ const ancestorsOf = (path: string): string[] => {
 
 // Follows Node's lookup: the nearest `node_modules/vite-plus` at or above the package wins.
 export const vitePlusSeenByPackage = async (directory: string): Promise<string | undefined> => {
-  const packageDirectory = await realpath(join(directory, 'node_modules/@sqve/seam'));
+  const packageDirectory = await realpath(join(directory, 'node_modules/@sqve/stomme-ts-style'));
 
   for (const ancestor of ancestorsOf(packageDirectory)) {
     const candidate = join(ancestor, 'node_modules/vite-plus');

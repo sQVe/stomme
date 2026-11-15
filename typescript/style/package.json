@@ -1,5 +1,5 @@
 {
-  "name": "@sqve/seam",
+  "name": "@sqve/stomme-ts-style",
   "version": "0.2.0",
   "description": "Zero-config Oxlint house style for TypeScript projects, run through Vite Plus.",
   "keywords": [
@@ -9,16 +9,17 @@
     "typescript",
     "vite-plus"
   ],
-  "homepage": "https://github.com/sQVe/seam#readme",
-  "bugs": "https://github.com/sQVe/seam/issues",
+  "homepage": "https://github.com/sQVe/stomme/tree/main/typescript/style#readme",
+  "bugs": "https://github.com/sQVe/stomme/issues",
   "license": "MIT",
   "author": "Oskar Grunning",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sQVe/seam.git"
+    "url": "git+https://github.com/sQVe/stomme.git",
+    "directory": "typescript/style"
   },
   "bin": {
-    "seam": "./dist/cli.js"
+    "stomme-ts-style": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -41,15 +42,11 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "changeset": "changeset",
-    "changeset:check": "changeset status --since=origin/main",
-    "changeset:version": "changeset version && vp fmt",
     "check": "pnpm typecheck && pnpm style:check && pnpm format:check && pnpm build && pnpm test",
     "format": "vp fmt",
     "format:check": "vp fmt --check",
     "lint": "vp lint --deny-warnings",
-    "prepare": "vp config",
-    "release": "pnpm run check && changeset publish",
+    "prepare": "vp config --no-hooks",
     "style:check": "node src/cli.ts",
     "style:fix": "node src/cli.ts --fix",
     "test": "vp test",
@@ -61,8 +58,6 @@
     "@stylistic/eslint-plugin": "5.10.0"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "1.0.1",
-    "@changesets/cli": "3.0.2",
     "@types/node": "24.13.3",
     "oxlint": "1.79.0",
     "oxlint-tsgolint": "7.0.2001",
