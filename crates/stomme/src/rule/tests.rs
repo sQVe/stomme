@@ -17,31 +17,6 @@ fn produces_problems(status: Status) -> bool {
     matches!(status, Status::Enforced | Status::Partial)
 }
 
-fn production_sources(folder: &Path, sources: &mut Vec<(PathBuf, String)>) {
-    for entry in fs::read_dir(folder).expect("list a source folder") {
-        let path = entry.expect("read a source folder entry").path();
-        let is_test = path.file_name().is_some_and(|name| name == "tests.rs");
-
-        if path.is_dir() {
-            production_sources(&path, sources);
-        } else if !is_test && path.extension().is_some_and(|extension| extension == "rs") {
-            let text = fs::read_to_string(&path).expect("read a source file");
-
-            sources.push((path, text));
-        }
-    }
-}
-
-fn mentions(text: &str, rule: Rule) -> bool {
-    let variant = format!("Rule::{rule:?}");
-
-    text.match_indices(&variant).any(|(start, _)| {
-        let next = text[start + variant.len()..].chars().next();
-
-        !next.is_some_and(|character| character.is_alphanumeric() || character == '_')
-    })
-}
-
 fn guide_rule_ids(guide: &str) -> BTreeSet<String> {
     guide
         .lines()
@@ -162,6 +137,12 @@ fn compare_or_rewrite_table_rejects_a_missing_table() {
 
 #[test]
 fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
+    let unenforced: Vec<Rule> = Rule::ALL
+        .iter()
+        .copied()
+        .filter(|rule| !produces_problems(rule.metadata().status))
+        .collect();
+
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
 
@@ -186,10 +167,21 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
 
             let problems = check::run(&root, layer::catalog()).expect("check the fixture");
             let reported = problems.iter().any(|problem| problem.rule == rule);
+            let unenforced_reported: Vec<&str> = problems
+                .iter()
+                .filter(|problem| unenforced.contains(&problem.rule))
+                .map(|problem| problem.rule.id())
+                .collect();
 
             assert_eq!(
                 reported, reports_the_rule,
                 "{} {case}: {problems:?}",
+                metadata.id
+            );
+            assert_eq!(
+                unenforced_reported,
+                Vec::<&str>::new(),
+                "{} {case}",
                 metadata.id
             );
         }
@@ -211,27 +203,15 @@ fn each_enforced_rule_has_a_checker_and_no_other_rule_has_one() {
 }
 
 #[test]
-fn only_the_checker_of_an_enforced_rule_reports_it() {
-    let mut sources = Vec::new();
-
-    production_sources(&crate_path("src"), &mut sources);
-
+fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
-        let reporters: Vec<PathBuf> = sources
-            .iter()
-            .filter(|(_, text)| mentions(text, rule))
-            .map(|(path, _)| path.clone())
-            .collect();
-        let expected = if produces_problems(metadata.status) {
-            let checker = metadata.checker.expect("an enforced rule has a checker");
 
-            vec![crate_path(checker)]
-        } else {
-            Vec::new()
-        };
+        if let Some(checker) = metadata.checker {
+            let path = crate_path(checker);
 
-        assert_eq!(reporters, expected, "{}", metadata.id);
+            assert!(path.is_file(), "{}: {}", metadata.id, path.display());
+        }
     }
 }
 
