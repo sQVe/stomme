@@ -34,7 +34,7 @@ fn add_index_line(root: &Path, line: &str) {
 fn check_passes_a_consistent_adr_directory() {
     let root = complete_project();
 
-    assert_eq!(check(root.path()).expect("read the ADRs"), []);
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn check_skips_a_project_without_an_index() {
     fs::remove_file(root.path().join(INDEX)).expect("remove the index");
     write_file(root.path(), ADR, "# Not an ADR heading\n");
 
-    assert_eq!(check(root.path()).expect("read the ADRs"), []);
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
 }
 
 #[test]
@@ -56,7 +56,11 @@ fn check_ignores_files_that_are_not_numbered_adrs() {
 
         write_file(root.path(), &format!("docs/adr/{name}"), "No heading\n");
 
-        assert_eq!(check(root.path()).expect("read the ADRs"), [], "{name}");
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{name}"
+        );
     }
 }
 
@@ -67,7 +71,7 @@ fn check_reports_two_files_with_one_number() {
     write_file(root.path(), "docs/adr/0001-other.md", "# ADR 0001: Other\n");
     add_index_line(root.path(), "- [0001: Other](./0001-other.md)");
 
-    let problems = check(root.path()).expect("read the ADRs");
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
     assert_eq!(
         found(&problems),
@@ -94,7 +98,7 @@ fn check_reports_a_first_heading_that_does_not_match_the_file() {
 
         write_file(root.path(), ADR, &format!("{heading}\n\nText.\n"));
 
-        let problems = check(root.path()).expect("read the ADRs");
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
         assert_eq!(found(&problems), [(ADR, Rule::AdrHeading)], "{heading}");
     }
@@ -112,7 +116,11 @@ fn check_accepts_a_heading_after_text_and_with_indentation() {
 
         write_file(root.path(), ADR, &format!("{text}\n"));
 
-        assert_eq!(check(root.path()).expect("read the ADRs"), [], "{text}");
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{text}"
+        );
     }
 }
 
@@ -127,7 +135,7 @@ fn check_reports_an_adr_that_reuses_a_retired_number() {
     );
     add_index_line(root.path(), "- [0002: Reused](./0002-reused.md)");
 
-    let problems = check(root.path()).expect("read the ADRs");
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
     assert_eq!(
         found(&problems),
@@ -145,7 +153,7 @@ fn check_reports_an_adr_listed_zero_times_or_twice() {
 
         replace_in_index(root.path(), ENTRY, entries);
 
-        let problems = check(root.path()).expect("read the ADRs");
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
         assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexCount)], "{case}");
     }
@@ -168,7 +176,7 @@ fn check_reports_a_label_that_does_not_match_the_heading() {
             &format!("[{label}]"),
         );
 
-        let problems = check(root.path()).expect("read the ADRs");
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
         assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexLabel)], "{label}");
     }
@@ -180,7 +188,7 @@ fn check_reports_an_index_entry_for_a_missing_file() {
 
     add_index_line(root.path(), "- [0009: Gone](./0009-gone.md)");
 
-    let problems = check(root.path()).expect("read the ADRs");
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
     assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexMissingFile)]);
 }
@@ -192,7 +200,11 @@ fn check_reads_star_and_plus_bullets() {
 
         replace_in_index(root.path(), "- [0001", &format!("{bullet} [0001"));
 
-        assert_eq!(check(root.path()).expect("read the ADRs"), [], "{bullet}");
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{bullet}"
+        );
     }
 }
 
@@ -217,7 +229,7 @@ fn check_reports_an_index_line_that_is_not_a_plain_entry() {
 
         add_index_line(root.path(), line);
 
-        let problems = check(root.path()).expect("read the ADRs");
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
         assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexEntry)], "{line}");
     }
@@ -233,7 +245,7 @@ fn check_reads_only_the_index_section_for_entries() {
         "Follow [the template](./TEMPLATE.md) and [ADR 0001][scope].",
     );
 
-    assert_eq!(check(root.path()).expect("read the ADRs"), []);
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
 }
 
 #[test]
@@ -243,10 +255,61 @@ fn check_reports_every_problem_in_one_run() {
     write_file(root.path(), ADR, "# Documentation scope\n");
     add_index_line(root.path(), "- [0009: Gone](./0009-gone.md)");
 
-    let problems = check(root.path()).expect("read the ADRs");
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
 
     assert_eq!(
         found(&problems),
         [(ADR, Rule::AdrHeading), (INDEX, Rule::AdrIndexMissingFile),]
     );
+}
+
+const SHARED_FOLDER: &str = "shared/adr";
+
+fn repository_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the stomme crate lives two levels below the repository root")
+}
+
+fn copy_shared_adrs(target: &Path) {
+    let source = repository_root().join(SHARED_FOLDER);
+    let entries = fs::read_dir(&source).expect("list the shared ADRs");
+
+    for entry in entries {
+        let entry = entry.expect("read a shared ADR entry");
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let text = fs::read_to_string(entry.path()).expect("read a shared ADR");
+
+        write_file(target, &format!("{SHARED_FOLDER}/{name}"), &text);
+    }
+}
+
+#[test]
+fn check_passes_the_shared_adrs() {
+    let root = repository_root();
+
+    assert!(root.join(SHARED_FOLDER).join("README.md").is_file());
+    assert_eq!(check(root, SHARED_FOLDER).expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_reports_a_shared_adr_left_out_of_its_index() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let index = format!("{SHARED_FOLDER}/README.md");
+
+    copy_shared_adrs(root.path());
+
+    let text = fs::read_to_string(root.path().join(&index)).expect("read the shared index");
+    let entry = text
+        .lines()
+        .find(|line| line.starts_with("- [0001: "))
+        .expect("the shared index lists ADR 0001");
+    let without_entry = text.replace(&format!("{entry}\n"), "");
+
+    write_file(root.path(), &index, &without_entry);
+
+    let problems = check(root.path(), SHARED_FOLDER).expect("read the ADRs");
+
+    assert_eq!(found(&problems), [(index.as_str(), Rule::AdrIndexCount)]);
 }

@@ -13,6 +13,8 @@ mod required_parts;
 mod rust_lints;
 mod rust_members;
 
+const ADR_FOLDER: &str = "docs/adr";
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Problem {
     pub(crate) path: String,
@@ -37,7 +39,7 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
 
     problems.extend(required_parts::check(root)?);
-    problems.extend(adr_index::check(root)?);
+    problems.extend(adr_index::check(root, ADR_FOLDER)?);
 
     if let Installation::Valid(selection) = &installation
         && selection.language == Language::Rust

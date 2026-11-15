@@ -7,12 +7,12 @@ use anyhow::Context as _;
 use super::Problem;
 use crate::rule::Rule;
 
-const ADR_DIRECTORY: &str = "docs/adr";
-const INDEX_PATH: &str = "docs/adr/README.md";
+const INDEX_FILE: &str = "README.md";
 const NUMBER_LENGTH: usize = 4;
 const BULLETS: [&str; 3] = ["- ", "* ", "+ "];
 
 struct AdrFile {
+    path: String,
     name: String,
     number: String,
     text: String,
@@ -23,8 +23,8 @@ struct IndexEntry<'a> {
     file: &'a str,
 }
 
-pub(super) fn check(root: &Path) -> anyhow::Result<Vec<Problem>> {
-    let index_path = root.join(INDEX_PATH);
+pub(super) fn check(root: &Path, folder: &str) -> anyhow::Result<Vec<Problem>> {
+    let index_path = root.join(folder).join(INDEX_FILE);
 
     if !index_path.is_file() {
         return Ok(Vec::new());
@@ -32,13 +32,14 @@ pub(super) fn check(root: &Path) -> anyhow::Result<Vec<Problem>> {
 
     let index = fs::read_to_string(&index_path)
         .with_context(|| format!("Could not read {}", index_path.display()))?;
-    let adrs = read_adrs(&root.join(ADR_DIRECTORY))?;
+    let adrs = read_adrs(root, folder)?;
 
-    Ok(find_problems(&adrs, &index))
+    Ok(find_problems(folder, &adrs, &index))
 }
 
-fn read_adrs(directory: &Path) -> anyhow::Result<Vec<AdrFile>> {
-    let entries = fs::read_dir(directory)
+fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<Vec<AdrFile>> {
+    let directory = root.join(folder);
+    let entries = fs::read_dir(&directory)
         .with_context(|| format!("Could not list {}", directory.display()))?;
     let mut adrs = Vec::new();
 
@@ -49,11 +50,17 @@ fn read_adrs(directory: &Path) -> anyhow::Result<Vec<AdrFile>> {
             continue;
         };
         let number = number.to_string();
-        let path = entry.path();
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("Could not read {}", path.display()))?;
+        let file_path = entry.path();
+        let text = fs::read_to_string(&file_path)
+            .with_context(|| format!("Could not read {}", file_path.display()))?;
+        let path = format!("{folder}/{name}");
 
-        adrs.push(AdrFile { name, number, text });
+        adrs.push(AdrFile {
+            path,
+            name,
+            number,
+            text,
+        });
     }
 
     adrs.sort_by(|left, right| left.name.cmp(&right.name));
@@ -61,7 +68,7 @@ fn read_adrs(directory: &Path) -> anyhow::Result<Vec<AdrFile>> {
     Ok(adrs)
 }
 
-fn find_problems(adrs: &[AdrFile], index: &str) -> Vec<Problem> {
+fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
     let mut problems = duplicate_numbers(adrs);
     let retired = retired_numbers(index);
     let (entries, unparsed) = index_entries(index);
@@ -81,7 +88,10 @@ fn find_problems(adrs: &[AdrFile], index: &str) -> Vec<Problem> {
             problems.push(adr_problem(
                 adr,
                 Rule::AdrRetiredNumber,
-                format!("number {} is listed as retired in {INDEX_PATH}", adr.number),
+                format!(
+                    "number {} is listed as retired in {folder}/{INDEX_FILE}",
+                    adr.number
+                ),
             ));
         }
 
@@ -92,6 +102,7 @@ fn find_problems(adrs: &[AdrFile], index: &str) -> Vec<Problem> {
 
         if listed.len() != 1 {
             problems.push(index_problem(
+                folder,
                 Rule::AdrIndexCount,
                 format!("lists {} {} times; list it once", adr.name, listed.len()),
             ));
@@ -106,6 +117,7 @@ fn find_problems(adrs: &[AdrFile], index: &str) -> Vec<Problem> {
         for entry in listed {
             if entry.label != expected {
                 problems.push(index_problem(
+                    folder,
                     Rule::AdrIndexLabel,
                     format!("labels {} as `{}`; use `{expected}`", adr.name, entry.label),
                 ));
@@ -113,10 +125,11 @@ fn find_problems(adrs: &[AdrFile], index: &str) -> Vec<Problem> {
         }
     }
 
-    problems.extend(missing_files(adrs, &entries));
+    problems.extend(missing_files(folder, adrs, &entries));
 
     for line in unparsed {
         problems.push(index_problem(
+            folder,
             Rule::AdrIndexEntry,
             format!("has an index line that is not `- [NNNN: Title](./NNNN-slug.md)`: {line}"),
         ));
@@ -127,15 +140,15 @@ fn find_problems(adrs: &[AdrFile], index: &str) -> Vec<Problem> {
 
 fn adr_problem(adr: &AdrFile, rule: Rule, message: String) -> Problem {
     Problem {
-        path: format!("{ADR_DIRECTORY}/{}", adr.name),
+        path: adr.path.clone(),
         rule,
         message,
     }
 }
 
-fn index_problem(rule: Rule, message: String) -> Problem {
+fn index_problem(folder: &str, rule: Rule, message: String) -> Problem {
     Problem {
-        path: INDEX_PATH.to_string(),
+        path: format!("{folder}/{INDEX_FILE}"),
         rule,
         message,
     }
@@ -161,7 +174,7 @@ fn duplicate_numbers(adrs: &[AdrFile]) -> Vec<Problem> {
         .collect()
 }
 
-fn missing_files(adrs: &[AdrFile], entries: &[IndexEntry]) -> Vec<Problem> {
+fn missing_files(folder: &str, adrs: &[AdrFile], entries: &[IndexEntry]) -> Vec<Problem> {
     let names: BTreeSet<&str> = adrs.iter().map(|adr| adr.name.as_str()).collect();
     let missing: BTreeSet<&str> = entries
         .iter()
@@ -173,6 +186,7 @@ fn missing_files(adrs: &[AdrFile], entries: &[IndexEntry]) -> Vec<Problem> {
         .into_iter()
         .map(|file| {
             index_problem(
+                folder,
                 Rule::AdrIndexMissingFile,
                 format!("lists {file}, which does not exist"),
             )
