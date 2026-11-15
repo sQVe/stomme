@@ -94,8 +94,6 @@ pub(super) fn check(
     Ok(problems)
 }
 
-// Cargo also makes every path dependency of a member a member when the dependency lies inside the
-// workspace root and is not excluded, so the walk follows those paths transitively.
 fn read_members(
     root: &Path,
     workspace: &Workspace,
