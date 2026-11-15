@@ -22,6 +22,14 @@
   ],
   "packageRules": [
     {
+      "description": "Keep the style package pins aligned with Vite Plus, including major updates",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["vite-plus", "@stylistic/eslint-plugin", "@oxlint/plugins", "oxlint", "oxlint-tsgolint", "vitest"],
+      "groupName": "TypeScript style toolchain",
+      "separateMajorMinor": false,
+      "automerge": false
+    },
+    {
       "description": "Group and automerge non-major GitHub Actions updates",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
