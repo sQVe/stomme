@@ -14,19 +14,39 @@ pub(crate) struct Problem {
     pub(crate) message: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Rule {
-    NoStomme,
-    BrokenInstallation,
-    RequiredPart,
-    TauFullCheck,
-    AdrDuplicateNumber,
-    AdrHeading,
-    AdrRetiredNumber,
-    AdrIndexCount,
-    AdrIndexLabel,
-    AdrIndexMissingFile,
-    AdrIndexEntry,
+// One table generates the enum, `Rule::ALL`, and `Rule::id`, so a new rule cannot be left out of
+// `ALL`, which the catalog uses to find two owners of one rule ID.
+macro_rules! rules {
+    ($($variant:ident => $id:literal,)*) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub(crate) enum Rule {
+            $($variant,)*
+        }
+
+        impl Rule {
+            pub(crate) const ALL: &[Self] = &[$(Self::$variant,)*];
+
+            pub(crate) fn id(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $id,)*
+                }
+            }
+        }
+    };
+}
+
+rules! {
+    NoStomme => "no-stomme",
+    BrokenInstallation => "broken-installation",
+    RequiredPart => "required-part",
+    TauFullCheck => "tau-full-check",
+    AdrDuplicateNumber => "adr-duplicate-number",
+    AdrHeading => "adr-heading",
+    AdrRetiredNumber => "adr-retired-number",
+    AdrIndexCount => "adr-index-count",
+    AdrIndexLabel => "adr-index-label",
+    AdrIndexMissingFile => "adr-index-missing-file",
+    AdrIndexEntry => "adr-index-entry",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,36 +61,6 @@ pub(crate) enum Owner {
 }
 
 impl Rule {
-    pub(crate) const ALL: &[Self] = &[
-        Self::NoStomme,
-        Self::BrokenInstallation,
-        Self::RequiredPart,
-        Self::TauFullCheck,
-        Self::AdrDuplicateNumber,
-        Self::AdrHeading,
-        Self::AdrRetiredNumber,
-        Self::AdrIndexCount,
-        Self::AdrIndexLabel,
-        Self::AdrIndexMissingFile,
-        Self::AdrIndexEntry,
-    ];
-
-    pub(crate) fn id(self) -> &'static str {
-        match self {
-            Self::NoStomme => "no-stomme",
-            Self::BrokenInstallation => "broken-installation",
-            Self::RequiredPart => "required-part",
-            Self::TauFullCheck => "tau-full-check",
-            Self::AdrDuplicateNumber => "adr-duplicate-number",
-            Self::AdrHeading => "adr-heading",
-            Self::AdrRetiredNumber => "adr-retired-number",
-            Self::AdrIndexCount => "adr-index-count",
-            Self::AdrIndexLabel => "adr-index-label",
-            Self::AdrIndexMissingFile => "adr-index-missing-file",
-            Self::AdrIndexEntry => "adr-index-entry",
-        }
-    }
-
     pub(crate) fn owner(self) -> Owner {
         match self {
             Self::NoStomme
