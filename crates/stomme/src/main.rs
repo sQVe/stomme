@@ -6,6 +6,7 @@ use anyhow::Context as _;
 mod check;
 mod config;
 mod layer;
+mod rule;
 #[cfg(test)]
 mod test_support;
 

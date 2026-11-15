@@ -4,7 +4,8 @@ use std::path::Path;
 use anyhow::Context as _;
 use serde_json::Value;
 
-use super::{Problem, Rule};
+use super::Problem;
+use crate::rule::Rule;
 
 const TAU_CONFIG: &str = ".pi/tau.json";
 

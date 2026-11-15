@@ -2,6 +2,7 @@ use std::fs;
 
 use super::*;
 use crate::layer;
+use crate::rule::Rule;
 use crate::test_support::{complete_project, write_file};
 
 fn assert_single_problem(problems: &[Problem], path: &str, rule: Rule, named: &str, case: &str) {

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::config::{self, CONFIG_FILE, Installation};
 use crate::layer::{Catalog, Language};
+use crate::rule::Rule;
 
 mod adr_index;
 mod cargo_manifest;
@@ -19,76 +20,6 @@ pub(crate) struct Problem {
     pub(crate) message: String,
 }
 
-// One table generates the enum, `Rule::ALL`, and `Rule::id`, so a new rule cannot be left out of
-// `ALL`, which the catalog uses to find two owners of one rule ID.
-macro_rules! rules {
-    ($($variant:ident => $id:literal,)*) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub(crate) enum Rule {
-            $($variant,)*
-        }
-
-        impl Rule {
-            pub(crate) const ALL: &[Self] = &[$(Self::$variant,)*];
-
-            pub(crate) fn id(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $id,)*
-                }
-            }
-        }
-    };
-}
-
-rules! {
-    NoStomme => "no-stomme",
-    BrokenInstallation => "broken-installation",
-    RequiredPart => "required-part",
-    TauFullCheck => "tau-full-check",
-    AdrDuplicateNumber => "adr-duplicate-number",
-    AdrHeading => "adr-heading",
-    AdrRetiredNumber => "adr-retired-number",
-    AdrIndexCount => "adr-index-count",
-    AdrIndexLabel => "adr-index-label",
-    AdrIndexMissingFile => "adr-index-missing-file",
-    AdrIndexEntry => "adr-index-entry",
-    RustConfigFile => "rust-config-file",
-    RustLintLevel => "rust-lint-level",
-    RustLintInheritance => "rust-lint-inheritance",
-    RustRequiredBan => "rust-required-ban",
-    GpuiRequiredBan => "gpui-required-ban",
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Owner {
-    Common,
-    Language(Language),
-    Layer(&'static str),
-}
-
-impl Rule {
-    pub(crate) fn owner(self) -> Owner {
-        match self {
-            Self::NoStomme
-            | Self::BrokenInstallation
-            | Self::RequiredPart
-            | Self::TauFullCheck
-            | Self::AdrDuplicateNumber
-            | Self::AdrHeading
-            | Self::AdrRetiredNumber
-            | Self::AdrIndexCount
-            | Self::AdrIndexLabel
-            | Self::AdrIndexMissingFile
-            | Self::AdrIndexEntry => Owner::Common,
-            Self::RustConfigFile
-            | Self::RustLintLevel
-            | Self::RustLintInheritance
-            | Self::RustRequiredBan => Owner::Language(Language::Rust),
-            Self::GpuiRequiredBan => Owner::Layer("gpui"),
-        }
-    }
-}
-
 impl fmt::Display for Problem {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -98,16 +29,6 @@ impl fmt::Display for Problem {
             self.message,
             self.rule.id()
         )
-    }
-}
-
-impl fmt::Display for Owner {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Common => formatter.write_str("the common rules"),
-            Self::Language(language) => write!(formatter, "the {language} language"),
-            Self::Layer(layer) => write!(formatter, "layer `{layer}`"),
-        }
     }
 }
 

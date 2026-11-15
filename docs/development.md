@@ -33,6 +33,8 @@
   on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 - `typescript/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
+- `shared/rules.md` is generated from the rule catalog in `crates/stomme/src/rule.rs`. A test
+  fails when the two differ.
 
 ## Check your work
 
@@ -74,6 +76,7 @@ Fix problems with these commands:
 | Some clippy warnings | `cargo clippy --workspace --all-targets --fix` |
 | TypeScript style | `pnpm --filter @sqve/stomme-ts-style run style:fix` |
 | TypeScript formatting | `pnpm --filter @sqve/stomme-ts-style run format` |
+| Stale `shared/rules.md` | `UPDATE=1 cargo nextest run -p stomme rules_table` |
 
 The pre-commit hook runs rustfmt, clippy, typos, and taplo, but only in check mode. Run the fix
 commands yourself.

@@ -1,5 +1,5 @@
 use super::{LayerBans, Source};
-use crate::check::Rule;
+use crate::rule::Rule;
 
 pub(super) const LAYER: Source = Source {
     name: "gpui",
