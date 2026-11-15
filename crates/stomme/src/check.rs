@@ -5,9 +5,11 @@ use crate::config::{self, CONFIG_FILE, Installation};
 use crate::layer::{Catalog, Language};
 
 mod adr_index;
+mod cargo_manifest;
 pub(crate) mod clippy_bans;
 mod required_parts;
 pub(crate) mod rust_lints;
+mod rust_members;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Problem {
