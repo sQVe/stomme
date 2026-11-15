@@ -13,10 +13,6 @@ fn crate_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
-fn produces_problems(status: Status) -> bool {
-    matches!(status, Status::Enforced | Status::Partial)
-}
-
 fn guide_rule_ids(guide: &str) -> BTreeSet<String> {
     guide
         .lines()
@@ -140,23 +136,18 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
     let unenforced: Vec<Rule> = Rule::ALL
         .iter()
         .copied()
-        .filter(|rule| !produces_problems(rule.metadata().status))
+        .filter(|rule| rule.metadata().enforcement.check().is_none())
         .collect();
 
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
 
-        if !produces_problems(metadata.status) {
-            assert_eq!(metadata.fixtures, None, "{}", metadata.id);
+        let Some(check) = metadata.enforcement.check() else {
             continue;
-        }
-
-        let Some(folder) = metadata.fixtures else {
-            panic!("{} is enforced but names no fixtures", metadata.id);
         };
 
         for (case, reports_the_rule) in [("fail", true), ("pass", false)] {
-            let root = crate_path(folder).join(case);
+            let root = crate_path(check.fixtures).join(case);
 
             assert!(
                 root.is_dir(),
@@ -189,26 +180,12 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
 }
 
 #[test]
-fn each_enforced_rule_has_a_checker_and_no_other_rule_has_one() {
-    for &rule in Rule::ALL {
-        let metadata = rule.metadata();
-
-        assert_eq!(
-            metadata.checker.is_some(),
-            produces_problems(metadata.status),
-            "{}",
-            metadata.id
-        );
-    }
-}
-
-#[test]
 fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
 
-        if let Some(checker) = metadata.checker {
-            let path = crate_path(checker);
+        if let Some(check) = metadata.enforcement.check() {
+            let path = crate_path(check.checker);
 
             assert!(path.is_file(), "{}: {}", metadata.id, path.display());
         }
@@ -219,8 +196,8 @@ fn each_checker_path_names_an_existing_file() {
 fn each_rule_fixture_folder_belongs_to_a_rule() {
     let named: Vec<PathBuf> = Rule::ALL
         .iter()
-        .filter_map(|rule| rule.metadata().fixtures)
-        .map(crate_path)
+        .filter_map(|rule| rule.metadata().enforcement.check())
+        .map(|check| crate_path(check.fixtures))
         .collect();
     let folder = crate_path("tests/fixtures/rules");
 
