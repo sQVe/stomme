@@ -43,19 +43,59 @@ fn mentions(text: &str, rule: Rule) -> bool {
 #[test]
 fn rules_table_equals_the_committed_shared_rules() {
     let path = crate_path(RULES_FILE);
-    let generated = markdown_table();
-
-    if env::var_os("UPDATE").is_some() {
-        fs::write(&path, &generated).expect("write the rules table");
-    }
-
-    let committed = fs::read_to_string(&path).unwrap_or_default();
+    let rewrite = env::var_os("UPDATE").is_some();
+    let is_current =
+        compare_or_rewrite_table(&path, &markdown_table(), rewrite).expect("read the rules table");
 
     assert!(
-        committed == generated,
+        is_current,
         "{} differs from the rule catalog; rewrite it with `UPDATE=1 cargo nextest run -p stomme rules_table`",
         path.display()
     );
+}
+
+#[test]
+fn compare_or_rewrite_table_rejects_a_stale_table_and_leaves_it_unchanged() {
+    let folder = tempfile::tempdir().expect("create a temporary directory");
+    let path = folder.path().join("rules.md");
+
+    fs::write(&path, "stale\n").expect("write the stale table");
+
+    let is_current = compare_or_rewrite_table(&path, "generated\n", false).expect("read the table");
+
+    assert!(!is_current);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read the table"),
+        "stale\n"
+    );
+}
+
+#[test]
+fn compare_or_rewrite_table_rewrites_a_stale_table_when_asked() {
+    let folder = tempfile::tempdir().expect("create a temporary directory");
+    let path = folder.path().join("rules.md");
+
+    fs::write(&path, "stale\n").expect("write the stale table");
+
+    let is_current =
+        compare_or_rewrite_table(&path, "generated\n", true).expect("rewrite the table");
+
+    assert!(is_current);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read the table"),
+        "generated\n"
+    );
+}
+
+#[test]
+fn compare_or_rewrite_table_rejects_a_missing_table() {
+    let folder = tempfile::tempdir().expect("create a temporary directory");
+    let path = folder.path().join("rules.md");
+
+    let is_current = compare_or_rewrite_table(&path, "generated\n", false).expect("read the table");
+
+    assert!(!is_current);
+    assert!(!path.exists());
 }
 
 #[test]
