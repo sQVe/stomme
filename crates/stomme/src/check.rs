@@ -5,7 +5,9 @@ use crate::config::{self, CONFIG_FILE, Installation};
 use crate::layer::{Catalog, Language};
 
 mod adr_index;
+pub(crate) mod clippy_bans;
 mod required_parts;
+pub(crate) mod rust_lints;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Problem {
@@ -47,13 +49,14 @@ rules! {
     AdrIndexLabel => "adr-index-label",
     AdrIndexMissingFile => "adr-index-missing-file",
     AdrIndexEntry => "adr-index-entry",
+    RustConfigFile => "rust-config-file",
+    RustLintLevel => "rust-lint-level",
+    RustLintInheritance => "rust-lint-inheritance",
+    RustRequiredBan => "rust-required-ban",
+    GpuiRequiredBan => "gpui-required-ban",
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(
-    dead_code,
-    reason = "no language or layer owns a rule yet; only tests build those owners"
-)]
 pub(crate) enum Owner {
     Common,
     Language(Language),
@@ -74,6 +77,11 @@ impl Rule {
             | Self::AdrIndexLabel
             | Self::AdrIndexMissingFile
             | Self::AdrIndexEntry => Owner::Common,
+            Self::RustConfigFile
+            | Self::RustLintLevel
+            | Self::RustLintInheritance
+            | Self::RustRequiredBan => Owner::Language(Language::Rust),
+            Self::GpuiRequiredBan => Owner::Layer("gpui"),
         }
     }
 }
@@ -107,7 +115,28 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     problems.extend(required_parts::check(root)?);
     problems.extend(adr_index::check(root)?);
 
+    if let Installation::Valid(selection) = &installation
+        && selection.language == Language::Rust
+    {
+        problems.extend(rust_lints::check(root, catalog.rust_lints())?);
+        problems.extend(clippy_bans::check(
+            root,
+            &catalog.required_bans(&selection.layers),
+        )?);
+    }
+
     Ok(problems)
+}
+
+fn describe_toml_error(error: &toml::de::Error, text: &str) -> String {
+    match error.span() {
+        Some(span) => {
+            let line = text[..span.start].matches('\n').count() + 1;
+
+            format!("line {line}: {}", error.message())
+        }
+        None => error.message().to_string(),
+    }
 }
 
 fn installation_problem(installation: &Installation) -> Option<Problem> {
