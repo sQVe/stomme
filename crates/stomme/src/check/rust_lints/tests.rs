@@ -294,3 +294,73 @@ fn check_reports_a_member_manifest_it_cannot_read() {
         );
     }
 }
+
+#[test]
+fn check_reads_a_member_pattern_that_starts_with_a_dot_segment() {
+    let root = complete_project();
+
+    write_file(root.path(), "crates/two/Cargo.toml", MEMBER_WITHOUT_LINTS);
+    replace_in_manifest(
+        root.path(),
+        "members = [\"crates/*\"]",
+        "members = [\"./crates/*\"]",
+    );
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "crates/two/Cargo.toml",
+        Rule::RustLintInheritance,
+        "workspace = true",
+        "./crates/*",
+    );
+}
+
+#[test]
+fn check_matches_each_part_between_two_stars_in_order() {
+    let root = complete_project();
+
+    write_file(root.path(), "apps/one-cli/Cargo.toml", MEMBER_WITHOUT_LINTS);
+    write_file(
+        root.path(),
+        "apps/one-two-cli/Cargo.toml",
+        MEMBER_WITHOUT_LINTS,
+    );
+    replace_in_manifest(
+        root.path(),
+        "members = [\"crates/*\"]",
+        "members = [\"apps/*-*-cli\"]",
+    );
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "apps/one-two-cli/Cargo.toml",
+        Rule::RustLintInheritance,
+        "workspace = true",
+        "apps/*-*-cli",
+    );
+}
+
+#[test]
+fn check_names_the_required_level_and_priority_of_a_missing_lint() {
+    let root = complete_project();
+
+    replace_in_manifest(
+        root.path(),
+        "all = { level = \"warn\", priority = -2 }\n",
+        "",
+    );
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "Cargo.toml",
+        Rule::RustLintLevel,
+        "`warn` with priority -2",
+        "missing clippy::all",
+    );
+}

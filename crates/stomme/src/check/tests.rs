@@ -101,3 +101,13 @@ fn run_checks_rust_files_only_for_a_valid_rust_installation() {
         assert_eq!(rules, expected, "{case}: {problems:?}");
     }
 }
+
+#[test]
+fn describe_toml_error_names_the_line_of_the_error() {
+    let text = "[workspace]\nmembers = []\nresolver = \n";
+    let error = toml::from_str::<toml::Table>(text).expect_err("the text is invalid TOML");
+
+    let description = describe_toml_error(&error, text);
+
+    assert!(description.starts_with("line 3: "), "{description}");
+}
