@@ -61,13 +61,13 @@ fn check_reports_a_project_without_stomme_toml() {
 #[test]
 fn check_reports_a_broken_stomme_toml() {
     let cases = [
-        ("syntax error", "schema = 1\nkind = \"rust-cli\n"),
+        ("syntax error", "schema = 1\nlanguage = \"rust\n"),
         (
             "unknown field",
-            "schema = 1\nkind = \"rust-cli\"\nname = \"x\"\n",
+            "schema = 1\nlanguage = \"rust\"\nname = \"x\"\n",
         ),
-        ("missing kind", "schema = 1\n"),
-        ("schema 2", "schema = 2\nkind = \"rust-cli\"\n"),
+        ("missing language", "schema = 1\n"),
+        ("schema 2", "schema = 2\nlanguage = \"rust\"\n"),
     ];
 
     for (case, text) in cases {
@@ -79,6 +79,63 @@ fn check_reports_a_broken_stomme_toml() {
 
         assert_single_problem(&output, "stomme.toml", "broken-installation", case);
     }
+}
+
+#[test]
+fn check_reports_a_bad_layer_set_naming_the_layer() {
+    let cases = [
+        (
+            "wrong language",
+            "language = \"typescript\"\nlayers = [\"gpui\"]\n",
+            "`gpui`",
+        ),
+        (
+            "missing required layer",
+            "language = \"rust\"\nlayers = [\"gpui-component\"]\n",
+            "`gpui`",
+        ),
+        (
+            "unknown layer",
+            "language = \"rust\"\nlayers = [\"egui\"]\n",
+            "`egui`",
+        ),
+        (
+            "duplicate layer",
+            "language = \"typescript\"\nlayers = [\"react\", \"react\"]\n",
+            "`react`",
+        ),
+        ("leftover kind", "kind = \"rust-cli\"\n", "`language`"),
+    ];
+
+    for (case, text, named) in cases {
+        let root = complete_project();
+
+        write_file(root.path(), "stomme.toml", &format!("schema = 1\n{text}"));
+
+        let output = stomme(root.path(), &["check"]);
+
+        assert_single_problem(&output, "stomme.toml", "broken-installation", case);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(named),
+            "{case}: {output:?}"
+        );
+    }
+}
+
+#[test]
+fn check_passes_a_project_with_valid_layers() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        "stomme.toml",
+        "schema = 1\nlanguage = \"rust\"\nlayers = [\"gpui-component\", \"gpui\"]\n",
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(stderr_lines(&output), Vec::<String>::new());
 }
 
 #[test]

@@ -36,6 +36,7 @@ the commit in its row.
 ### Purpose
 
 - [0002: One versioned foundation for every project](./0002-purpose-and-design.md)
+- [0005: Separate languages, framework layers, and roles](./0005-languages-and-layers.md)
 
 ### Project and toolchain
 
