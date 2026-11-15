@@ -1,4 +1,10 @@
 use std::fmt;
+#[cfg(test)]
+use std::fs;
+#[cfg(test)]
+use std::io;
+#[cfg(test)]
+use std::path::Path;
 
 use crate::layer::Language;
 
@@ -495,6 +501,25 @@ pub(crate) fn markdown_table() -> String {
     }
 
     table
+}
+
+#[cfg(test)]
+pub(crate) fn compare_or_rewrite_table(
+    path: &Path,
+    generated: &str,
+    rewrite: bool,
+) -> io::Result<bool> {
+    if rewrite {
+        fs::write(path, generated)?;
+    }
+
+    let committed = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+
+    Ok(committed == generated)
 }
 
 #[cfg(test)]
