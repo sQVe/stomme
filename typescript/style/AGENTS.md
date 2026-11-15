@@ -1,12 +1,14 @@
-# Seam
+# stomme-ts-style
 
-Zero-config Oxlint house style for TypeScript projects, published as `@sqve/seam`. Read the
-[README](README.md) for usage.
+Zero-config Oxlint house style for TypeScript projects, published as `@sqve/stomme-ts-style`. Read
+the [README](README.md) for usage.
 
-- Run `pnpm run check` before finishing changes. It runs typechecking, the self-lint through `seam`,
-  the format check, the build, and all tests, including the end-to-end tests on Node and Bun.
-- Fix style with `pnpm style:fix`; it lints with the house rules, then formats.
-- A change to `src/` needs a changeset. Create it with `pnpm changeset`.
+- Run `pnpm --filter @sqve/stomme-ts-style run check` before finishing changes. It runs
+  typechecking, the self-lint through `stomme-ts-style`, the format check, the build, and all tests
+  on Node and Bun.
+- Fix style with `pnpm --filter @sqve/stomme-ts-style style:fix`; it lints with the house rules,
+  then formats.
+- A change to `src/` needs a changeset. Create it with `pnpm changeset` from the repository root.
 - Follow the decisions in [docs/adr](docs/adr/README.md), and record new decisions there. Read that
   guide before adding an ADR. Do not write documents that explain how a rule works.
 - Every rule in the package is on for every consumer. Do not add a rule that a consumer would need

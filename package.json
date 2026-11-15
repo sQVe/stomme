@@ -1,0 +1,15 @@
+{
+  "name": "stomme",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "changeset": "changeset",
+    "changeset:check": "changeset status --since=origin/main",
+    "changeset:version": "changeset version && pnpm --filter @sqve/stomme-ts-style format",
+    "release": "pnpm --filter @sqve/stomme-ts-style run check && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "1.0.1",
+    "@changesets/cli": "3.0.2"
+  }
+}

@@ -2,3 +2,8 @@
 mutants.out/
 mutants.out.old/
 /.tau/
+node_modules/
+dist/
+coverage/
+*.tgz
+*.tsbuildinfo

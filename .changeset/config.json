@@ -3,7 +3,7 @@
   "changelog": [
     "@changesets/changelog-github",
     {
-      "repo": "sQVe/seam"
+      "repo": "sQVe/stomme"
     }
   ],
   "commit": false,
