@@ -83,6 +83,41 @@ const STEPS: &[Step] = &[
         arguments: &["run", "--locked", "--quiet", "-p", "stomme", "--", "check"],
         environment: &[DENY_WARNINGS],
     },
+    Step {
+        name: "ts-typecheck",
+        group: Group::Build,
+        program: "pnpm",
+        arguments: &["--filter", "@sqve/stomme-ts-style", "run", "typecheck"],
+        environment: &[],
+    },
+    Step {
+        name: "ts-style",
+        group: Group::Build,
+        program: "pnpm",
+        arguments: &["--filter", "@sqve/stomme-ts-style", "run", "style:check"],
+        environment: &[],
+    },
+    Step {
+        name: "ts-format",
+        group: Group::Build,
+        program: "pnpm",
+        arguments: &["--filter", "@sqve/stomme-ts-style", "run", "format:check"],
+        environment: &[],
+    },
+    Step {
+        name: "ts-build",
+        group: Group::Build,
+        program: "pnpm",
+        arguments: &["--filter", "@sqve/stomme-ts-style", "run", "build"],
+        environment: &[],
+    },
+    Step {
+        name: "ts-test",
+        group: Group::Build,
+        program: "pnpm",
+        arguments: &["--filter", "@sqve/stomme-ts-style", "run", "test"],
+        environment: &[],
+    },
 ];
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -205,7 +240,17 @@ mod tests {
         );
         assert_eq!(
             names(Group::Build),
-            ["clippy", "nextest", "rustdoc", "stomme"]
+            [
+                "clippy",
+                "nextest",
+                "rustdoc",
+                "stomme",
+                "ts-typecheck",
+                "ts-style",
+                "ts-format",
+                "ts-build",
+                "ts-test"
+            ]
         );
     }
 
@@ -220,7 +265,7 @@ mod tests {
                 );
             }
 
-            if step.group == Group::Build {
+            if step.program == "cargo" && step.group == Group::Build {
                 assert!(
                     step.environment.contains(&DENY_WARNINGS),
                     "{} denies warnings",

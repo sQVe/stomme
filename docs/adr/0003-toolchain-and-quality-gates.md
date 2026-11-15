@@ -36,10 +36,22 @@ checks dependencies with cargo-deny, and runs mutation testing as advice.
   compatible with an MIT tool and rejects GPL.
 - prek runs formatting and lint checks before commits, without changing files.
 - `cargo xtask check` is the entry point for rustfmt, typos, taplo, cargo-deny, cargo-shear,
-  clippy, nextest, rustdoc, and `stomme check` on the repository. It reports all failed steps,
-  rather than stopping at the first.
+  clippy, nextest, rustdoc, and `stomme check` on the repository. It also runs `ts-typecheck`,
+  `ts-style`, `ts-format`, `ts-build`, and `ts-test`, including packed package tests on Node and
+  Bun. It reports all failed steps, rather than stopping at the first.
+- The check changes no tracked files, but may rebuild ignored package output. Dependency
+  installation stays separate so checks cannot silently change the lockfile.
+- All package steps belong to `Build`, which includes checks that compile code or need the
+  JavaScript toolchain. This keeps `Tidy` independent of Node, pnpm, and Bun.
+- Renovate groups all six Vite Plus style toolchain pins, including major updates, without
+  automerge. The package's pin test guards their agreement with Vite Plus.
 - Cargo builds use the lockfile. Build warnings fail the check.
-- CI keeps jobs named `Check` and `Test (Linux)` so branch rules can require them.
+- CI keeps jobs named `Check` and `Test (Linux)` so branch rules can require them. `Check` runs
+  `Tidy`. `Test (Linux)` installs Node, pnpm with its cache, and Bun, installs dependencies with
+  the frozen lockfile, and runs `Build`. Their versions are set in the workflow.
+- A scheduled pnpm audit checks package advisories because GitHub's dependency graph cannot
+  read the pnpm lockfile. Dependency review checks GitHub Actions and Cargo dependencies on
+  pull requests.
 
 ### Mutation testing
 
