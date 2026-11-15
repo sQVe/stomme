@@ -54,10 +54,8 @@ struct Manifest {
 
 #[derive(Default, Deserialize)]
 struct Workspace {
-    #[serde(default)]
-    members: Vec<String>,
-    #[serde(default)]
-    exclude: Vec<String>,
+    #[serde(flatten)]
+    members: rust_members::Workspace,
     #[serde(default)]
     lints: BTreeMap<String, BTreeMap<String, LintValue>>,
 }
@@ -83,7 +81,6 @@ pub(super) fn check(root: &Path, policy: &LintPolicy) -> anyhow::Result<Vec<Prob
         root,
         manifest.package.is_some(),
         &manifest.workspace.members,
-        &manifest.workspace.exclude,
     )?);
 
     Ok(problems)

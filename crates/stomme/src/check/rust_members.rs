@@ -1,19 +1,39 @@
-use std::collections::BTreeSet;
-use std::fs;
+use std::collections::BTreeMap;
 use std::path::Path;
 
-use anyhow::Context as _;
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 
-use super::cargo_manifest::{ROOT_MANIFEST, config_problem, read_manifest};
+use super::cargo_manifest::{ROOT_MANIFEST, read_manifest};
 use super::{Problem, Rule};
 
-const MEMBER_MISSING: &str = "is missing; `workspace.members` names this folder as a member";
+const MEMBER_MISSING: &str = "is missing; the workspace makes this folder a member";
+
+type Dependencies = BTreeMap<String, Dependency>;
+
+#[derive(Default, Deserialize)]
+pub(super) struct Workspace {
+    #[serde(default)]
+    members: Vec<String>,
+    #[serde(default)]
+    exclude: Vec<String>,
+    #[serde(default)]
+    dependencies: Dependencies,
+}
 
 #[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
 struct MemberManifest {
     #[serde(default)]
     lints: MemberLints,
+    #[serde(default)]
+    dependencies: Dependencies,
+    #[serde(default)]
+    dev_dependencies: Dependencies,
+    #[serde(default)]
+    build_dependencies: Dependencies,
+    #[serde(default)]
+    target: BTreeMap<String, TargetDependencies>,
 }
 
 #[derive(Default, Deserialize)]
@@ -22,126 +42,137 @@ struct MemberLints {
     workspace: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct TargetDependencies {
+    #[serde(default)]
+    dependencies: Dependencies,
+    #[serde(default)]
+    dev_dependencies: Dependencies,
+    #[serde(default)]
+    build_dependencies: Dependencies,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Dependency {
+    Table {
+        path: Option<String>,
+        #[serde(default)]
+        workspace: bool,
+    },
+    Version(IgnoredAny),
+}
+
+type MemberRead = Result<MemberManifest, Problem>;
+
 pub(super) fn check(
     root: &Path,
     root_package: bool,
-    patterns: &[String],
-    exclude: &[String],
+    workspace: &Workspace,
 ) -> anyhow::Result<Vec<Problem>> {
     let mut problems = Vec::new();
-    let mut members = BTreeSet::new();
+    let mut listed = Vec::new();
 
     if root_package {
-        members.insert(String::new());
+        listed.push(String::new());
     }
 
-    for pattern in patterns {
-        match expand(root, pattern)? {
-            Ok(paths) => members.extend(paths),
+    for pattern in &workspace.members {
+        match patterns::expand(root, pattern)? {
+            Ok(paths) => listed.extend(paths),
             Err(problem) => problems.push(problem),
         }
     }
 
-    let excluded: Vec<String> = exclude
-        .iter()
-        .map(|path| segments(path).join("/"))
-        .collect();
+    let members = read_members(root, workspace, listed)?;
 
-    for member in members
-        .iter()
-        .filter(|member| !is_excluded(member, &excluded))
-    {
-        problems.extend(inheritance_problem(root, member)?);
+    for (member, manifest) in members {
+        problems.extend(inheritance_problem(member, manifest));
     }
 
     Ok(problems)
 }
 
-fn expand(root: &Path, pattern: &str) -> anyhow::Result<Result<Vec<String>, Problem>> {
-    let segments = segments(pattern);
+// Cargo also makes every path dependency of a member a member when the dependency lies inside the
+// workspace root and is not excluded, so the walk follows those paths transitively.
+fn read_members(
+    root: &Path,
+    workspace: &Workspace,
+    listed: Vec<String>,
+) -> anyhow::Result<BTreeMap<String, MemberRead>> {
+    let excluded: Vec<String> = workspace
+        .exclude
+        .iter()
+        .map(|path| segments(path).join("/"))
+        .collect();
+    let mut members = BTreeMap::new();
+    let mut pending = listed;
 
-    if segments.iter().any(|segment| is_unsupported_glob(segment)) {
-        return Ok(Err(config_problem(
-            ROOT_MANIFEST.to_string(),
-            format!(
-                "lists member `{pattern}`; stomme expands only literal paths and `*` inside one path segment"
-            ),
-        )));
+    while let Some(member) = pending.pop() {
+        if members.contains_key(&member) || is_excluded(&member, &excluded) {
+            continue;
+        }
+
+        let manifest: MemberRead =
+            read_manifest(root, &join(&member, ROOT_MANIFEST), MEMBER_MISSING)?;
+
+        if let Ok(manifest) = &manifest {
+            pending.extend(path_dependencies(root, &member, manifest, workspace));
+        }
+
+        members.insert(member, manifest);
     }
 
-    let mut paths = vec![String::new()];
+    Ok(members)
+}
 
-    for segment in segments {
-        if segment.contains('*') {
-            let mut matched = Vec::new();
+fn path_dependencies(
+    root: &Path,
+    member: &str,
+    manifest: &MemberManifest,
+    workspace: &Workspace,
+) -> Vec<String> {
+    let mut paths = Vec::new();
 
-            for parent in &paths {
-                matched.extend(matching_folders(root, parent, segment)?);
-            }
+    for (name, dependency) in manifest.dependency_tables().flatten() {
+        let (base, path) = if dependency.inherits() {
+            let inherited = workspace.dependencies.get(name);
 
-            paths = matched;
+            ("", inherited.and_then(Dependency::path))
         } else {
-            paths = paths.iter().map(|parent| join(parent, segment)).collect();
+            (member, dependency.path())
+        };
+
+        paths.extend(path.and_then(|path| resolve_inside_root(root, base, path)));
+    }
+
+    paths
+}
+
+fn resolve_inside_root(root: &Path, base: &str, path: &str) -> Option<String> {
+    let (base, path) = if Path::new(path).is_absolute() {
+        ("", Path::new(path).strip_prefix(root).ok()?.to_str()?)
+    } else {
+        (base, path)
+    };
+    let mut resolved = segments(base);
+
+    for segment in segments(path) {
+        if segment == ".." {
+            resolved.pop()?;
+        } else {
+            resolved.push(segment);
         }
     }
 
-    Ok(Ok(paths))
+    Some(resolved.join("/"))
 }
 
 fn segments(path: &str) -> Vec<&str> {
     path.split('/')
         .filter(|segment| !segment.is_empty() && *segment != ".")
         .collect()
-}
-
-fn is_unsupported_glob(segment: &str) -> bool {
-    segment.contains("**") || segment.contains(['?', '[', ']', '{', '}'])
-}
-
-fn matching_folders(root: &Path, parent: &str, pattern: &str) -> anyhow::Result<Vec<String>> {
-    let folder = root.join(parent);
-    let mut matched = Vec::new();
-
-    if !folder.is_dir() {
-        return Ok(matched);
-    }
-
-    let entries =
-        fs::read_dir(&folder).with_context(|| format!("Could not read {}", folder.display()))?;
-
-    for entry in entries {
-        let entry = entry.with_context(|| format!("Could not read {}", folder.display()))?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-
-        if entry.path().is_dir() && matches_segment(pattern, name) {
-            matched.push(join(parent, name));
-        }
-    }
-
-    Ok(matched)
-}
-
-fn matches_segment(pattern: &str, name: &str) -> bool {
-    let parts: Vec<&str> = pattern.split('*').collect();
-    let [first, middle @ .., last] = parts.as_slice() else {
-        unreachable!("`expand` matches only a segment that contains `*`");
-    };
-    let Some(mut rest) = name.strip_prefix(first) else {
-        return false;
-    };
-
-    for part in middle {
-        let Some(start) = rest.find(part) else {
-            return false;
-        };
-
-        rest = &rest[start + part.len()..];
-    }
-
-    rest.ends_with(last)
 }
 
 fn join(parent: &str, name: &str) -> String {
@@ -158,25 +189,65 @@ fn is_excluded(member: &str, excluded: &[String]) -> bool {
         .any(|path| member == path || member.starts_with(&format!("{path}/")))
 }
 
-fn inheritance_problem(root: &Path, member: &str) -> anyhow::Result<Option<Problem>> {
-    let path = join(member, ROOT_MANIFEST);
-    let manifest: MemberManifest = match read_manifest(root, &path, MEMBER_MISSING)? {
+fn inheritance_problem(member: String, manifest: MemberRead) -> Option<Problem> {
+    let manifest = match manifest {
         Ok(manifest) => manifest,
-        Err(problem) => return Ok(Some(problem)),
+        Err(problem) => return Some(problem),
     };
 
     if manifest.lints.workspace {
-        return Ok(None);
+        return None;
     }
 
-    Ok(Some(Problem {
-        path,
+    Some(Problem {
+        path: join(&member, ROOT_MANIFEST),
         rule: Rule::RustLintInheritance,
         message:
             "lacks `[lints] workspace = true`; every workspace member inherits the shared lints"
                 .to_string(),
-    }))
+    })
 }
+
+impl MemberManifest {
+    fn dependency_tables(&self) -> impl Iterator<Item = &Dependencies> {
+        let targets = self.target.values().flat_map(|target| {
+            [
+                &target.dependencies,
+                &target.dev_dependencies,
+                &target.build_dependencies,
+            ]
+        });
+
+        [
+            &self.dependencies,
+            &self.dev_dependencies,
+            &self.build_dependencies,
+        ]
+        .into_iter()
+        .chain(targets)
+    }
+}
+
+impl Dependency {
+    fn path(&self) -> Option<&str> {
+        match self {
+            Self::Version(_) => None,
+            Self::Table { path, .. } => path.as_deref(),
+        }
+    }
+
+    fn inherits(&self) -> bool {
+        matches!(
+            self,
+            Self::Table {
+                workspace: true,
+                ..
+            }
+        )
+    }
+}
+
+mod patterns;
 
 #[cfg(test)]
 mod tests;

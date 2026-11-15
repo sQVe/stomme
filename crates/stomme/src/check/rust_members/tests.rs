@@ -217,3 +217,184 @@ fn check_matches_each_part_between_two_stars_in_order() {
         "apps/*-*-cli",
     );
 }
+
+const MEMBER_WITH_LINTS: &str =
+    "[package]\nname = \"cli\"\nversion = \"0.0.0\"\n\n[lints]\nworkspace = true\n";
+
+fn write_cli_dependencies(root: &Path, dependencies: &str) {
+    write_file(
+        root,
+        "crates/cli/Cargo.toml",
+        &format!("{MEMBER_WITH_LINTS}\n{dependencies}"),
+    );
+}
+
+#[test]
+fn check_reports_an_unlisted_path_dependency_that_does_not_inherit_the_lints() {
+    let root = complete_project();
+
+    write_cli_dependencies(
+        root.path(),
+        "[dependencies]\nhelper = { path = \"../../helper\" }\n",
+    );
+    write_file(root.path(), "helper/Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "helper/Cargo.toml",
+        Rule::RustLintInheritance,
+        "workspace = true",
+        "path dependency",
+    );
+}
+
+#[test]
+fn check_follows_path_dependencies_in_every_dependency_table() {
+    let cases = [
+        ("dev-dependencies", "[dev-dependencies]\n"),
+        ("build-dependencies", "[build-dependencies]\n"),
+        ("target dependencies", "[target.'cfg(unix)'.dependencies]\n"),
+        (
+            "target dev-dependencies",
+            "[target.'cfg(unix)'.dev-dependencies]\n",
+        ),
+    ];
+
+    for (case, table) in cases {
+        let root = complete_project();
+
+        write_cli_dependencies(
+            root.path(),
+            &format!("{table}helper = {{ path = \"../../helper\" }}\n"),
+        );
+        write_file(root.path(), "helper/Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+        let problems = check_project(root.path());
+
+        assert_single_problem(
+            &problems,
+            "helper/Cargo.toml",
+            Rule::RustLintInheritance,
+            "workspace = true",
+            case,
+        );
+    }
+}
+
+#[test]
+fn check_follows_an_inherited_workspace_path_dependency() {
+    let root = complete_project();
+
+    replace_in_manifest(
+        root.path(),
+        "members = [\"crates/*\"]",
+        "members = [\"crates/*\"]\n\n[workspace.dependencies]\nhelper = { path = \"helper\" }\nunused = { path = \"unused\" }",
+    );
+    write_cli_dependencies(root.path(), "[dependencies]\nhelper.workspace = true\n");
+    write_file(root.path(), "helper/Cargo.toml", MEMBER_WITHOUT_LINTS);
+    write_file(root.path(), "unused/Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "helper/Cargo.toml",
+        Rule::RustLintInheritance,
+        "workspace = true",
+        "inherited path dependency",
+    );
+}
+
+#[test]
+fn check_follows_path_dependencies_transitively() {
+    let root = complete_project();
+
+    write_cli_dependencies(
+        root.path(),
+        "[dependencies]\nhelper = { path = \"../../helper\" }\n",
+    );
+    write_file(
+        root.path(),
+        "helper/Cargo.toml",
+        &format!("{MEMBER_WITH_LINTS}\n[dependencies]\ninner = {{ path = \"../inner\" }}\n"),
+    );
+    write_file(root.path(), "inner/Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "inner/Cargo.toml",
+        Rule::RustLintInheritance,
+        "workspace = true",
+        "transitive path dependency",
+    );
+}
+
+#[test]
+fn check_follows_an_absolute_path_dependency_inside_the_root() {
+    let root = complete_project();
+    let helper = root.path().join("helper");
+
+    write_cli_dependencies(
+        root.path(),
+        &format!(
+            "[dependencies]\nhelper = {{ path = \"{}\" }}\n",
+            helper.display()
+        ),
+    );
+    write_file(root.path(), "helper/Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "helper/Cargo.toml",
+        Rule::RustLintInheritance,
+        "workspace = true",
+        "absolute path dependency",
+    );
+}
+
+#[test]
+fn check_skips_a_path_dependency_outside_the_root_or_excluded() {
+    let outside = tempfile::tempdir().expect("create an outside folder");
+
+    write_file(outside.path(), "Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+    let cases = [
+        (
+            "relative path outside the root",
+            "../../../outside".to_string(),
+        ),
+        (
+            "absolute path outside the root",
+            outside.path().display().to_string(),
+        ),
+        ("excluded path", "../../skipped".to_string()),
+    ];
+
+    for (case, path) in cases {
+        let root = complete_project();
+
+        replace_in_manifest(
+            root.path(),
+            "members = [\"crates/*\"]",
+            "members = [\"crates/*\"]\nexclude = [\"skipped\"]",
+        );
+        write_cli_dependencies(
+            root.path(),
+            &format!("[dependencies]\nhelper = {{ path = \"{path}\" }}\n"),
+        );
+        write_file(
+            root.path(),
+            "skipped/Cargo.toml",
+            "[package]\nname = \"skipped\"\nversion = \"0.0.0\"\n\n[dependencies]\ninner = { path = \"../inner\" }\n",
+        );
+        write_file(root.path(), "inner/Cargo.toml", MEMBER_WITHOUT_LINTS);
+
+        assert_eq!(check_project(root.path()), [], "{case}");
+    }
+}
