@@ -20,6 +20,7 @@ struct Runner {
     run: fn(binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<Output>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 struct Arguments {
     binary: PathBuf,
     version: String,
@@ -27,8 +28,9 @@ struct Arguments {
 }
 
 #[expect(
+    clippy::print_stdout,
     clippy::print_stderr,
-    reason = "the usage and errors are the command's output"
+    reason = "the report, usage, and errors are the command's output"
 )]
 pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     let Some(arguments) = parse_arguments(arguments) else {
@@ -50,7 +52,7 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
 
     match gate(&runner, &binary, &arguments.version, &folder) {
         Ok(outcome) => {
-            report(&folder, &outcome);
+            print!("{}", report(&folder, &outcome));
             exit_code(&outcome)
         }
         Err(error) => {
@@ -190,39 +192,33 @@ fn is_version_line(line: &str) -> bool {
     key.trim() == "version" && quoted.strip_suffix('"').is_some()
 }
 
-#[expect(
-    clippy::print_stdout,
-    reason = "the job summary is the command's stdout output"
-)]
-fn report(folder: &Path, outcome: &Outcome) {
+fn report(folder: &Path, outcome: &Outcome) -> String {
     let name = folder.file_name().map_or_else(
         || folder.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     );
 
-    println!("### {name}");
+    let mut text = format!("### {name}\n");
 
     match outcome {
-        Outcome::Passed => println!("Passed"),
+        Outcome::Passed => text.push_str("Passed\n"),
         Outcome::Failed { step, output } => {
-            println!("Failed at {step}");
-            print_output(output);
+            text.push_str(&format!("Failed at {step}\n"));
+            text.push_str(&output_block(output));
         }
         Outcome::NotAdopted { output } => {
-            println!("Not adopted; reported only");
-            print_output(output);
+            text.push_str("Not adopted; reported only\n");
+            text.push_str(&output_block(output));
         }
     }
+
+    text
 }
 
-#[expect(
-    clippy::print_stdout,
-    reason = "the job summary is the command's stdout output"
-)]
-fn print_output(output: &str) {
+fn output_block(output: &str) -> String {
     let body = output.trim_end_matches('\n');
 
-    println!("```text\n{body}\n```");
+    format!("```text\n{body}\n```\n")
 }
 
 #[cfg(test)]
