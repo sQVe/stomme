@@ -172,27 +172,28 @@ fn check_file(
 
 fn resolve(use_path: &UsePath, file_path: &[String]) -> Option<Vec<String>> {
     let mut current = file_path.to_vec();
-    let mut index = 0;
-
-    if use_path
+    let is_relative = use_path
         .segments
         .first()
-        .is_some_and(|segment| segment == "super")
-    {
-        while use_path
+        .is_some_and(|segment| segment == "super");
+
+    if is_relative {
+        let supers = use_path
             .segments
-            .get(index)
-            .is_some_and(|segment| segment == "super")
-        {
-            current.pop()?;
-            index += 1;
+            .iter()
+            .take_while(|segment| *segment == "super")
+            .count();
+
+        if supers > current.len() {
+            return None;
         }
+
+        current.truncate(current.len() - supers);
+        current.extend(use_path.segments[supers..].iter().cloned());
     } else {
         current.clear();
-        index = 1;
+        current.extend(use_path.segments[1..].iter().cloned());
     }
-
-    current.extend(use_path.segments[index..].iter().cloned());
 
     Some(current)
 }

@@ -1,4 +1,9 @@
+use std::iter::Peekable;
+use std::slice::Iter;
+
 use ra_ap_rustc_lexer::{FrontmatterAllowed, TokenKind, strip_shebang, tokenize};
+
+type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
 
 struct Token<'a> {
     kind: TokenKind,
@@ -17,9 +22,8 @@ struct Leaf {
     line: usize,
 }
 
-struct Parser<'a> {
-    tokens: &'a [Token<'a>],
-    index: usize,
+struct Parser<'tokens, 'source> {
+    tokens: &'tokens mut TokenStream<'source>,
 }
 
 fn code_tokens(source: &str) -> Vec<Token<'_>> {
@@ -56,16 +60,13 @@ fn code_tokens(source: &str) -> Vec<Token<'_>> {
 
 pub(super) fn paths(source: &str) -> Vec<UsePath> {
     let tokens = code_tokens(source);
+    let mut tokens = tokens.iter().peekable();
     let mut paths = Vec::new();
     let mut inline_modules: Vec<(usize, String)> = Vec::new();
     let mut depth = 0;
-    let mut index = 0;
 
-    while index < tokens.len() {
-        let token = &tokens[index];
-
-        if is_mod_start(&tokens, index) {
-            let name = item_name(&tokens[index + 1]).expect("a module name is an identifier");
+    while let Some(token) = tokens.next() {
+        if let Some(name) = module_name(token, &tokens) {
             inline_modules.push((depth + 1, name.to_string()));
         }
 
@@ -73,24 +74,27 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
             TokenKind::OpenBrace => depth += 1,
             TokenKind::CloseBrace => {
                 depth -= 1;
-                while inline_modules
-                    .last()
-                    .is_some_and(|(open_depth, _)| *open_depth > depth)
-                {
-                    inline_modules.pop();
-                }
+                let last_kept = inline_modules
+                    .iter()
+                    .rposition(|(open_depth, _)| *open_depth <= depth);
+                inline_modules.truncate(last_kept.map_or(0, |position| position + 1));
             }
             _ => {}
         }
 
-        if is_path_start(&tokens, index) {
+        if is_path_start(token, &tokens) {
             let modules: Vec<String> = inline_modules
                 .iter()
                 .map(|(_, name)| name.clone())
                 .collect();
+            tokens
+                .next()
+                .expect("a checked path start has its first colon");
+            tokens
+                .next()
+                .expect("a checked path start has its second colon");
             let mut parser = Parser {
-                tokens: &tokens,
-                index: index + 3,
+                tokens: &mut tokens,
             };
             let leaves = parser.parse_segments();
 
@@ -103,72 +107,72 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
                     inline_modules: modules.clone(),
                 });
             }
-
-            index = parser.index;
-            continue;
         }
-
-        index += 1;
     }
 
     paths
 }
 
-fn is_mod_start(tokens: &[Token<'_>], index: usize) -> bool {
-    let Some(token) = tokens.get(index) else {
-        return false;
-    };
-    let Some(name) = tokens.get(index + 1) else {
-        return false;
-    };
-    let Some(brace) = tokens.get(index + 2) else {
-        return false;
-    };
+fn module_name<'source>(
+    token: &Token<'source>,
+    tokens: &TokenStream<'source>,
+) -> Option<&'source str> {
+    if token.kind != TokenKind::Ident || token.text != "mod" {
+        return None;
+    }
 
-    token.kind == TokenKind::Ident
-        && token.text == "mod"
-        && matches!(name.kind, TokenKind::Ident | TokenKind::RawIdent)
-        && brace.kind == TokenKind::OpenBrace
+    let mut lookahead = tokens.clone();
+    let name = lookahead.next()?;
+    let brace = lookahead.next()?;
+    let is_name = matches!(name.kind, TokenKind::Ident | TokenKind::RawIdent);
+
+    if !is_name || brace.kind != TokenKind::OpenBrace {
+        return None;
+    }
+
+    item_name(name)
 }
 
-fn is_path_start(tokens: &[Token<'_>], index: usize) -> bool {
-    let Some(token) = tokens.get(index) else {
-        return false;
-    };
-    let Some(first_colon) = tokens.get(index + 1) else {
-        return false;
-    };
-    let Some(second_colon) = tokens.get(index + 2) else {
-        return false;
-    };
-
+fn is_path_start<'source>(token: &Token<'source>, tokens: &TokenStream<'source>) -> bool {
     let starts_path =
         token.kind == TokenKind::Ident && (token.text == "crate" || token.text == "super");
 
-    starts_path && first_colon.kind == TokenKind::Colon && second_colon.kind == TokenKind::Colon
+    if !starts_path {
+        return false;
+    }
+
+    let mut lookahead = tokens.clone();
+    let Some(first_colon) = lookahead.next() else {
+        return false;
+    };
+    let Some(second_colon) = lookahead.next() else {
+        return false;
+    };
+
+    first_colon.kind == TokenKind::Colon && second_colon.kind == TokenKind::Colon
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     fn parse_segments(&mut self) -> Vec<Leaf> {
         let mut leaves = vec![Leaf {
             segments: Vec::new(),
             line: 0,
         }];
 
-        while let Some(token) = self.tokens.get(self.index) {
-            match token.kind {
+        while let Some(kind) = self.tokens.peek().map(|token| token.kind) {
+            match kind {
                 TokenKind::Ident | TokenKind::RawIdent => {
+                    let token = self.tokens.next().expect("a peeked token is present");
                     let name = item_name(token).expect("an identifier has a name");
                     push_segment(&mut leaves, name, token.line);
-                    self.index += 1;
                 }
                 TokenKind::Star => {
+                    let token = self.tokens.next().expect("a peeked token is present");
                     push_segment(&mut leaves, "*", token.line);
-                    self.index += 1;
                     break;
                 }
                 TokenKind::OpenBrace => {
-                    self.index += 1;
+                    self.tokens.next().expect("a peeked token is present");
                     let alternatives = self.parse_group();
                     leaves = combine(leaves, alternatives);
                     break;
@@ -177,7 +181,8 @@ impl Parser<'_> {
             }
 
             if self.colon_colon() {
-                self.index += 2;
+                self.tokens.next().expect("a peeked token is present");
+                self.tokens.next().expect("a peeked token is present");
             } else {
                 break;
             }
@@ -192,31 +197,33 @@ impl Parser<'_> {
         loop {
             while self
                 .tokens
-                .get(self.index)
+                .peek()
                 .is_some_and(|token| token.kind == TokenKind::Comma)
             {
-                self.index += 1;
+                self.tokens.next().expect("a peeked comma is present");
             }
 
-            let Some(token) = self.tokens.get(self.index) else {
+            let Some(kind) = self.tokens.peek().map(|token| token.kind) else {
                 break;
             };
 
-            if token.kind == TokenKind::CloseBrace {
-                self.index += 1;
+            if kind == TokenKind::CloseBrace {
+                self.tokens.next().expect("a peeked close brace is present");
                 break;
             }
 
             let mut item = self.parse_segments();
             leaves.append(&mut item);
 
-            match self.tokens.get(self.index).map(|token| token.kind) {
-                Some(TokenKind::Comma) => self.index += 1,
+            match self.tokens.peek().map(|token| token.kind) {
                 Some(TokenKind::CloseBrace) => {
-                    self.index += 1;
+                    self.tokens.next().expect("a peeked close brace is present");
                     break;
                 }
-                _ => self.index += 1,
+                Some(_) => {
+                    self.tokens.next().expect("a peeked token is present");
+                }
+                None => break,
             }
         }
 
@@ -224,10 +231,11 @@ impl Parser<'_> {
     }
 
     fn colon_colon(&self) -> bool {
-        let Some(first) = self.tokens.get(self.index) else {
+        let mut lookahead = self.tokens.clone();
+        let Some(first) = lookahead.next() else {
             return false;
         };
-        let Some(second) = self.tokens.get(self.index + 1) else {
+        let Some(second) = lookahead.next() else {
             return false;
         };
 

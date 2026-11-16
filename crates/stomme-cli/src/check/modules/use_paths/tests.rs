@@ -108,6 +108,26 @@ fn a_module_declaration_without_a_body_is_not_an_inline_module() {
 }
 
 #[test]
+fn group_parsing_stops_at_early_or_unexpected_tokens() {
+    let cases: [(&str, &[&[&str]]); 2] = [
+        ("use crate::{a, ;", &[&["crate", "a"], &["crate"]]),
+        (
+            "use crate::{a as b, #c}",
+            &[
+                &["crate", "a"],
+                &["crate", "b"],
+                &["crate"],
+                &["crate", "c"],
+            ],
+        ),
+    ];
+
+    for (source, expected_paths) in cases {
+        assert_eq!(segments(source), expected(expected_paths), "{source}");
+    }
+}
+
+#[test]
 fn uses_in_comments_and_strings_are_ignored() {
     assert_eq!(
         segments(
