@@ -20,6 +20,6 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      # GitHub's dependency graph cannot read pnpm 12 lockfiles, so this is the only
-      # advisory check on JavaScript packages. Fail on high and critical advisories only.
+      # Dependency review sees only what a pull request changes; this audit also catches
+      # advisories published later. Fail on high and critical advisories only.
       - run: pnpm audit --audit-level high
