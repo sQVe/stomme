@@ -56,22 +56,31 @@ pub(super) fn read_manifest<T: DeserializeOwned>(
     path: &str,
     missing: &str,
 ) -> anyhow::Result<Result<T, Problem>> {
+    let message = match read_toml_file(root, path)? {
+        Some(Ok(manifest)) => return Ok(Ok(manifest)),
+        Some(Err(reason)) => format!("is not a valid manifest: {reason}"),
+        None => missing.to_string(),
+    };
+
+    Ok(Err(config_problem(path.to_string(), message)))
+}
+
+// Returns `None` for a missing file, so each caller decides what a missing file means.
+pub(super) fn read_toml_file<T: DeserializeOwned>(
+    root: &Path,
+    path: &str,
+) -> anyhow::Result<Option<Result<T, String>>> {
     let full_path = root.join(path);
-    let message = match fs::read_to_string(&full_path) {
-        Ok(text) => match toml::from_str(&text) {
-            Ok(manifest) => return Ok(Ok(manifest)),
-            Err(error) => format!(
-                "is not a valid manifest: {}",
-                describe_toml_error(&error, &text)
-            ),
-        },
-        Err(error) if error.kind() == io::ErrorKind::NotFound => missing.to_string(),
+    let text = match fs::read_to_string(&full_path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(error).with_context(|| format!("Could not read {}", full_path.display()));
         }
     };
+    let parsed = toml::from_str(&text).map_err(|error| describe_toml_error(&error, &text));
 
-    Ok(Err(config_problem(path.to_string(), message)))
+    Ok(Some(parsed))
 }
 
 pub(super) fn config_problem(path: String, message: String) -> Problem {

@@ -1,11 +1,9 @@
-use std::fs;
-use std::io;
 use std::path::Path;
 
-use anyhow::Context as _;
 use serde::Deserialize;
 
-use super::{Problem, Rule, describe_toml_error};
+use super::cargo_manifest::{config_problem, read_toml_file};
+use super::{Problem, Rule};
 use crate::layer::policy::RequiredBan;
 
 const CLIPPY_FILE: &str = "clippy.toml";
@@ -57,23 +55,17 @@ pub(super) fn check(
 }
 
 fn read_project_bans(root: &Path) -> anyhow::Result<Result<Vec<ProjectBan>, Problem>> {
-    let path = root.join(CLIPPY_FILE);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Ok(Vec::new())),
-        Err(error) => {
-            return Err(error).with_context(|| format!("Could not read {}", path.display()));
+    let bans = match read_toml_file::<ProjectFile>(root, CLIPPY_FILE)? {
+        Some(Ok(file)) => file.disallowed_methods,
+        Some(Err(reason)) => {
+            let message = format!("is not valid: {reason}");
+
+            return Ok(Err(config_problem(CLIPPY_FILE.to_string(), message)));
         }
+        None => Vec::new(),
     };
 
-    match toml::from_str::<ProjectFile>(&text) {
-        Ok(file) => Ok(Ok(file.disallowed_methods)),
-        Err(error) => Ok(Err(Problem {
-            path: CLIPPY_FILE.to_string(),
-            rule: Rule::RustConfigFile,
-            message: format!("is not valid: {}", describe_toml_error(&error, &text)),
-        })),
-    }
+    Ok(Ok(bans))
 }
 
 fn ban_message(ban: &RequiredBan, entries: &[ProjectBan]) -> Option<String> {
