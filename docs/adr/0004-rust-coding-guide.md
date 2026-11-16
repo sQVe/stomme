@@ -3,7 +3,8 @@
 **Date**: 2026-11-13\
 **Status**: Accepted\
 **Related**: [ADR 0003 (Toolchain and quality gates)](./0003-toolchain-and-quality-gates.md),
-[Rust coding guide](../coding.md),
+[Rust coding guide](../stomme/languages/rust/guide.md),
+[stomme-only Rust rules](../coding.md),
 [rust-analyzer style](https://github.com/rust-lang/rust-analyzer/blob/master/docs/book/src/contributing/style.md),
 [Zed rules](https://github.com/zed-industries/zed/blob/main/.rules),
 [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
@@ -29,9 +30,11 @@ words, while rust-analyzer's examples use names such as `s`. Zed bans `mod.rs` f
 
 ## Decision
 
-stomme keeps Tau's coding instructions and adds `docs/coding.md`, which states only the Rust rules
-that override, clarify, or add to them. A Tau rule the guide does not change applies as written, so
-the guide never repeats one. The guide keeps one policy per item. Its reasons live in this ADR.
+stomme keeps Tau's coding instructions and adds a shared Rust guide, `languages/rust/guide.md`,
+which states only the Rust rules that override, clarify, or add to them. `sync` writes it to each
+project as `docs/stomme/languages/rust/guide.md`. A Tau rule the guide does not change applies as
+written, so the guide never repeats one. The guide keeps one policy per item. Its reasons live in
+this ADR. The repository's own `docs/coding.md` holds only rules that apply to stomme alone.
 
 ### Names
 
