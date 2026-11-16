@@ -149,3 +149,32 @@ fn check_passes_a_test_named_after_a_pascal_case_class_owner() {
 
     assert_eq!(problems, Vec::<Problem>::new());
 }
+
+#[test]
+fn check_passes_a_pascal_case_test_named_after_a_class_owner_family() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "src/Report.ts", "export class Report {}");
+    write_file(root.path(), "src/ReportIncomplete.test.ts", "");
+
+    let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
+
+    assert_eq!(problems, Vec::<Problem>::new());
+}
+
+#[test]
+fn check_reports_a_class_test_family_when_the_owner_exports_no_class() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "src/Report.ts", "");
+    write_file(root.path(), "src/ReportIncomplete.test.ts", "");
+
+    let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
+    let test_file_problems: Vec<&Problem> = problems
+        .iter()
+        .filter(|problem| problem.path == "src/ReportIncomplete.test.ts")
+        .collect();
+
+    assert_eq!(test_file_problems.len(), 1, "{problems:?}");
+    assert_eq!(test_file_problems[0].rule, Rule::TypeScriptFileCase);
+}
