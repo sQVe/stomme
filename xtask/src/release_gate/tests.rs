@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output};
 
 use super::*;
-use crate::test_support::temporary_directory;
+use crate::test_support::{strings, temporary_directory};
 
 const CONFIG: &str = "schema = 1\nversion = \"0.0.0\"\nlanguage = \"rust\"\n";
 
@@ -218,4 +218,63 @@ fn gate_refuses_a_stomme_toml_without_a_version_line() {
         "{message}"
     );
     assert!(calls().is_empty());
+}
+
+#[test]
+fn parse_arguments_reads_the_flags_and_rejects_wrong_ones() {
+    let arguments = strings(&["--stomme", "/bin/stomme", "--version", "1.2.3", "project"]);
+
+    assert_eq!(
+        parse_arguments(&arguments),
+        Some(Arguments {
+            binary: PathBuf::from("/bin/stomme"),
+            version: "1.2.3".to_string(),
+            folder: PathBuf::from("project"),
+        })
+    );
+
+    for arguments in [
+        strings(&["--other", "/bin/stomme", "--version", "1.2.3", "project"]),
+        strings(&["--stomme", "/bin/stomme", "--other", "1.2.3", "project"]),
+    ] {
+        assert_eq!(parse_arguments(&arguments), None, "{arguments:?}");
+    }
+}
+
+#[test]
+fn gate_keeps_the_indent_of_an_indented_version_line() {
+    let folder = project("schema = 1\n  version = \"0.0.0\"\nlanguage = \"rust\"\n");
+    install(Response::default(), Response::default());
+
+    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    let config =
+        std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml");
+
+    assert!(config.contains("  version = \"1.2.3\""), "{config}");
+}
+
+#[test]
+fn report_renders_the_heading_and_each_outcome() {
+    let folder = Path::new("/projects/example");
+    let cases = [
+        (Outcome::Passed, "### example\nPassed\n".to_string()),
+        (
+            Outcome::Failed {
+                step: "check",
+                output: "stomme: x\n".to_string(),
+            },
+            "### example\nFailed at check\n```text\nstomme: x\n```\n".to_string(),
+        ),
+        (
+            Outcome::NotAdopted {
+                output: "stomme: y".to_string(),
+            },
+            "### example\nNot adopted; reported only\n```text\nstomme: y\n```\n".to_string(),
+        ),
+    ];
+
+    for (outcome, expected) in cases {
+        assert_eq!(report(folder, &outcome), expected, "{outcome:?}");
+    }
 }
