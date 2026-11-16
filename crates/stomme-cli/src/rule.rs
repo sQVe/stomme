@@ -97,10 +97,10 @@ rules! {
     },
     BrokenInstallation => Metadata {
         id: "broken-installation",
-        summary: "`stomme.toml` is valid TOML that matches the schema and selects a valid layer set.",
+        summary: "`stomme.toml` is valid TOML that matches the schema, selects a valid layer set, and has a closed module table.",
         owner: Owner::Common,
         applies: "`stomme.toml` exists",
-        fields: &["schema", "version", "language", "layers", "roles", "violations"],
+        fields: &["schema", "version", "language", "layers", "roles", "violations", "modules"],
         enforcement: Enforcement::Enforced(Check {
             checker: "src/check.rs",
             fixtures: "tests/fixtures/rules/broken-installation",
@@ -397,14 +397,6 @@ rules! {
     ModuleListed => Metadata {
         id: "module-listed",
         summary: "Every source file belongs to a module in the module table.",
-        owner: Owner::Common,
-        applies: "the project has a module table",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
-    },
-    ModuleTableClosed => Metadata {
-        id: "module-table-closed",
-        summary: "Every module the module table allows as an import has its own row.",
         owner: Owner::Common,
         applies: "the project has a module table",
         fields: &[],
