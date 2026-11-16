@@ -15,8 +15,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The dependency graph cannot read pnpm 12 lockfiles, so this reviews GitHub
-      # Actions and Cargo dependencies. The weekly dependency audit checks JavaScript packages.
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
+          # vite-plus 0.3.0 advisories for the dev server and launch-editor, which the style
+          # package never starts. Remove them when vite-plus is at 1.1.0 or later.
+          allow-ghsas: GHSA-587h-7wmj-h5pm,GHSA-698v-4r3x-3vcv,GHSA-r825-w8mm-5pxw,GHSA-vfpm-58rq-9qcg,GHSA-rq7h-c2jc-7f22

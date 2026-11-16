@@ -49,9 +49,9 @@ checks dependencies with cargo-deny, and runs mutation testing as advice.
 - CI keeps jobs named `Check` and `Test (Linux)` so branch rules can require them. `Check` runs
   `Tidy`. `Test (Linux)` installs Node, pnpm with its cache, and Bun, installs dependencies with
   the frozen lockfile, and runs `Build`. Their versions are set in the workflow.
-- A scheduled pnpm audit checks package advisories because GitHub's dependency graph cannot
-  read the pnpm lockfile. Dependency review checks GitHub Actions and Cargo dependencies on
-  pull requests.
+- Dependency review checks the dependencies a pull request adds or changes, including the pnpm
+  lockfile. A scheduled pnpm audit checks every installed package, so advisories published after
+  a merge also fail.
 
 ### Mutation testing
 
