@@ -19,6 +19,11 @@ paths are relative to the stomme crate.
 | `adr-index-label` | An ADR index entry's label is the ADR's number and title. | common | `docs/adr/README.md` exists | none | src/check/adr_index.rs | tests/fixtures/rules/adr-index-label | enforced |
 | `adr-index-missing-file` | Every file the ADR index lists exists. | common | `docs/adr/README.md` exists | none | src/check/adr_index.rs | tests/fixtures/rules/adr-index-missing-file | enforced |
 | `adr-index-entry` | Every link line in the ADR index is `- [NNNN: Title](./NNNN-slug.md)`. | common | `docs/adr/README.md` exists | none | src/check/adr_index.rs | tests/fixtures/rules/adr-index-entry | enforced |
+| `rust-config-file` | The root `Cargo.toml` exists, and every Cargo manifest and `clippy.toml` the checks read is valid. | rust | always | none | src/check/cargo_manifest.rs | tests/fixtures/rules/rust-config-file | enforced |
+| `rust-lint-level` | `[workspace.lints]` keeps every shared lint at its shared priority and at least its shared level. | rust | always | none | src/check/rust_lints.rs | tests/fixtures/rules/rust-lint-level | enforced |
+| `rust-lint-inheritance` | Every workspace member has `[lints] workspace = true`. | rust | always | none | src/check/rust_members.rs | tests/fixtures/rules/rust-lint-inheritance | enforced |
+| `rust-required-ban` | `clippy.toml` holds each shared Rust `disallowed-methods` ban with its reason. | rust | always | none | none | none | guidance only |
+| `gpui-required-ban` | `clippy.toml` holds each GPUI `disallowed-methods` ban with its reason. | layer `gpui` | always | none | none | none | guidance only |
 | `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | none | none | none | project-local |
 | `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | none | none | none | project-local |
 | `module-table-closed` | Every module the module table allows as an import has its own row. | common | the project has a module table | none | none | none | project-local |
