@@ -139,8 +139,8 @@ is upgraded.
 
 For changes under `packages/style/src`, add a Changeset from the repository root with
 `pnpm changeset`. Select `@sqve/stomme-ts-style`, choose the version bump, and describe the change.
-Commit the generated file with the code. The Package release workflow checks that source changes have
-one with `pnpm changeset:check`.
+Commit the generated file with the code. The Changeset workflow checks that source changes have one
+with `pnpm changeset:check`.
 
 The Package release workflow uses Changesets on `main`. It opens a version pull request with
 `pnpm changeset:version`. Merging that pull request runs `pnpm run release`, which checks the
