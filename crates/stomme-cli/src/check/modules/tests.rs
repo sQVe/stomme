@@ -214,6 +214,80 @@ fn super_path_that_leaves_the_module_is_checked() {
 }
 
 #[test]
+fn super_path_past_the_crate_root_is_ignored() {
+    let root = project(
+        &[
+            ("src/ticket.rs", "mod ticket_parse;\n"),
+            (
+                "src/ticket/ticket_parse.rs",
+                "use super::super::super::store::read;\n",
+            ),
+            ("src/store.rs", ""),
+        ],
+        "[modules.ticket]\nentry = \"src/ticket.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_bin_file_owned_by_a_module_is_not_checked() {
+    let root = project(
+        &[
+            ("src/bin/tool.rs", "use crate::store::read;\n"),
+            ("src/store.rs", ""),
+        ],
+        "[modules.tool]\nentry = \"src/bin/tool.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_crate_root_file_owned_by_a_module_is_not_checked() {
+    let root = project(
+        &[
+            ("src/lib.rs", "use crate::store::read;\n"),
+            ("src/store.rs", ""),
+        ],
+        "[modules.root]\nentry = \"src/lib.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_bin_file_that_belongs_to_no_module_is_not_listed() {
+    let root = project(
+        &[("src/bin/tool.rs", "fn main() {}\n"), ("src/ticket.rs", "")],
+        "[modules.ticket]\nentry = \"src/ticket.rs\"\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_folder_without_its_file_is_not_a_crate_root_path() {
+    let root = project(
+        &[
+            ("src/ticket.rs", "use crate::x::y;\n"),
+            ("src/x/mod.rs", ""),
+        ],
+        "[modules.ticket]\nentry = \"src/ticket.rs\"\n\n[modules.x]\nentry = \"src/x/mod.rs\"\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModuleImports,
+        "ticket:x",
+        "folder without its file",
+    );
+}
+
+#[test]
 fn super_path_inside_an_inline_test_module_stays_in_the_module() {
     let root = project(
         &[("src/ticket.rs", "mod tests {\n    use super::*;\n}\n")],

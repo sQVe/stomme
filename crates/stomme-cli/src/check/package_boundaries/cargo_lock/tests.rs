@@ -101,6 +101,19 @@ fn distinct_versions_of_one_crate_keep_their_own_dependencies() {
 }
 
 #[test]
+fn a_source_selects_one_of_two_packages_with_the_same_name_and_version() {
+    let text = "version = 4\n\n[[package]]\nname = \"tikk-cli\"\nversion = \"0.0.0\"\ndependencies = [\"foo 1.0.0 (registry+https://example.com/index)\"]\n\n[[package]]\nname = \"foo\"\nversion = \"1.0.0\"\nsource = \"registry+https://example.com/index\"\ndependencies = [\"gpui\"]\n\n[[package]]\nname = \"foo\"\nversion = \"1.0.0\"\nsource = \"git+https://example.com/foo\"\n\n[[package]]\nname = \"gpui\"\nversion = \"0.0.0\"\n";
+    let lock = parse(text).expect("parse the lock");
+    let start = package(&lock, "tikk-cli");
+
+    let path = lock
+        .find_path(start, is_forbidden)
+        .expect("find the forbidden package");
+
+    assert_eq!(names(&path), ["tikk-cli", "foo", "gpui"]);
+}
+
+#[test]
 fn malformed_lock_reports_each_missing_field() {
     let cases = [
         (

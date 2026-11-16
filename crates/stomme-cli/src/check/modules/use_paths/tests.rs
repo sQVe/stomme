@@ -100,6 +100,51 @@ fn nested_inline_modules_are_recorded_in_order() {
 }
 
 #[test]
+fn path_after_an_inline_module_closes_keeps_no_inline_module() {
+    let paths = paths("mod a {\n    use super::store;\n}\nuse super::store;\n");
+
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[0].inline_modules, ["a"]);
+    assert_eq!(paths[1].inline_modules, Vec::<String>::new());
+}
+
+#[test]
+fn path_after_a_nested_inline_module_closes_stays_in_the_outer_module() {
+    let paths =
+        paths("mod a {\n    mod b {\n        use super::super::x;\n    }\n    use super::y;\n}\n");
+
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[0].segments, expected(&[&["super", "super", "x"]])[0]);
+    assert_eq!(paths[0].inline_modules, ["a", "b"]);
+    assert_eq!(paths[1].segments, expected(&[&["super", "y"]])[0]);
+    assert_eq!(paths[1].inline_modules, ["a"]);
+}
+
+#[test]
+fn an_identifier_before_a_brace_is_not_an_inline_module() {
+    let paths = paths("impl Store {\n    use super::store;\n}\n");
+
+    assert_eq!(paths.len(), 1);
+    assert_eq!(paths[0].inline_modules, Vec::<String>::new());
+}
+
+#[test]
+fn a_single_colon_after_crate_is_not_a_path_start() {
+    assert_eq!(
+        segments("crate: value\nuse crate::store;\n"),
+        expected(&[&["crate", "store"]])
+    );
+}
+
+#[test]
+fn a_single_colon_after_a_path_segment_ends_the_path() {
+    assert_eq!(
+        segments("use crate::store: value other;\nuse crate::other;\n"),
+        expected(&[&["crate", "store"], &["crate", "other"]])
+    );
+}
+
+#[test]
 fn a_module_declaration_without_a_body_is_not_an_inline_module() {
     let paths = paths("mod tests;\nuse super::store;\n");
 
