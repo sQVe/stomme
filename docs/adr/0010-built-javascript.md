@@ -1,4 +1,4 @@
-# ADR 0009: Ship built JavaScript
+# ADR 0010: Ship built JavaScript
 
 **Date**: 2026-10-01\
 **Status**: Accepted

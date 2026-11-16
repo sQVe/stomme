@@ -1,4 +1,4 @@
-# ADR 0007: Zero configuration, with every rule on
+# ADR 0008: Zero configuration, with every rule on
 
 **Date**: 2026-10-01\
 **Status**: Accepted
