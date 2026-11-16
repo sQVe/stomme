@@ -55,6 +55,34 @@ fn check_reports_each_rust_layout_break() {
             Rule::RustTestPlacement,
             "report_test.rs",
         ),
+        (
+            "catch-all folder",
+            &["src/utils/report.rs"][..],
+            "src/utils",
+            Rule::RustCatchAllName,
+            "utils",
+        ),
+        (
+            "nested catch-all folder",
+            &["src/a/shared/b.rs"][..],
+            "src/a/shared",
+            Rule::RustCatchAllName,
+            "shared",
+        ),
+        (
+            "test file with a _tests suffix",
+            &["src/report_tests.rs"][..],
+            "src/report_tests.rs",
+            Rule::RustTestPlacement,
+            "report_tests.rs",
+        ),
+        (
+            "test file in a tests folder",
+            &["src/report/tests/case.rs"][..],
+            "src/report/tests/case.rs",
+            Rule::RustTestPlacement,
+            "case.rs",
+        ),
     ];
 
     for (case, files, path, rule, key) in cases {
@@ -68,6 +96,17 @@ fn check_reports_each_rust_layout_break() {
 
         assert_problem(&problems, path, rule, key, case);
     }
+}
+
+#[test]
+fn check_passes_a_test_module_beside_its_owner() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "src/report/tests.rs", "");
+
+    let problems = check(&tree(root.path()));
+
+    assert_eq!(problems, Vec::<Problem>::new());
 }
 
 #[test]

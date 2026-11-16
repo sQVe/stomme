@@ -56,6 +56,27 @@ fn check_reports_each_typescript_layout_break() {
             Rule::TestFileName,
             "missing.test.ts",
         ),
+        (
+            "catch-all folder",
+            &["src/helpers/report.ts"][..],
+            "src/helpers",
+            Rule::TypeScriptCatchAllName,
+            "helpers",
+        ),
+        (
+            "owner folder beside a family file",
+            &["src/report/report.ts", "src/reportIncomplete.ts"][..],
+            "src/report",
+            Rule::TypeScriptOwnerFolder,
+            "reportIncomplete.ts",
+        ),
+        (
+            "nested owner folder beside a family file",
+            &["src/a/report/report.ts", "src/a/reportIncomplete.ts"][..],
+            "src/a/report",
+            Rule::TypeScriptOwnerFolder,
+            "reportIncomplete.ts",
+        ),
     ];
 
     for (case, files, path, rule, key) in cases {
@@ -68,6 +89,24 @@ fn check_reports_each_typescript_layout_break() {
         let problems = check(&tree(root.path()), &BTreeSet::new());
 
         assert_problem(&problems, path, rule, key, case);
+    }
+}
+
+#[test]
+fn check_passes_pascal_case_class_files() {
+    let cases = [
+        ("named export", "export class Report {}"),
+        ("default export", "export default class Report {}"),
+    ];
+
+    for (case, text) in cases {
+        let root = tempfile::tempdir().expect("create a temporary directory");
+
+        write_file(root.path(), "src/Report.ts", text);
+
+        let problems = check(&tree(root.path()), &BTreeSet::new());
+
+        assert_eq!(problems, Vec::<Problem>::new(), "{case}");
     }
 }
 
