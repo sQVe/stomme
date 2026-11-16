@@ -74,6 +74,7 @@ fn problem(message: String) -> Problem {
         path: PACKAGE_JSON.to_string(),
         rule: Rule::PackagePin,
         message,
+        key: None,
     }
 }
 

@@ -25,6 +25,7 @@ pub(super) fn check(root: &Path) -> anyhow::Result<Vec<Problem>> {
             path: (*part).to_string(),
             rule: Rule::RequiredPart,
             message: "is missing; every stomme project needs this file".to_string(),
+            key: None,
         })
         .collect();
 
@@ -43,6 +44,7 @@ fn full_check_problem(root: &Path) -> anyhow::Result<Option<Problem>> {
             path: full_check::TAU_CONFIG.to_string(),
             rule: Rule::TauFullCheck,
             message: error.to_string(),
+            key: None,
         })),
     }
 }

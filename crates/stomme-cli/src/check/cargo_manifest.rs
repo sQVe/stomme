@@ -88,6 +88,7 @@ pub(super) fn config_problem(path: String, message: String) -> Problem {
         path,
         rule: Rule::RustConfigFile,
         message,
+        key: None,
     }
 }
 

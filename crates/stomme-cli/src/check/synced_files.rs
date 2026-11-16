@@ -247,6 +247,7 @@ fn problem(path: &str, message: &str) -> Problem {
         path: path.to_string(),
         rule: Rule::SyncedFiles,
         message: message.to_string(),
+        key: None,
     }
 }
 
@@ -255,6 +256,7 @@ fn block_problem(path: &str, message: &str) -> Problem {
         path: path.to_string(),
         rule: Rule::AgentsBlock,
         message: message.to_string(),
+        key: None,
     }
 }
 
@@ -271,6 +273,7 @@ fn parent_problem(root: &Path, path: &str) -> Option<Problem> {
         path,
         rule: Rule::SyncedFiles,
         message: error.to_string(),
+        key: None,
     })
 }
 

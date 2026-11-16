@@ -13,7 +13,7 @@ A shared foundation for project structure, coding rules, and documentation. Read
 
 - stomme owns shared rules and checks. Projects own their modules, nouns, and project decisions.
   See [ADR 0002](docs/adr/0002-purpose-and-design.md).
-- `crates/stomme` is the `stomme` CLI, with two commands: `stomme check` and `stomme sync`.
+- `crates/stomme-cli` is the `stomme` CLI, with two commands: `stomme check` and `stomme sync`.
   `xtask` holds repository checks and mutation tooling.
 - `typescript/style` is the TypeScript style package, published as `@sqve/stomme-ts-style`.
 - The toolchain is pinned in `rust-toolchain.toml`. Lint levels live in `[workspace.lints]`, and CI

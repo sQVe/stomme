@@ -143,6 +143,7 @@ fn adr_problem(adr: &AdrFile, rule: Rule, message: String) -> Problem {
         path: adr.path.clone(),
         rule,
         message,
+        key: None,
     }
 }
 
@@ -151,6 +152,7 @@ fn index_problem(folder: &str, rule: Rule, message: String) -> Problem {
         path: format!("{folder}/{INDEX_FILE}"),
         rule,
         message,
+        key: None,
     }
 }
 

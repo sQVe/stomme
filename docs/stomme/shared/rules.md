@@ -7,6 +7,9 @@ paths are relative to the stomme crate.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `no-stomme` | The project has a `stomme.toml`. | common | always | none | src/check.rs | tests/fixtures/rules/no-stomme | enforced |
 | `broken-installation` | `stomme.toml` is valid TOML that matches the schema and selects a valid layer set. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
+| `role-name` | Every role name in `[roles]` is one of the shared roles. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-name | enforced |
+| `role-path` | Every role path is a relative folder inside the project. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-path | enforced |
+| `role-folder` | A role folder is named after the role or ends with `-<role>`. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-folder | enforced |
 | `required-part` | Every required file exists. | common | always | none | src/check/required_parts.rs | tests/fixtures/rules/required-part | enforced |
 | `synced-files` | `docs/stomme/` equals the owned set, and its record matches the files and the version. | common | `stomme.toml` is valid | `version`, `language`, `layers` | src/check/synced_files.rs | tests/fixtures/rules/synced-files | enforced |
 | `agents-block` | `AGENTS.md` holds the managed block between its markers, and its record matches the block. | common | `AGENTS.md` exists | `version`, `language`, `layers` | src/check/synced_files.rs | tests/fixtures/rules/agents-block | enforced |

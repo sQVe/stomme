@@ -106,6 +106,39 @@ rules! {
             fixtures: "tests/fixtures/rules/broken-installation",
         }),
     },
+    RoleName => Metadata {
+        id: "role-name",
+        summary: "Every role name in `[roles]` is one of the shared roles.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &["roles"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/roles.rs",
+            fixtures: "tests/fixtures/rules/role-name",
+        }),
+    },
+    RolePath => Metadata {
+        id: "role-path",
+        summary: "Every role path is a relative folder inside the project.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &["roles"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/roles.rs",
+            fixtures: "tests/fixtures/rules/role-path",
+        }),
+    },
+    RoleFolder => Metadata {
+        id: "role-folder",
+        summary: "A role folder is named after the role or ends with `-<role>`.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &["roles"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/roles.rs",
+            fixtures: "tests/fixtures/rules/role-folder",
+        }),
+    },
     RequiredPart => Metadata {
         id: "required-part",
         summary: "Every required file exists.",

@@ -40,6 +40,9 @@ Code uses a role's name in the language's normal case. A project names the capab
 a role itself, as [ADR 0002](./0002-capability-modules.md) says. The role list is closed, so a shared
 rule can rely on it. Adding a role is a change to this ADR.
 
+A role's folder is named after the role or ends with `-<role>`, such as `crates/tikk-cli` or
+`src/core`.
+
 ### Languages
 
 The language is `rust` or `typescript`. Each language has one coding guide, and a language rule
