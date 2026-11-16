@@ -20,8 +20,7 @@ fn sync_project(root: &std::path::Path) {
     sync::run(root, layer::catalog()).expect("sync the fixture project");
 }
 
-const USAGE: &str =
-    "Usage: stomme <check|sync>\n\nCheck or sync the project in the current directory.";
+const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync>\n\nCheck or sync the project in the current directory.";
 
 #[expect(
     clippy::print_stderr,
@@ -31,7 +30,10 @@ fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
 
     match arguments.as_slice() {
-        [command] if command == "check" => run_check(),
+        [command] if command == "check" => run_check("origin/main"),
+        [command, flag, reference] if command == "check" && flag == "--base" => {
+            run_check(reference)
+        }
         [command] if command == "sync" => run_sync(),
         _ => {
             eprintln!("{USAGE}");
@@ -44,8 +46,8 @@ fn main() -> ExitCode {
     clippy::print_stderr,
     reason = "problems and errors are the command's output"
 )]
-fn run_check() -> ExitCode {
-    let problems = match check_current_directory() {
+fn run_check(reference: &str) -> ExitCode {
+    let problems = match check_current_directory(reference) {
         Ok(problems) => problems,
         Err(error) => {
             eprintln!("stomme: {error:#}");
@@ -64,10 +66,11 @@ fn run_check() -> ExitCode {
     }
 }
 
-fn check_current_directory() -> anyhow::Result<Vec<check::Problem>> {
+fn check_current_directory(reference: &str) -> anyhow::Result<Vec<check::Problem>> {
     let root = env::current_dir().context("Could not read the current directory")?;
+    let target = check::TargetBranch::git(reference.to_string());
 
-    check::run(&root, layer::catalog())
+    check::run(&root, layer::catalog(), &target)
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]

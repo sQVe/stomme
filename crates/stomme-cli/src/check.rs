@@ -16,6 +16,9 @@ mod roles;
 mod rust_lints;
 mod rust_members;
 mod synced_files;
+mod violations;
+
+pub(crate) use violations::TargetBranch;
 
 #[cfg(test)]
 pub(crate) use package_pins::write_pinned_fixture;
@@ -48,7 +51,11 @@ impl fmt::Display for Problem {
     }
 }
 
-pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>> {
+pub(crate) fn run(
+    root: &Path,
+    catalog: &Catalog,
+    target: &TargetBranch,
+) -> anyhow::Result<Vec<Problem>> {
     let installation = config::read(root, catalog);
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
 
@@ -69,6 +76,8 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     if let Installation::Valid(selection) = &installation {
         problems.extend(roles::check(root, &selection.roles));
         problems.extend(layout::check(root, selection, catalog)?);
+        problems = violations::apply(problems, &selection.violations);
+        problems.extend(violations::growth(root, &selection.violations, target));
     }
 
     Ok(problems)

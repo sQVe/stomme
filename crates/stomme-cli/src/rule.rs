@@ -100,7 +100,7 @@ rules! {
         summary: "`stomme.toml` is valid TOML that matches the schema and selects a valid layer set.",
         owner: Owner::Common,
         applies: "`stomme.toml` exists",
-        fields: &["schema", "version", "language", "layers", "roles"],
+        fields: &["schema", "version", "language", "layers", "roles", "violations"],
         enforcement: Enforcement::Enforced(Check {
             checker: "src/check.rs",
             fixtures: "tests/fixtures/rules/broken-installation",
@@ -137,6 +137,28 @@ rules! {
         enforcement: Enforcement::Enforced(Check {
             checker: "src/check/roles.rs",
             fixtures: "tests/fixtures/rules/role-folder",
+        }),
+    },
+    ViolationStale => Metadata {
+        id: "violation-stale",
+        summary: "Every entry in `[[violations]]` matches a reported problem.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &["violations"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/violations.rs",
+            fixtures: "tests/fixtures/rules/violation-stale",
+        }),
+    },
+    ViolationGrowth => Metadata {
+        id: "violation-growth",
+        summary: "`[[violations]]` does not grow against the target branch.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid and has entries",
+        fields: &["violations"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/violations.rs",
+            fixtures: "tests/fixtures/rules/violation-growth",
         }),
     },
     RequiredPart => Metadata {
