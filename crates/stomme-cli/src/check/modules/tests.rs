@@ -360,3 +360,138 @@ fn a_module_path_matches_only_modules_in_the_same_crate() {
         "another crate",
     );
 }
+
+#[test]
+fn a_public_file_does_not_open_its_descendants() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod models;\n"),
+            ("src/config/models.rs", "pub mod internal;\n"),
+            ("src/config/models/internal.rs", "pub struct X;\n"),
+            ("src/ticket.rs", "use crate::config::models::internal::X;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"src/config/models.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModulePrivateFile,
+        "ticket:src/config/models/internal.rs",
+        "public parent file",
+    );
+    assert!(
+        problems[0]
+            .message
+            .contains("src/config/models/internal.rs"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn a_deeper_public_file_can_be_used() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod models;\n"),
+            ("src/config/models.rs", "pub mod internal;\n"),
+            ("src/config/models/internal.rs", "pub struct X;\n"),
+            ("src/ticket.rs", "use crate::config::models::internal::X;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"src/config/models/internal.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn items_of_a_public_file_are_allowed() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod models;\n"),
+            ("src/config/models.rs", "pub struct Model;\n"),
+            ("src/ticket.rs", "use crate::config::models::Model;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"src/config/models.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_private_file_use_from_a_test_file_is_allowed() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod parse;\n"),
+            ("src/config/parse.rs", "pub fn read() {}\n"),
+            ("src/store.rs", ""),
+            ("src/store/tests.rs", "use crate::config::parse::read;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_private_file_use_from_an_inline_test_module_is_allowed() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod parse;\n"),
+            ("src/config/parse.rs", "pub fn read() {}\n"),
+            (
+                "src/store.rs",
+                "mod tests {\n    use crate::config::parse::read;\n}\n",
+            ),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_private_file_use_from_production_code_is_reported() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod parse;\n"),
+            ("src/config/parse.rs", "pub fn read() {}\n"),
+            ("src/store.rs", "use crate::config::parse::read;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/store.rs",
+        Rule::ModulePrivateFile,
+        "store:src/config/parse.rs",
+        "production private file",
+    );
+}
+
+#[test]
+fn a_test_file_still_reports_an_unlisted_module() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod parse;\n"),
+            ("src/config/parse.rs", "pub fn read() {}\n"),
+            ("src/store.rs", ""),
+            ("src/store/tests.rs", "use crate::config::parse::read;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/store/tests.rs",
+        Rule::ModuleImports,
+        "store:config",
+        "test file unlisted module",
+    );
+}

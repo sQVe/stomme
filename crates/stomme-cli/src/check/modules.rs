@@ -153,10 +153,19 @@ fn check_file(
     for use_path in paths(source) {
         let mut current = file_path.clone();
         current.extend(use_path.inline_modules.iter().cloned());
+        let in_test_module = current.iter().any(|segment| segment == "tests");
         let Some(resolved) = resolve(&use_path, &current) else {
             continue;
         };
-        let Some(problem) = classify(tree, module, file, &resolved, &use_path, modules) else {
+        let Some(problem) = classify(
+            tree,
+            module,
+            file,
+            &resolved,
+            &use_path,
+            in_test_module,
+            modules,
+        ) else {
             continue;
         };
         let key = (problem.rule.id(), problem.key.clone());
@@ -203,6 +212,7 @@ fn classify(
     file: &SourceFile,
     resolved: &[String],
     use_path: &UsePath,
+    in_test_module: bool,
     modules: &[Module],
 ) -> Option<Problem> {
     let Some(found) = longest_prefix(modules, module, resolved) else {
@@ -223,23 +233,41 @@ fn classify(
         return Some(problem(file, Rule::ModuleImports, message, key));
     }
 
-    let segment = resolved.get(found.path.len())?;
-    let candidate_file = format!("{}/{}.rs", found.owner_folder, segment);
-    let candidate_folder = format!("{}/{}", found.owner_folder, segment);
-    let names_file = tree.files.iter().any(|file| file.path == candidate_file);
-    let names_folder = tree.folders.contains(&candidate_folder);
-
-    if (names_file || names_folder) && !found.public.contains(&candidate_file) {
+    if !in_test_module
+        && let Some(used_file) = deepest_file(tree, found, resolved)
+        && !found.public.contains(&used_file)
+    {
         let message = format!(
             "line {}: module `{}` uses `{}`, which `[modules.{}] public` does not list",
-            use_path.line, module.name, candidate_file, found.name
+            use_path.line, module.name, used_file, found.name
         );
-        let key = format!("{}:{}", module.name, candidate_file);
+        let key = format!("{}:{}", module.name, used_file);
 
         return Some(problem(file, Rule::ModulePrivateFile, message, key));
     }
 
     None
+}
+
+fn deepest_file(tree: &Tree, module: &Module, resolved: &[String]) -> Option<String> {
+    let mut folder = module.owner_folder.clone();
+    let mut reached = None;
+
+    for segment in resolved.iter().skip(module.path.len()) {
+        let candidate_folder = format!("{folder}/{segment}");
+        let candidate_file = format!("{candidate_folder}.rs");
+
+        if tree.files.iter().any(|file| file.path == candidate_file) {
+            reached = Some(candidate_file);
+            folder = candidate_folder;
+        } else if tree.folders.contains(&candidate_folder) {
+            folder = candidate_folder;
+        } else {
+            break;
+        }
+    }
+
+    reached
 }
 
 fn classify_unlisted(
