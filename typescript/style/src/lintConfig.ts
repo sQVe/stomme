@@ -65,6 +65,7 @@ const houseRules: Rules = {
   'seam/no-reflect-apply': 'error',
   'seam/no-reflect-get': 'error',
   'seam/no-unknown-type-aliases': 'error',
+  'seam/no-unnamed-arguments': 'error',
   'seam/no-widen-then-assert': 'error',
   'seam/require-safety-comment-for-type-assertion': 'error',
   'eslint/no-cond-assign': ['error', 'always'],
