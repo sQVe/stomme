@@ -219,6 +219,10 @@ fn prepare_fixture(source: &Path) -> tempfile::TempDir {
         apply_after_sync(root.path());
     }
 
+    if root.path().join(".package-pins").is_file() {
+        crate::check::write_pinned_fixture(root.path());
+    }
+
     root
 }
 
