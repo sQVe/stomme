@@ -7,6 +7,12 @@ mod test_support;
 
 use test_support::{complete_project, write_file};
 
+fn sync_project(root: &Path) {
+    let output = stomme(root, &["sync"]);
+
+    assert_eq!(output.status.code(), Some(0), "sync: {output:?}");
+}
+
 fn stomme(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_stomme"))
         .args(arguments)
@@ -148,6 +154,87 @@ fn check_reports_a_bad_layer_set_naming_the_layer() {
 }
 
 #[test]
+fn check_reports_an_extra_doc_that_does_not_exist() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        "stomme.toml",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"docs/missing.md\"]\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "stomme.toml",
+        "broken-installation",
+        "missing extra doc",
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("docs/missing.md"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn check_reports_an_extra_doc_inside_docs_stomme() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        "stomme.toml",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"docs/stomme/shared/coding.md\"]\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "stomme.toml",
+        "broken-installation",
+        "extra doc inside docs/stomme",
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("docs/stomme/shared/coding.md"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn check_reports_an_unknown_exception_field() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        "stomme.toml",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nother = []\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "stomme.toml",
+        "broken-installation",
+        "unknown exception field",
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("other"),
+        "{output:?}"
+    );
+}
+
+#[test]
 fn check_passes_a_project_with_valid_layers() {
     let root = complete_project();
 
@@ -159,6 +246,7 @@ fn check_passes_a_project_with_valid_layers() {
             env!("CARGO_PKG_VERSION")
         ),
     );
+    sync_project(root.path());
 
     let output = stomme(root.path(), &["check"]);
 

@@ -89,6 +89,7 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
                 env!("CARGO_PKG_VERSION")
             ),
         );
+        crate::sync_project(root.path());
 
         let problems = run(root.path(), &catalog).expect("check the project");
         let rules: Vec<Rule> = problems.iter().map(|problem| problem.rule).collect();
@@ -99,28 +100,37 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
 
 #[test]
 fn run_checks_rust_files_only_for_a_valid_rust_installation() {
+    let version = env!("CARGO_PKG_VERSION");
     let cases = [
         (
             "typescript",
-            "schema = 1\nversion = \"0.0.0\"\nlanguage = \"typescript\"\n",
+            format!("schema = 1\nversion = \"{version}\"\nlanguage = \"typescript\"\n"),
+            true,
             vec![],
         ),
         (
             "broken installation",
-            "schema = 2\nlanguage = \"rust\"\n",
+            "schema = 2\nlanguage = \"rust\"\n".to_string(),
+            false,
             vec![Rule::BrokenInstallation],
         ),
         (
             "rust",
-            "schema = 1\nversion = \"0.0.0\"\nlanguage = \"rust\"\n",
+            format!("schema = 1\nversion = \"{version}\"\nlanguage = \"rust\"\n"),
+            true,
             vec![Rule::RustConfigFile],
         ),
     ];
 
-    for (case, config, expected) in cases {
+    for (case, config, syncs, expected) in cases {
         let root = complete_project();
 
-        write_file(root.path(), CONFIG_FILE, config);
+        write_file(root.path(), CONFIG_FILE, &config);
+
+        if syncs {
+            crate::sync_project(root.path());
+        }
+
         fs::remove_file(root.path().join("Cargo.toml")).expect("remove Cargo.toml");
 
         let problems = run(root.path(), layer::catalog()).expect("check the project");

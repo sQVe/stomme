@@ -23,6 +23,7 @@ pub(crate) struct Selection {
     pub(crate) language: Language,
     pub(crate) layers: BTreeSet<String>,
     pub(crate) roles: BTreeMap<String, String>,
+    pub(crate) extra_docs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -34,6 +35,15 @@ struct Config {
     layers: Vec<String>,
     #[serde(default)]
     roles: BTreeMap<String, String>,
+    #[serde(default)]
+    exceptions: Exceptions,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Exceptions {
+    #[serde(default)]
+    extra_docs: Vec<String>,
 }
 
 pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
@@ -43,7 +53,7 @@ pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
         Err(error) => return Installation::Broken(format!("could not read the file: {error}")),
     };
 
-    match parse(&text, catalog) {
+    match parse(&text, catalog).and_then(|selection| validate_exceptions(root, selection)) {
         Ok(selection) => Installation::Valid(selection),
         Err(reason) => Installation::Broken(reason),
     }
@@ -92,7 +102,63 @@ fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
         language: config.language,
         layers,
         roles: config.roles,
+        extra_docs: config.exceptions.extra_docs,
     })
+}
+
+fn validate_exceptions(root: &Path, selection: Selection) -> Result<Selection, String> {
+    for path in &selection.extra_docs {
+        validate_extra_doc(root, path)?;
+    }
+
+    Ok(selection)
+}
+
+fn validate_extra_doc(root: &Path, path: &str) -> Result<(), String> {
+    if Path::new(path).is_absolute() {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` that is absolute; use a path under `docs/`"
+        ));
+    }
+
+    if path.split('/').any(|part| part == "..") {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` with a `..` part; use a path under `docs/`"
+        ));
+    }
+
+    if !path.starts_with("docs/") {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` outside `docs/`; use a path under `docs/`"
+        ));
+    }
+
+    if path == "docs/stomme" || path.starts_with("docs/stomme/") {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` inside `docs/stomme/`; synced files are not exceptions"
+        ));
+    }
+
+    let target = root.join(path);
+
+    if !target.is_file() {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` that is not an existing file"
+        ));
+    }
+
+    let docs = fs::canonicalize(root.join("docs"))
+        .map_err(|error| format!("could not resolve `docs/`: {error}"))?;
+    let resolved = fs::canonicalize(&target)
+        .map_err(|error| format!("could not resolve `{path}`: {error}"))?;
+
+    if !resolved.starts_with(&docs) {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` that resolves outside `docs/`"
+        ));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

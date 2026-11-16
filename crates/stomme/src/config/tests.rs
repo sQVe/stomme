@@ -1,5 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::Path;
+
+use tempfile::TempDir;
 
 use super::*;
 
@@ -15,6 +18,35 @@ fn installation(text: &str) -> Installation {
     fs::write(root.path().join(CONFIG_FILE), text).expect("write stomme.toml");
 
     read(root.path(), layer::catalog())
+}
+
+fn project_with(files: &[(&str, &str)]) -> TempDir {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    for (path, text) in files {
+        let path = root.path().join(path);
+        let parent = path.parent().expect("a file has a parent folder");
+
+        fs::create_dir_all(parent).expect("create the folder");
+        fs::write(path, text).expect("write the file");
+    }
+
+    root
+}
+
+fn installation_in(root: &Path, text: &str) -> Installation {
+    fs::write(root.join(CONFIG_FILE), text).expect("write stomme.toml");
+
+    read(root, layer::catalog())
+}
+
+fn exceptions(paths: &[&str]) -> String {
+    let quoted: Vec<String> = paths.iter().map(|path| format!("\"{path}\"")).collect();
+
+    with_version(&format!(
+        "language = \"rust\"\n\n[exceptions]\nextra_docs = [{}]\n",
+        quoted.join(", ")
+    ))
 }
 
 #[test]
@@ -57,6 +89,7 @@ fn read_accepts_a_schema_one_file() {
             language: Language::Rust,
             layers: BTreeSet::from(["gpui".to_string()]),
             roles: BTreeMap::from([("cli".to_string(), "crates/cli".to_string())]),
+            extra_docs: Vec::new(),
         })
     );
 }
@@ -70,6 +103,7 @@ fn read_defaults_to_no_layers_and_no_roles() {
             language: Language::TypeScript,
             layers: BTreeSet::new(),
             roles: BTreeMap::new(),
+            extra_docs: Vec::new(),
         })
     );
 }
@@ -193,4 +227,108 @@ fn read_reports_a_file_it_cannot_read_as_broken() {
         read(root.path(), layer::catalog()),
         Installation::Broken(_)
     ));
+}
+
+#[test]
+fn read_accepts_extra_docs_under_docs() {
+    let root = project_with(&[("docs/development.md", "# Development\n")]);
+    let installation = installation_in(root.path(), &exceptions(&["docs/development.md"]));
+
+    assert_eq!(
+        installation,
+        Installation::Valid(Selection {
+            version: VERSION.to_string(),
+            language: Language::Rust,
+            layers: BTreeSet::new(),
+            roles: BTreeMap::new(),
+            extra_docs: vec!["docs/development.md".to_string()],
+        })
+    );
+}
+
+#[test]
+fn read_reports_an_extra_doc_that_does_not_exist() {
+    let root = project_with(&[]);
+    let installation = installation_in(root.path(), &exceptions(&["docs/missing.md"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("docs/missing.md"), "{reason}");
+}
+
+#[test]
+fn read_reports_an_extra_doc_inside_docs_stomme() {
+    let root = project_with(&[("docs/stomme/guide.md", "# Guide\n")]);
+    let installation = installation_in(root.path(), &exceptions(&["docs/stomme/guide.md"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("docs/stomme/guide.md"), "{reason}");
+}
+
+#[test]
+fn read_reports_an_extra_doc_outside_docs() {
+    let root = project_with(&[("README.md", "# Readme\n")]);
+    let installation = installation_in(root.path(), &exceptions(&["README.md"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("README.md"), "{reason}");
+}
+
+#[test]
+fn read_reports_an_absolute_extra_doc() {
+    let root = project_with(&[]);
+    let installation = installation_in(root.path(), &exceptions(&["/etc/passwd"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("/etc/passwd"), "{reason}");
+}
+
+#[test]
+fn read_reports_an_extra_doc_with_a_parent_part() {
+    let root = project_with(&[("README.md", "# Readme\n")]);
+    let installation = installation_in(root.path(), &exceptions(&["docs/../README.md"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("docs/../README.md"), "{reason}");
+}
+
+#[cfg(unix)]
+#[test]
+fn read_reports_an_extra_doc_that_resolves_outside_docs() {
+    use std::os::unix::fs::symlink;
+
+    let root = project_with(&[("docs/development.md", "# Development\n")]);
+    let outside = tempfile::tempdir().expect("create an outside directory");
+    let target = outside.path().join("outside.md");
+
+    fs::write(&target, "# Outside\n").expect("write the outside file");
+    symlink(&target, root.path().join("docs/link.md")).expect("create the symlink");
+
+    let installation = installation_in(root.path(), &exceptions(&["docs/link.md"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("docs/link.md"), "{reason}");
+}
+
+#[test]
+fn read_reports_an_unknown_exception_field() {
+    let root = project_with(&[]);
+    let text = with_version("language = \"rust\"\n\n[exceptions]\nother = []\n");
+    let installation = installation_in(root.path(), &text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("other"), "{reason}");
 }

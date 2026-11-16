@@ -85,6 +85,7 @@ fn selection(language: Language) -> Selection {
         language,
         layers: BTreeSet::new(),
         roles: BTreeMap::new(),
+        extra_docs: Vec::new(),
     }
 }
 
