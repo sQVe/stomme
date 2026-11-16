@@ -10,8 +10,10 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
 
     send(names);`,
     'send({ ...(model === undefined ? {} : { model }) });',
+    'send({ ...(model === undefined ? { model } : {}) });',
     'send(getUser());',
     'send(user.name());',
+    'send(user.profile.name());',
     'send(getUser().name);',
     'items.filter(isOpen).map(toName);',
     'items.map((item) => (item.open ? 1 : 2));',
@@ -91,6 +93,22 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
     },
     {
       code: 'send({ ...make().value() });',
+      errors: [
+        {
+          message: 'Assign this call chain to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send({ ...(flag ? { left } : { right }) });',
+      errors: [
+        {
+          message: 'Assign this ternary to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(make().value.method());',
       errors: [
         {
           message: 'Assign this call chain to a named variable before passing it as an argument.',
