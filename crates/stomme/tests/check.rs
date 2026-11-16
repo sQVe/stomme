@@ -192,3 +192,25 @@ fn stomme_prints_usage_without_the_check_command() {
         );
     }
 }
+
+#[test]
+fn check_reports_a_weakened_shared_lint() {
+    let root = complete_project();
+    let manifest = fs::read_to_string(root.path().join("Cargo.toml")).expect("read Cargo.toml");
+
+    write_file(
+        root.path(),
+        "Cargo.toml",
+        &manifest.replace("todo = \"warn\"", "todo = \"allow\""),
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(&output, "Cargo.toml", "rust-lint-level", "weakened lint");
+    assert_eq!(
+        stderr_lines(&output),
+        [
+            "stomme: Cargo.toml: sets lint `clippy::todo` to `allow`; the shared policy needs at least `warn` [rust-lint-level]"
+        ]
+    );
+}

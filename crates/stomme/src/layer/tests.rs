@@ -8,7 +8,11 @@ fn layers(names: &[&str]) -> Vec<String> {
 }
 
 fn source(name: &'static str, manifest: &'static str) -> Source {
-    Source { name, manifest }
+    Source {
+        name,
+        manifest,
+        bans: None,
+    }
 }
 
 #[test]
@@ -66,7 +70,7 @@ fn select_reports_a_conflicting_pair_in_either_order() {
         source("one", "language = \"rust\"\nconflicts = [\"two\"]\n"),
         source("two", "language = \"rust\"\n"),
     ];
-    let catalog = Catalog::new(&sources, &[]).expect("the test catalog is valid");
+    let catalog = Catalog::new(&sources, &RUST, &[]).expect("the test catalog is valid");
 
     for listed in [["one", "two"], ["two", "one"]] {
         assert_eq!(
@@ -105,7 +109,7 @@ fn select_gives_the_same_set_for_layers_in_either_order() {
 
 #[test]
 fn catalog_accepts_the_compiled_in_layers_and_rules() {
-    assert!(Catalog::new(REGISTRY, &rule_owners()).is_ok());
+    assert!(Catalog::new(REGISTRY, &RUST, &rule_owners()).is_ok());
 }
 
 #[test]
@@ -116,7 +120,7 @@ fn catalog_reports_a_requirement_cycle() {
     ];
 
     assert_eq!(
-        Catalog::new(&sources, &[]).map(|_| ()),
+        Catalog::new(&sources, &RUST, &[]).map(|_| ()),
         Err(CatalogError::RequirementCycle {
             layers: layers(&["one", "two", "one"]),
         })
@@ -132,7 +136,7 @@ fn catalog_reports_a_manifest_naming_an_unknown_layer() {
 
     for (case, manifest) in cases {
         assert_eq!(
-            Catalog::new(&[source("one", manifest)], &[]).map(|_| ()),
+            Catalog::new(&[source("one", manifest)], &RUST, &[]).map(|_| ()),
             Err(CatalogError::UnknownLayer {
                 layer: "one",
                 unknown: "egui".to_string(),
@@ -147,7 +151,7 @@ fn catalog_reports_an_invalid_manifest() {
     let sources = [source("one", "language = \"go\"\n")];
 
     assert!(matches!(
-        Catalog::new(&sources, &[]),
+        Catalog::new(&sources, &RUST, &[]),
         Err(CatalogError::InvalidManifest { layer: "one", .. })
     ));
 }
@@ -162,7 +166,7 @@ fn catalog_reports_two_rules_with_one_id_naming_both_owners() {
     ];
 
     assert_eq!(
-        Catalog::new(&sources, &rules).map(|_| ()),
+        Catalog::new(&sources, &RUST, &rules).map(|_| ()),
         Err(CatalogError::DuplicateRuleId {
             id: "required-part",
             first: Owner::Common,
@@ -204,7 +208,7 @@ fn catalog_check_sees_the_compiled_in_rules() {
     rules.push((Owner::Layer("gpui"), "required-part"));
 
     assert_eq!(
-        Catalog::new(REGISTRY, &rules).map(|_| ()),
+        Catalog::new(REGISTRY, &RUST, &rules).map(|_| ()),
         Err(CatalogError::DuplicateRuleId {
             id: "required-part",
             first: Owner::Common,
@@ -239,4 +243,59 @@ fn registry_matches_the_layer_folders() {
         Vec::<&String>::new(),
         "registered modules without a folder under layers/"
     );
+}
+
+#[test]
+fn catalog_reports_an_invalid_rust_policy_file() {
+    let cases = [
+        (
+            "lints",
+            RustSource {
+                lints: PolicyFile {
+                    text: "[workspace.lints.clippy]\ntodo = \"loud\"\n",
+                    ..RUST.lints
+                },
+                clippy: RUST.clippy,
+            },
+            "languages/rust/lints.toml",
+        ),
+        (
+            "bans",
+            RustSource {
+                lints: RUST.lints,
+                clippy: PolicyFile {
+                    text: "disallowed-methods = [\"std::process::exit\"]\n",
+                    ..RUST.clippy
+                },
+            },
+            "languages/rust/clippy.toml",
+        ),
+    ];
+
+    for (case, rust, expected) in cases {
+        assert!(
+            matches!(
+                Catalog::new(REGISTRY, &rust, &[]),
+                Err(CatalogError::InvalidRustPolicy { file, .. }) if file == expected
+            ),
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn catalog_reports_invalid_layer_bans() {
+    let sources = [Source {
+        name: "one",
+        manifest: "language = \"rust\"\n",
+        bans: Some(LayerBans {
+            text: "disallowed-methods = [{ path = \"gpui::App::run\" }]\n",
+            rule: Rule::GpuiRequiredBan,
+        }),
+    }];
+
+    assert!(matches!(
+        Catalog::new(&sources, &RUST, &[]),
+        Err(CatalogError::InvalidLayerBans { layer: "one", .. })
+    ));
 }

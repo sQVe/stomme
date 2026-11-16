@@ -21,7 +21,23 @@ Follow the template for every new ADR.
 | 0002 | Old choice | 0001 | abc1234 |
 ";
 
+const CARGO_MANIFEST: &str = concat!(
+    "[workspace]\nmembers = [\"crates/*\"]\n\n",
+    include_str!("../../../languages/rust/lints.toml"),
+);
+
+const MEMBER_MANIFEST: &str = "\
+[package]
+name = \"cli\"
+version = \"0.0.0\"
+
+[lints]
+workspace = true
+";
+
 const FILES: &[(&str, &str)] = &[
+    ("Cargo.toml", CARGO_MANIFEST),
+    ("crates/cli/Cargo.toml", MEMBER_MANIFEST),
     (
         "stomme.toml",
         "schema = 1\nlanguage = \"rust\"\n\n[roles]\ncli = \"crates/cli\"\n",

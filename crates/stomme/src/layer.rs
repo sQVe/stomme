@@ -6,11 +6,13 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::check::{Owner, Rule};
+use policy::{LintPolicy, RequiredBan};
 
 mod gpui;
 mod gpui_component;
 mod herdr;
 mod pi;
+pub(crate) mod policy;
 mod react;
 
 const REGISTRY: &[Source] = &[
@@ -21,8 +23,23 @@ const REGISTRY: &[Source] = &[
     react::LAYER,
 ];
 
+macro_rules! policy_file {
+    ($path:literal) => {
+        PolicyFile {
+            path: $path,
+            text: include_str!(concat!("../../../", $path)),
+        }
+    };
+}
+
+pub(crate) const RUST: RustSource = RustSource {
+    lints: policy_file!("languages/rust/lints.toml"),
+    clippy: policy_file!("languages/rust/clippy.toml"),
+};
+
 static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
-    Catalog::new(REGISTRY, &rule_owners()).expect("the layer tests check the compiled-in catalog")
+    Catalog::new(REGISTRY, &RUST, &rule_owners())
+        .expect("the layer tests check the compiled-in catalog")
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -46,11 +63,31 @@ impl fmt::Display for Language {
 pub(crate) struct Source {
     name: &'static str,
     manifest: &'static str,
+    bans: Option<LayerBans>,
+}
+
+pub(crate) struct LayerBans {
+    text: &'static str,
+    rule: Rule,
+}
+
+pub(crate) struct RustSource {
+    pub(crate) lints: PolicyFile,
+    pub(crate) clippy: PolicyFile,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PolicyFile {
+    pub(crate) path: &'static str,
+    pub(crate) text: &'static str,
 }
 
 #[derive(Debug)]
 pub(crate) struct Catalog {
     layers: BTreeMap<&'static str, Manifest>,
+    layer_bans: BTreeMap<&'static str, (Rule, Vec<RequiredBan>)>,
+    rust_lints: LintPolicy,
+    rust_bans: Vec<RequiredBan>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +104,10 @@ struct Manifest {
 pub(crate) enum CatalogError {
     #[error("layer `{layer}` has an invalid layer.toml: {reason}")]
     InvalidManifest { layer: &'static str, reason: String },
+    #[error("layer `{layer}` has an invalid clippy.toml: {reason}")]
+    InvalidLayerBans { layer: &'static str, reason: String },
+    #[error("the Rust policy file {file} is invalid: {reason}")]
+    InvalidRustPolicy { file: &'static str, reason: String },
     #[error("layer `{layer}` names unknown layer `{unknown}`")]
     UnknownLayer {
         layer: &'static str,
@@ -163,8 +204,30 @@ pub(crate) fn select(
 }
 
 impl Catalog {
-    fn new(sources: &[Source], rules: &[(Owner, &'static str)]) -> Result<Self, CatalogError> {
+    pub(crate) fn rust_lints(&self) -> &LintPolicy {
+        &self.rust_lints
+    }
+
+    pub(crate) fn required_bans(&self, layers: &BTreeSet<String>) -> Vec<(Rule, &RequiredBan)> {
+        let base = self
+            .rust_bans
+            .iter()
+            .map(|ban| (Rule::RustRequiredBan, ban));
+        let selected = layers
+            .iter()
+            .filter_map(|layer| self.layer_bans.get(layer.as_str()))
+            .flat_map(|(rule, bans)| bans.iter().map(|ban| (*rule, ban)));
+
+        base.chain(selected).collect()
+    }
+
+    fn new(
+        sources: &[Source],
+        rust: &RustSource,
+        rules: &[(Owner, &'static str)],
+    ) -> Result<Self, CatalogError> {
         let mut layers = BTreeMap::new();
+        let mut layer_bans = BTreeMap::new();
 
         for source in sources {
             let manifest = toml::from_str(source.manifest).map_err(|error: toml::de::Error| {
@@ -175,9 +238,26 @@ impl Catalog {
             })?;
 
             layers.insert(source.name, manifest);
+
+            if let Some(bans) = &source.bans {
+                let required = policy::parse_required_bans(bans.text).map_err(|reason| {
+                    CatalogError::InvalidLayerBans {
+                        layer: source.name,
+                        reason,
+                    }
+                })?;
+
+                layer_bans.insert(source.name, (bans.rule, required));
+            }
         }
 
-        let catalog = Self { layers };
+        let (rust_lints, rust_bans) = parse_rust_policy(rust)?;
+        let catalog = Self {
+            layers,
+            layer_bans,
+            rust_lints,
+            rust_bans,
+        };
 
         catalog.check_names()?;
 
@@ -248,6 +328,19 @@ impl Catalog {
     }
 }
 
+fn parse_rust_policy(rust: &RustSource) -> Result<(LintPolicy, Vec<RequiredBan>), CatalogError> {
+    let invalid = |file: PolicyFile| {
+        move |reason| CatalogError::InvalidRustPolicy {
+            file: file.path,
+            reason,
+        }
+    };
+    let lints = policy::parse_lint_policy(rust.lints.text).map_err(invalid(rust.lints))?;
+    let bans = policy::parse_required_bans(rust.clippy.text).map_err(invalid(rust.clippy))?;
+
+    Ok((lints, bans))
+}
+
 fn check_rule_ids(rules: &[(Owner, &'static str)]) -> Result<(), CatalogError> {
     let mut owners: BTreeMap<&str, Owner> = BTreeMap::new();
 
@@ -277,10 +370,40 @@ fn rule_owners() -> Vec<(Owner, &'static str)> {
 pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalog {
     let sources: Vec<Source> = manifests
         .iter()
-        .map(|&(name, manifest)| Source { name, manifest })
+        .map(|&(name, manifest)| Source {
+            name,
+            manifest,
+            bans: None,
+        })
         .collect();
 
-    Catalog::new(&sources, &[]).expect("a test catalog is valid")
+    Catalog::new(&sources, &RUST, &[]).expect("a test catalog is valid")
+}
+
+#[cfg(test)]
+pub(crate) fn test_policy_catalog(
+    rust: &RustSource,
+    layer_bans: &[(&str, &'static str)],
+) -> Catalog {
+    let override_for = |layer: &str| {
+        layer_bans
+            .iter()
+            .find(|(name, _)| *name == layer)
+            .map(|&(_, text)| text)
+    };
+    let sources: Vec<Source> = REGISTRY
+        .iter()
+        .map(|source| Source {
+            name: source.name,
+            manifest: source.manifest,
+            bans: source.bans.as_ref().map(|bans| LayerBans {
+                text: override_for(source.name).unwrap_or(bans.text),
+                rule: bans.rule,
+            }),
+        })
+        .collect();
+
+    Catalog::new(&sources, rust, &[]).expect("a test policy catalog is valid")
 }
 
 #[cfg(test)]
