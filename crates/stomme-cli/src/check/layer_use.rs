@@ -94,21 +94,13 @@ fn files_together_evidence(
         .iter()
         .filter(|file| file.name == entry)
         .filter_map(|file| {
-            let manifest_path = join_folder(&file.folder, manifest);
+            let manifest_path = source_files::join(&file.folder, manifest);
 
             root.join(&manifest_path).is_file().then_some(manifest_path)
         })
         .min()?;
 
     Some((path, format!("is a mod manifest beside `{entry}`")))
-}
-
-fn join_folder(folder: &str, name: &str) -> String {
-    if folder.is_empty() {
-        name.to_string()
-    } else {
-        format!("{folder}/{name}")
-    }
 }
 
 fn read_package_json(root: &Path) -> anyhow::Result<Option<Value>> {

@@ -117,11 +117,3 @@ pub(super) fn is_pascal_case(stem: &str) -> bool {
 
     first.is_ascii_uppercase() && characters.all(|character| character.is_ascii_alphanumeric())
 }
-
-pub(super) fn join(folder: &str, name: &str) -> String {
-    if folder.is_empty() {
-        name.to_string()
-    } else {
-        format!("{folder}/{name}")
-    }
-}

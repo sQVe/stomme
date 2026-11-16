@@ -87,8 +87,11 @@ fn read_members(
             continue;
         }
 
-        let manifest: MemberRead =
-            read_manifest(root, &join(&member, ROOT_MANIFEST), MEMBER_MISSING)?;
+        let manifest: MemberRead = read_manifest(
+            root,
+            &join_member_path(&member, ROOT_MANIFEST),
+            MEMBER_MISSING,
+        )?;
 
         if let Ok(manifest) = &manifest {
             pending.extend(path_dependencies(root, &member, manifest, workspace));
@@ -148,7 +151,7 @@ fn segments(path: &str) -> Vec<&str> {
         .collect()
 }
 
-fn join(parent: &str, name: &str) -> String {
+fn join_member_path(parent: &str, name: &str) -> String {
     if parent.is_empty() {
         name.to_string()
     } else {
@@ -173,7 +176,7 @@ fn inheritance_problem(member: String, manifest: MemberRead) -> Option<Problem> 
     }
 
     Some(Problem {
-        path: join(&member, ROOT_MANIFEST),
+        path: join_member_path(&member, ROOT_MANIFEST),
         rule: Rule::RustLintInheritance,
         message:
             "lacks `[lints] workspace = true`; every workspace member inherits the shared lints"
