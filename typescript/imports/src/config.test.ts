@@ -99,7 +99,10 @@ it('refuses a version other than the package version', () => {
 });
 
 it('refuses invalid TOML', () => {
-  expect(refusal('schema =')).toContain('is not valid TOML');
+  const reason = refusal('schema =');
+
+  expect(reason).toContain('is not valid TOML');
+  expect(reason).not.toMatch(/^is not valid TOML: (?:[A-Za-z]+)?Error:/);
 });
 
 it('refuses a missing schema', () => {
@@ -110,6 +113,14 @@ it('refuses a missing schema', () => {
 
 it('refuses a schema other than 1', () => {
   expect(refusal(validConfig().replace('schema = 1', 'schema = 2'))).toContain('schema = 2');
+});
+
+it('refuses a float schema', () => {
+  expect(refusal(validConfig().replace('schema = 1', 'schema = 1.0'))).toContain('schema');
+});
+
+it('refuses an exponent schema', () => {
+  expect(refusal(validConfig().replace('schema = 1', 'schema = 1e0'))).toContain('schema');
 });
 
 it('refuses a missing version', () => {
@@ -286,6 +297,7 @@ it('refuses an unreadable file', () => {
     }
 
     expect(result.reason).toContain('could not read the file:');
+    expect(result.reason).not.toMatch(/^could not read the file: (?:[A-Za-z]+)?Error:/);
   });
 });
 

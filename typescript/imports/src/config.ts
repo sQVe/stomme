@@ -23,7 +23,7 @@ type RowResult = { ok: true; row: ModuleRow } | { ok: false; reason: string };
 type ModulesResult = { ok: true; modules: Map<string, ModuleRow> } | { ok: false; reason: string };
 
 const configFileName = 'stomme.toml';
-const schema = 1;
+const schema = 1n;
 const language = 'typescript';
 const rowFields = new Set(['entry', 'public', 'imports']);
 
@@ -42,7 +42,13 @@ const isStringList = (value: unknown): value is string[] =>
 const isStringTable = (value: unknown): value is Record<string, string> =>
   isTable(value) && Object.values(value).every((item) => typeof item === 'string');
 
-const formatValue = (value: unknown) => JSON.stringify(value);
+const formatValue = (value: unknown) => {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+
+  return JSON.stringify(value);
+};
 
 const readPackageVersion = (): string => {
   const text = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
@@ -273,7 +279,7 @@ export const parseConfig = (text: string, root: string): ConfigResult => {
   let table: TomlTable;
 
   try {
-    table = parseToml(text);
+    table = parseToml(text, { integersAsBigInt: true });
   } catch (error) {
     return refuse(`is not valid TOML: ${errorMessage(error)}`);
   }
