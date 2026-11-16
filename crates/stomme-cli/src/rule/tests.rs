@@ -190,10 +190,12 @@ fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
 
-        if let Some(check) = metadata.enforcement.check() {
-            let path = crate_path(check.checker);
+        if let Some(check) = metadata.enforcement.files() {
+            let checker = crate_path(check.checker);
+            let fixtures = crate_path(check.fixtures);
 
-            assert!(path.is_file(), "{}: {}", metadata.id, path.display());
+            assert!(checker.is_file(), "{}: {}", metadata.id, checker.display());
+            assert!(fixtures.exists(), "{}: {}", metadata.id, fixtures.display());
         }
     }
 }
