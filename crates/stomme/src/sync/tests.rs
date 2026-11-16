@@ -52,6 +52,16 @@ fn sync_project(root: &Path) -> Result<(), SyncError> {
     run(root, crate::layer::catalog())
 }
 
+fn write_record(root: &Path, path: &str) {
+    let record = format!(
+        "version = \"{}\"\n[files]\n\"{path}\" = \"hash\"\n",
+        env!("CARGO_PKG_VERSION")
+    );
+
+    fs::create_dir_all(root.join("docs/stomme")).expect("create docs/stomme");
+    fs::write(root.join(RECORD_FILE), record).expect("write the record");
+}
+
 fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut files = BTreeMap::new();
 
@@ -390,5 +400,90 @@ fn sync_refuses_a_locally_edited_owned_file() {
     assert_eq!(
         fs::read_to_string(&path).expect("read the owned file"),
         "local edit\n"
+    );
+}
+
+#[test]
+fn sync_refuses_a_record_that_names_the_record_file() {
+    let root = rust_project(&[]);
+    write_record(root.path(), RECORD_FILE);
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `docs/stomme/.sync-record.toml`, which is not an owned file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_refuses_a_record_that_names_a_path_outside_docs_stomme() {
+    let root = rust_project(&[]);
+    write_record(root.path(), "README.md");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `README.md`, which is not an owned file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_refuses_a_record_path_with_an_empty_part() {
+    let root = rust_project(&[]);
+    write_record(root.path(), "docs/stomme//coding.md");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `docs/stomme//coding.md`, which is not an owned file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_refuses_a_record_path_with_a_current_folder_part() {
+    let root = rust_project(&[]);
+    write_record(root.path(), "docs/stomme/./coding.md");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `docs/stomme/./coding.md`, which is not an owned file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_refuses_a_record_path_with_a_parent_folder_part() {
+    let root = rust_project(&[]);
+    write_record(root.path(), "docs/stomme/../coding.md");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `docs/stomme/../coding.md`, which is not an owned file"
+        ),
+        "{error:?}"
     );
 }
