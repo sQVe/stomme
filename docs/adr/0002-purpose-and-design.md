@@ -42,8 +42,10 @@ its version.
 
 ### Distribution and enforcement
 
-A Rust binary provides `init`, `sync`, and `check`. A TypeScript package supplies the import rule
-for TypeScript projects. Both read the same project configuration. Tau loads coding guides from
+A Rust binary provides `init`, `sync`, and `check`. The `@sqve/stomme-ts-imports` package supplies
+the import rule for TypeScript projects. Both read the same project configuration. The package
+version equals the binary's, so one release names a matching pair, and a test in the package keeps
+the two versions equal. Tau loads coding guides from
 the project's synced text and uses its bundled guides only when stomme is absent, not broken.
 
 `sync` writes only the owned set for the project's version, language, and layers. It also writes the
