@@ -16,6 +16,8 @@ A shared foundation for project structure, coding rules, and documentation. Read
 - `crates/stomme-cli` is the `stomme` CLI, with two commands: `stomme check` and `stomme sync`.
   `xtask` holds repository checks and mutation tooling.
 - `typescript/style` is the TypeScript style package, published as `@sqve/stomme-ts-style`.
+- `typescript/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
+  `stomme.toml`.
 - The toolchain is pinned in `rust-toolchain.toml`. Lint levels live in `[workspace.lints]`, and CI
   fails on warnings. Add single clippy lints, not whole groups. See
   [ADR 0003](docs/adr/0003-toolchain-and-quality-gates.md).
