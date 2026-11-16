@@ -132,6 +132,10 @@ fn describe_relative(root: &Path, path: &Path) -> String {
 }
 
 fn describe(path: &Path) -> String {
+    if let Some(text) = path.to_str() {
+        return text.to_string();
+    }
+
     #[cfg(unix)]
     {
         use std::fmt::Write as _;
@@ -197,5 +201,46 @@ mod tests {
 
         assert_eq!(path, "docs/stomme");
         assert_eq!(source.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn files_reports_a_read_error_with_a_utf8_name() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        if running_as_root() {
+            return;
+        }
+
+        let root = tempfile::tempdir().expect("create a temporary directory");
+        let folder = root.path().join("docs/stomme/café");
+
+        fs::create_dir_all(&folder).expect("create the unreadable folder");
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o000))
+            .expect("make the folder unreadable");
+
+        let error = files(root.path(), ".sync-record.toml")
+            .find_map(Result::err)
+            .expect("the walk reports the unreadable folder");
+
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o700))
+            .expect("restore the folder permissions");
+
+        let WalkError::Read { path, source } = error else {
+            panic!("expected a read error, got {error:?}");
+        };
+
+        assert_eq!(path, "docs/stomme/café");
+        assert_eq!(source.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    fn running_as_root() -> bool {
+        std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .is_some_and(|uid| uid.trim() == "0")
     }
 }
