@@ -128,6 +128,10 @@ const isEvaluatedChild = (parent: ESTree.Node, child: ESTree.Node): boolean => {
     return isFromObject(parent, child);
   }
 
+  if (parent.type === 'MemberExpression') {
+    return parent.computed && parent.property === child;
+  }
+
   return false;
 };
 
