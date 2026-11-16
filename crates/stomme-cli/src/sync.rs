@@ -16,6 +16,7 @@ use crate::owned::{self, DOCS_FOLDER, LinkError, OwnedFile};
 use crate::synced_tree;
 use crate::synced_tree::WalkError;
 
+mod package_pins;
 mod record_state;
 
 pub(crate) use record_state::{RecordState, record_state};
@@ -54,6 +55,8 @@ pub(crate) enum SyncError {
     BlockLink { target: String },
     #[error("{path} is not owned by stomme; remove it")]
     Extra { path: String },
+    #[error("package.json {reason}")]
+    PackageManifest { reason: String },
     #[error("could not read {path}: {source}")]
     Read { path: String, source: io::Error },
     #[error("could not write {path}: {source}")]
@@ -179,6 +182,10 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
         &mut writes,
         &mut files,
     )?;
+
+    if let Some(write) = package_pins::plan(root)? {
+        writes.push(write);
+    }
 
     let deletes = plan_deletes(root, record.as_ref(), &owned_paths)?;
     let record = Record {
