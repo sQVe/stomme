@@ -136,6 +136,54 @@ fn check_reports_a_record_hash_that_differs() {
 }
 
 #[test]
+fn check_reports_a_synced_file_missing_from_the_record() {
+    let root = complete_project();
+    let path = "docs/stomme/shared/coding.md";
+
+    rewrite_record(root.path(), |record| {
+        record.files.remove(path);
+    });
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
+        .expect("the file is reported");
+
+    assert!(
+        problem.message.contains("not in the ownership record"),
+        "{problem:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_non_utf8_entry_name() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = complete_project();
+    let folder = root
+        .path()
+        .join("docs/stomme")
+        .join(OsStr::from_bytes(b"\xff"));
+
+    fs::create_dir_all(&folder).expect("create a folder with a non-UTF-8 name");
+    fs::write(folder.join("extra.md"), "extra\n").expect("write the extra file");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.message.contains("UTF-8"))
+        .expect("the entry is reported");
+
+    assert!(problem.path.contains("\\xFF"), "{problem:?}");
+    assert_eq!(problem.rule, Rule::SyncedFiles);
+}
+
+#[test]
 fn check_reports_a_recorded_file_that_is_not_owned() {
     let root = complete_project();
     let path = "docs/stomme/old.md";

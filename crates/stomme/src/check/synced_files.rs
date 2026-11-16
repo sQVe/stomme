@@ -13,7 +13,7 @@ use crate::layer::Catalog;
 use crate::owned;
 use crate::rule::Rule;
 use crate::sync::{self, RECORD_FILE, Record, RecordState};
-use crate::synced_tree;
+use crate::synced_tree::{self, WalkError};
 
 pub(super) fn check(
     root: &Path,
@@ -225,8 +225,12 @@ fn check_extra_files(
     for item in synced_tree::files(root, RECORD_FILE) {
         let relative = match item {
             Ok(relative) => relative,
-            Err(error) => {
-                return Err(error.source).with_context(|| format!("Could not read {}", error.path));
+            Err(WalkError::Read { path, source } | WalkError::MissingRoot { path, source }) => {
+                return Err(source).with_context(|| format!("Could not read {path}"));
+            }
+            Err(WalkError::NotUtf8 { path }) => {
+                problems.push(problem(&path, "is not valid UTF-8; rename it"));
+                continue;
             }
         };
 
