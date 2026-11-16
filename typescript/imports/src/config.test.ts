@@ -116,11 +116,29 @@ it('refuses a schema other than 1', () => {
 });
 
 it('refuses a float schema', () => {
-  expect(refusal(validConfig().replace('schema = 1', 'schema = 1.0'))).toContain('schema');
+  const reason = refusal(validConfig().replace('schema = 1', 'schema = 1.0'));
+
+  expect(reason).toContain('not an integer');
 });
 
 it('refuses an exponent schema', () => {
-  expect(refusal(validConfig().replace('schema = 1', 'schema = 1e0'))).toContain('schema');
+  const reason = refusal(validConfig().replace('schema = 1', 'schema = 1e0'));
+
+  expect(reason).toContain('not an integer');
+});
+
+it('refuses a list schema without throwing', () => {
+  const text = validConfig().replace('schema = 1', 'schema = [1]');
+
+  expect(() => parseConfig(text, '/project')).not.toThrow();
+  expect(refusal(text)).toContain('not an integer');
+});
+
+it('refuses a table schema without throwing', () => {
+  const text = validConfig().replace('schema = 1', 'schema = { value = 1 }');
+
+  expect(() => parseConfig(text, '/project')).not.toThrow();
+  expect(refusal(text)).toContain('not an integer');
 });
 
 it('refuses a missing version', () => {
@@ -135,6 +153,13 @@ it('refuses a non-string version', () => {
   expect(refusal(text)).toContain('`version` that is not a string');
 });
 
+it('refuses a list version without throwing', () => {
+  const text = `schema = 1\nversion = [1]\nlanguage = "typescript"`;
+
+  expect(() => parseConfig(text, '/project')).not.toThrow();
+  expect(refusal(text)).toContain('`version` that is not a string');
+});
+
 it('refuses a missing language', () => {
   const text = `schema = 1\nversion = "${packageVersion()}"`;
 
@@ -144,6 +169,13 @@ it('refuses a missing language', () => {
 it('refuses a non-string language', () => {
   const text = `schema = 1\nversion = "${packageVersion()}"\nlanguage = 1`;
 
+  expect(refusal(text)).toContain('`language` that is not a string');
+});
+
+it('refuses a list language without throwing', () => {
+  const text = `schema = 1\nversion = "${packageVersion()}"\nlanguage = [1]`;
+
+  expect(() => parseConfig(text, '/project')).not.toThrow();
   expect(refusal(text)).toContain('`language` that is not a string');
 });
 
