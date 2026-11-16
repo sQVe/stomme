@@ -239,10 +239,7 @@ impl Parser<'_, '_> {
     }
 
     fn skip_alias(&mut self) {
-        let is_alias = self
-            .tokens
-            .peek()
-            .is_some_and(|token| token.kind == TokenKind::Ident && token.text == "as");
+        let is_alias = self.tokens.peek().is_some_and(|token| token.text == "as");
 
         if !is_alias {
             return;
