@@ -5,9 +5,9 @@
 
 ## Context
 
-stomme is a binary that reads files outside its crate folder, including the shared rule catalog and
-language policies. A crate on crates.io cannot carry those files, so publishing only the crate would
-ship a binary that cannot find its data.
+The stomme binary embeds shared rules, guides, layer files, and `packages.toml` from folders outside
+its crate folder. `cargo package` leaves those files out, so a crate published to crates.io would
+not build.
 
 Projects pin a stomme version and declare the npm packages they use. A release must therefore carry
 both the binary and the compatible package versions, and an incompatible update must fail before a
@@ -47,7 +47,7 @@ immutable.
 ### Negative
 
 - Users install with mise or `cargo binstall --git`, not `cargo install stomme`.
-- A release waits for the gate to build the candidate and check every adopted project.
+- A release waits for the gate to run the built archive against every project.
 
 ## Alternatives considered
 
