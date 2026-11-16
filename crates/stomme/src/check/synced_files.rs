@@ -12,6 +12,18 @@ use crate::rule::Rule;
 use crate::sync::{self, RECORD_FILE, Record};
 
 pub(super) fn check(root: &Path, selection: &Selection) -> anyhow::Result<Vec<Problem>> {
+    let owned = owned::owned_set(selection);
+
+    if let Some(problem) = parent_problem(root, RECORD_FILE) {
+        return Ok(vec![problem]);
+    }
+
+    for file in &owned {
+        if let Some(problem) = parent_problem(root, &file.path) {
+            return Ok(vec![problem]);
+        }
+    }
+
     let mut problems = Vec::new();
     let record = match Record::read(root) {
         Ok(Some(record)) => record,
@@ -36,7 +48,6 @@ pub(super) fn check(root: &Path, selection: &Selection) -> anyhow::Result<Vec<Pr
         problems.push(problem(RECORD_FILE, &message));
     }
 
-    let owned = owned::owned_set(selection);
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
     let recorded_paths: BTreeSet<&str> = record.files.keys().map(String::as_str).collect();
     let known_paths: BTreeSet<&str> = owned_paths.union(&recorded_paths).copied().collect();
@@ -121,13 +132,8 @@ fn check_extra_files(
     known: &BTreeSet<&str>,
     problems: &mut Vec<Problem>,
 ) -> anyhow::Result<()> {
-    let entries = match fs::read_dir(root.join(folder)) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("Could not read {folder}"));
-        }
-    };
+    let entries =
+        fs::read_dir(root.join(folder)).with_context(|| format!("Could not read {folder}"))?;
 
     for entry in entries {
         let entry = entry.with_context(|| format!("Could not read {folder}"))?;
@@ -167,6 +173,22 @@ fn problem(path: &str, message: &str) -> Problem {
         rule: Rule::SyncedFiles,
         message: message.to_string(),
     }
+}
+
+fn parent_problem(root: &Path, path: &str) -> Option<Problem> {
+    let error = sync::check_parent_folders(root, path).err()?;
+    let path = match &error {
+        sync::SyncError::SymlinkedFolder { path }
+        | sync::SyncError::NotAFile { path }
+        | sync::SyncError::Read { path, .. } => path.clone(),
+        _ => String::new(),
+    };
+
+    Some(Problem {
+        path,
+        rule: Rule::SyncedFiles,
+        message: error.to_string(),
+    })
 }
 
 #[cfg(test)]

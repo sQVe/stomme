@@ -253,7 +253,7 @@ fn validate_record(record: &Record) -> Result<(), SyncError> {
     Ok(())
 }
 
-fn check_parent_folders(root: &Path, path: &str) -> Result<(), SyncError> {
+pub(crate) fn check_parent_folders(root: &Path, path: &str) -> Result<(), SyncError> {
     let parts: Vec<&str> = path.split('/').collect();
 
     for end in 1..parts.len() {
