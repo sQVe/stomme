@@ -15,6 +15,7 @@ mod required_parts;
 mod roles;
 mod rust_lints;
 mod rust_members;
+mod source_files;
 mod synced_files;
 mod violations;
 

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::source_files::{SourceFile, Tree};
 use super::{Problem, catch_all_folders, is_catch_all, is_snake_case, join, problem};
+use crate::check::source_files::{SourceFile, Tree};
 use crate::rule::Rule;
 
 pub(super) fn check(tree: &Tree) -> Vec<Problem> {

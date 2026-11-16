@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::*;
-use crate::check::layout::source_files;
+use crate::check::source_files;
 use crate::layer::Language;
 use crate::rule::Rule;
 use crate::test_support::write_file;
