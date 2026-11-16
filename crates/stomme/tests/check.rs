@@ -61,19 +61,37 @@ fn check_reports_a_project_without_stomme_toml() {
 #[test]
 fn check_reports_a_broken_stomme_toml() {
     let cases = [
-        ("syntax error", "schema = 1\nlanguage = \"rust\n"),
+        (
+            "syntax error",
+            format!(
+                "schema = 1\nversion = \"{}\"\nlanguage = \"rust\n",
+                env!("CARGO_PKG_VERSION")
+            ),
+        ),
         (
             "unknown field",
-            "schema = 1\nlanguage = \"rust\"\nname = \"x\"\n",
+            format!(
+                "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\nname = \"x\"\n",
+                env!("CARGO_PKG_VERSION")
+            ),
         ),
-        ("missing language", "schema = 1\n"),
-        ("schema 2", "schema = 2\nlanguage = \"rust\"\n"),
+        (
+            "missing language",
+            format!("schema = 1\nversion = \"{}\"\n", env!("CARGO_PKG_VERSION")),
+        ),
+        (
+            "schema 2",
+            format!(
+                "schema = 2\nversion = \"{}\"\nlanguage = \"rust\"\n",
+                env!("CARGO_PKG_VERSION")
+            ),
+        ),
     ];
 
     for (case, text) in cases {
         let root = complete_project();
 
-        write_file(root.path(), "stomme.toml", text);
+        write_file(root.path(), "stomme.toml", &text);
 
         let output = stomme(root.path(), &["check"]);
 
@@ -110,7 +128,14 @@ fn check_reports_a_bad_layer_set_naming_the_layer() {
     for (case, text, named) in cases {
         let root = complete_project();
 
-        write_file(root.path(), "stomme.toml", &format!("schema = 1\n{text}"));
+        write_file(
+            root.path(),
+            "stomme.toml",
+            &format!(
+                "schema = 1\nversion = \"{}\"\n{text}",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
 
         let output = stomme(root.path(), &["check"]);
 
@@ -129,7 +154,10 @@ fn check_passes_a_project_with_valid_layers() {
     write_file(
         root.path(),
         "stomme.toml",
-        "schema = 1\nlanguage = \"rust\"\nlayers = [\"gpui-component\", \"gpui\"]\n",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\nlayers = [\"gpui-component\", \"gpui\"]\n",
+            env!("CARGO_PKG_VERSION")
+        ),
     );
 
     let output = stomme(root.path(), &["check"]);
@@ -187,7 +215,7 @@ fn stomme_prints_usage_without_the_check_command() {
 
         assert_eq!(output.status.code(), Some(1), "{arguments:?}");
         assert!(
-            String::from_utf8_lossy(&output.stderr).starts_with("Usage: stomme check"),
+            String::from_utf8_lossy(&output.stderr).starts_with("Usage: stomme <check|sync>"),
             "{arguments:?}"
         );
     }

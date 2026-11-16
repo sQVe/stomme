@@ -100,7 +100,7 @@ rules! {
         summary: "`stomme.toml` is valid TOML that matches the schema and selects a valid layer set.",
         owner: Owner::Common,
         applies: "`stomme.toml` exists",
-        fields: &["schema", "language", "layers", "roles"],
+        fields: &["schema", "version", "language", "layers", "roles"],
         enforcement: Enforcement::Enforced(Check {
             checker: "src/check.rs",
             fixtures: "tests/fixtures/rules/broken-installation",

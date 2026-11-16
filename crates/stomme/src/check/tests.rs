@@ -33,7 +33,10 @@ fn run_reports_a_conflicting_pair_in_either_order() {
         write_file(
             root.path(),
             CONFIG_FILE,
-            &format!("schema = 1\nlanguage = \"rust\"\nlayers = [{listed}]\n"),
+            &format!(
+                "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\nlayers = [{listed}]\n",
+                env!("CARGO_PKG_VERSION")
+            ),
         );
 
         let problems = run(root.path(), &catalog).expect("check the project");
@@ -81,7 +84,10 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
         write_file(
             root.path(),
             CONFIG_FILE,
-            &format!("schema = 1\nlanguage = \"rust\"\n{layers}"),
+            &format!(
+                "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n{layers}",
+                env!("CARGO_PKG_VERSION")
+            ),
         );
 
         let problems = run(root.path(), &catalog).expect("check the project");
@@ -96,7 +102,7 @@ fn run_checks_rust_files_only_for_a_valid_rust_installation() {
     let cases = [
         (
             "typescript",
-            "schema = 1\nlanguage = \"typescript\"\n",
+            "schema = 1\nversion = \"0.0.0\"\nlanguage = \"typescript\"\n",
             vec![],
         ),
         (
@@ -106,7 +112,7 @@ fn run_checks_rust_files_only_for_a_valid_rust_installation() {
         ),
         (
             "rust",
-            "schema = 1\nlanguage = \"rust\"\n",
+            "schema = 1\nversion = \"0.0.0\"\nlanguage = \"rust\"\n",
             vec![Rule::RustConfigFile],
         ),
     ];

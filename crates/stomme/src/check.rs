@@ -86,7 +86,7 @@ fn installation_problem(installation: &Installation) -> Option<Problem> {
         Installation::Valid(_) => return None,
         Installation::NoStomme => (
             Rule::NoStomme,
-            "is missing; add one with `schema = 1` and a `language`".to_string(),
+            "is missing; add one with `schema = 1`, `version`, and a `language`".to_string(),
         ),
         Installation::Broken(reason) => (Rule::BrokenInstallation, reason.clone()),
     };
