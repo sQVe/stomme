@@ -27,7 +27,10 @@ describe('runSeam', () => {
     expect(runSeam(['src', 'tests/a.ts'], run)).toBe(0);
 
     expect(calls).toEqual([
-      { commandArguments: ['lint', '--deny-warnings', 'src', 'tests/a.ts'], styleEnabled: true },
+      {
+        commandArguments: ['lint', '--deny-warnings', '--', 'src', 'tests/a.ts'],
+        styleEnabled: true,
+      },
     ]);
   });
 
@@ -37,8 +40,8 @@ describe('runSeam', () => {
     expect(runSeam(['--fix', 'src'], run)).toBe(0);
 
     expect(calls).toEqual([
-      { commandArguments: ['lint', '--deny-warnings', '--fix', 'src'], styleEnabled: true },
-      { commandArguments: ['fmt', 'src'], styleEnabled: false },
+      { commandArguments: ['lint', '--deny-warnings', '--fix', '--', 'src'], styleEnabled: true },
+      { commandArguments: ['fmt', '--', 'src'], styleEnabled: false },
     ]);
   });
 
@@ -48,7 +51,7 @@ describe('runSeam', () => {
     runSeam(['src', '--fix'], run);
 
     expect(calls).toEqual([
-      { commandArguments: ['lint', '--deny-warnings', 'src', '--fix'], styleEnabled: true },
+      { commandArguments: ['lint', '--deny-warnings', '--', 'src', '--fix'], styleEnabled: true },
     ]);
   });
 

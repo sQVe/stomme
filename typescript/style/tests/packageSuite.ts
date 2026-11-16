@@ -317,6 +317,25 @@ export const behaviorTests: PackageTests = (context) => {
     );
   });
 
+  it('treats --fix after a path as a path and leaves the file unchanged', async ({
+    expect,
+    onTestFinished,
+  }) => {
+    const { directory, folder } = await context.caseFolder(
+      { 'sample.ts': lines('let value = 1;', 'export { value };') },
+      onTestFinished,
+    );
+
+    const result = await context.consumer.seam([`${folder}/sample.ts`, '--fix']);
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+
+    expect(await readFile(join(directory, 'sample.ts'), 'utf8')).toBe(
+      lines('let value = 1;', 'export { value };'),
+    );
+  });
+
   it('pads loop exits and multiline statements in a form the formatter keeps', async ({
     expect,
     onTestFinished,
