@@ -137,3 +137,15 @@ fn check_passes_a_test_named_after_its_owner_family() {
 
     assert_eq!(problems, Vec::<Problem>::new());
 }
+
+#[test]
+fn check_passes_a_test_named_after_a_pascal_case_class_owner() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "src/Report.ts", "export class Report {}");
+    write_file(root.path(), "src/Report.test.ts", "");
+
+    let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
+
+    assert_eq!(problems, Vec::<Problem>::new());
+}

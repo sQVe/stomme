@@ -40,6 +40,12 @@ fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<O
         return Ok(None);
     }
 
+    if let Some(base) = test_base(file)
+        && has_class_owner(tree, file, base)?
+    {
+        return Ok(None);
+    }
+
     Ok(Some(problem(
         file,
         Rule::TypeScriptFileCase,
@@ -48,6 +54,24 @@ fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<O
             file.name
         ),
     )))
+}
+
+fn has_class_owner(tree: &Tree, file: &SourceFile, base: &str) -> anyhow::Result<bool> {
+    if !is_pascal_case(base) {
+        return Ok(false);
+    }
+
+    let extension = if file.is_tsx() { ".tsx" } else { ".ts" };
+    let owner_name = format!("{base}{extension}");
+    let Some(owner) = tree
+        .files
+        .iter()
+        .find(|sibling| sibling.folder == file.folder && sibling.name == owner_name)
+    else {
+        return Ok(false);
+    };
+
+    Ok(exports_class(&tree.read(owner)?, base))
 }
 
 fn exports_class(text: &str, stem: &str) -> bool {

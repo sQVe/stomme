@@ -274,6 +274,28 @@ fn check_passes_a_project_with_valid_layers() {
 }
 
 #[test]
+fn check_passes_a_typescript_project_without_the_react_layer() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        "stomme.toml",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"typescript\"\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+    write_file(root.path(), "src/button.tsx", "");
+    sync_project(root.path());
+
+    let output = stomme(root.path(), &["check"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(!stderr.contains("[react-component-file]"), "{stderr}");
+}
+
+#[test]
 fn check_reports_every_problem_in_one_run() {
     let root = complete_project();
 
@@ -315,7 +337,14 @@ fn check_reports_an_adr_it_cannot_read() {
 #[test]
 fn stomme_prints_usage_without_the_check_command() {
     let root = complete_project();
-    let cases: [&[&str]; 4] = [&[], &["lint"], &["check", "extra"], &["check", "--base"]];
+    let cases: [&[&str]; 6] = [
+        &[],
+        &["lint"],
+        &["check", "extra"],
+        &["check", "--base"],
+        &["lint", "--base", "main"],
+        &["check", "--reference", "main"],
+    ];
 
     for arguments in cases {
         let output = stomme(root.path(), arguments);
@@ -337,7 +366,7 @@ fn check_base_reads_the_named_ref() {
         "schema = 1\nversion = \"{version}\"\nlanguage = \"rust\"\n\n[roles]\ncli = \"src/domain\"\n"
     );
     let with_entry = format!(
-        "{without_entry}\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n"
+        "{without_entry}\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"cli:domain\"\n"
     );
 
     fs::create_dir_all(root.path().join("src/domain")).expect("create the role folder");

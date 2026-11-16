@@ -87,7 +87,7 @@ fn folder_problem(name: &str, path: &str) -> Option<Problem> {
         message: format!(
             "gives role `{name}` the folder `{path}`; name the folder `{name}` or end it with `-{name}`"
         ),
-        key: Some(folder.into_owned()),
+        key: Some(format!("{name}:{folder}")),
     })
 }
 

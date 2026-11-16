@@ -170,7 +170,7 @@ fn check_reports_a_role_folder_in_each_language() {
         assert_eq!(folder_problems[0].path, "src/domain", "{language}");
         assert_eq!(
             folder_problems[0].key.as_deref(),
-            Some("domain"),
+            Some("core:domain"),
             "{language}"
         );
     }
@@ -188,7 +188,7 @@ fn problem_display_names_the_key() {
         path: "src/domain".to_string(),
         rule: Rule::RoleFolder,
         message: "names the wrong folder".to_string(),
-        key: Some("domain".to_string()),
+        key: Some("core:domain".to_string()),
     };
 
     assert_eq!(
@@ -197,7 +197,7 @@ fn problem_display_names_the_key() {
     );
     assert_eq!(
         keyed.to_string(),
-        "src/domain: names the wrong folder (key `domain`) [role-folder]"
+        "src/domain: names the wrong folder (key `core:domain`) [role-folder]"
     );
 }
 

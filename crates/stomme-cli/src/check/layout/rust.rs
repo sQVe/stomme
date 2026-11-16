@@ -95,18 +95,10 @@ fn owner_folder(tree: &Tree) -> Vec<Problem> {
                 continue;
             }
 
-            let Some((owner, _)) = file.stem.split_once('_') else {
+            let Some(owner) = owner_prefix(&file.stem, &names, tree, folder) else {
                 continue;
             };
             let base = format!("{owner}.rs");
-
-            if !names.contains(base.as_str()) {
-                continue;
-            }
-
-            if !tree.folders.contains(&join(folder, owner)) {
-                continue;
-            }
 
             problems.push(Problem {
                 path: join(folder, &base),
@@ -121,6 +113,22 @@ fn owner_folder(tree: &Tree) -> Vec<Problem> {
     }
 
     problems
+}
+
+fn owner_prefix<'a>(
+    stem: &'a str,
+    names: &BTreeSet<&str>,
+    tree: &Tree,
+    folder: &str,
+) -> Option<&'a str> {
+    stem.match_indices('_')
+        .map(|(index, _)| &stem[..index])
+        .filter(|owner| {
+            let base = format!("{owner}.rs");
+
+            names.contains(base.as_str()) && tree.folders.contains(&join(folder, owner))
+        })
+        .max_by_key(|owner| owner.len())
 }
 
 fn is_test_file(file: &SourceFile) -> bool {
