@@ -9,12 +9,18 @@ use super::Problem;
 use crate::agents_block;
 use crate::config::Selection;
 use crate::full_check;
-use crate::owned::{self, DOCS_FOLDER};
+use crate::layer::Catalog;
+use crate::owned;
 use crate::rule::Rule;
-use crate::sync::{self, RECORD_FILE, Record};
+use crate::sync::{self, RECORD_FILE, Record, RecordState};
+use crate::synced_tree;
 
-pub(super) fn check(root: &Path, selection: &Selection) -> anyhow::Result<Vec<Problem>> {
-    let owned = owned::owned_set(selection);
+pub(super) fn check(
+    root: &Path,
+    selection: &Selection,
+    catalog: &Catalog,
+) -> anyhow::Result<Vec<Problem>> {
+    let owned = owned::owned_set(selection, catalog);
 
     if let Some(problem) = parent_problem(root, RECORD_FILE) {
         return Ok(vec![problem]);
@@ -68,7 +74,7 @@ pub(super) fn check(root: &Path, selection: &Selection) -> anyhow::Result<Vec<Pr
     }
 
     check_block(root, selection, &record, &mut problems)?;
-    check_extra_files(root, DOCS_FOLDER, &known_paths, &mut problems)?;
+    check_extra_files(root, &known_paths, &mut problems)?;
 
     Ok(problems)
 }
@@ -140,13 +146,13 @@ fn check_block(
         return Ok(());
     }
 
-    match record.files.get(agents_block::PATH) {
-        Some(recorded) if *recorded == actual => {}
-        Some(_) => problems.push(block_problem(
+    match sync::record_state(Some(record), agents_block::PATH, &actual) {
+        RecordState::Matches => {}
+        RecordState::Differs => problems.push(block_problem(
             agents_block::PATH,
             "does not match the ownership record; run `stomme sync`",
         )),
-        None => problems.push(block_problem(
+        RecordState::Missing => problems.push(block_problem(
             agents_block::PATH,
             "is not in the ownership record; run `stomme sync`",
         )),
@@ -196,13 +202,13 @@ fn check_owned_file(
         return Ok(());
     }
 
-    match record.files.get(&file.path) {
-        Some(recorded) if *recorded == actual => {}
-        Some(_) => problems.push(problem(
+    match sync::record_state(Some(record), &file.path, &actual) {
+        RecordState::Matches => {}
+        RecordState::Differs => problems.push(problem(
             &file.path,
             "does not match the ownership record; run `stomme sync`",
         )),
-        None => problems.push(problem(
+        RecordState::Missing => problems.push(problem(
             &file.path,
             "is not in the ownership record; run `stomme sync`",
         )),
@@ -213,43 +219,23 @@ fn check_owned_file(
 
 fn check_extra_files(
     root: &Path,
-    folder: &str,
     known: &BTreeSet<&str>,
     problems: &mut Vec<Problem>,
 ) -> anyhow::Result<()> {
-    let entries =
-        fs::read_dir(root.join(folder)).with_context(|| format!("Could not read {folder}"))?;
-
-    for entry in entries {
-        let entry = entry.with_context(|| format!("Could not read {folder}"))?;
-        let path = entry.path();
-        let relative = relative_path(root, &path);
-
-        if relative == RECORD_FILE {
-            continue;
+    let files = match synced_tree::files(root, RECORD_FILE) {
+        Ok(files) => files,
+        Err(error) => {
+            return Err(error.source).with_context(|| format!("Could not read {}", error.path));
         }
+    };
 
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("Could not read {relative}"))?;
-
-        if file_type.is_dir() {
-            check_extra_files(root, &relative, known, problems)?;
-        } else if !known.contains(relative.as_str()) {
+    for relative in files {
+        if !known.contains(relative.as_str()) {
             problems.push(problem(&relative, "is not owned by stomme; remove it"));
         }
     }
 
     Ok(())
-}
-
-fn relative_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .expect("a docs/stomme entry lies inside the root")
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 fn problem(path: &str, message: &str) -> Problem {

@@ -44,7 +44,7 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
 
     if let Installation::Valid(selection) = &installation {
-        problems.extend(synced_files::check(root, selection)?);
+        problems.extend(synced_files::check(root, selection, catalog)?);
     }
 
     problems.extend(required_parts::check(root)?);

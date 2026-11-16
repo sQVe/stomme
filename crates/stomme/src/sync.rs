@@ -13,6 +13,12 @@ use crate::config::{self, Installation, Selection};
 use crate::full_check;
 use crate::layer::Catalog;
 use crate::owned::{self, DOCS_FOLDER, LinkError, OwnedFile};
+use crate::synced_tree;
+use crate::synced_tree::WalkError;
+
+mod record_state;
+
+pub(crate) use record_state::{RecordState, record_state};
 
 pub(crate) const RECORD_FILE: &str = "docs/stomme/.sync-record.toml";
 
@@ -79,7 +85,7 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> Result<(), SyncError> {
         Installation::NoStomme => return Err(SyncError::NoStomme),
         Installation::Broken(reason) => return Err(SyncError::Broken { reason }),
     };
-    let owned = owned::owned_set(&selection);
+    let owned = owned::owned_set(&selection, catalog);
 
     sync(root, &selection, &owned)
 }
@@ -223,11 +229,9 @@ fn plan_block(
         return Ok(());
     }
 
-    let recorded = record
-        .and_then(|record| record.files.get(agents_block::PATH))
-        .is_some_and(|recorded| *recorded == hash(current.as_bytes()));
+    let actual = hash(current.as_bytes());
 
-    if !recorded {
+    if record_state(record, agents_block::PATH, &actual) != RecordState::Matches {
         return Err(SyncError::Edited {
             path: agents_block::PATH.to_string(),
         });
@@ -284,11 +288,9 @@ fn plan_writes(
             continue;
         }
 
-        let recorded = record
-            .and_then(|record| record.files.get(&file.path))
-            .is_some_and(|recorded| *recorded == hash(&existing));
+        let actual = hash(&existing);
 
-        if !recorded {
+        if record_state(record, &file.path, &actual) != RecordState::Matches {
             return Err(SyncError::Edited {
                 path: file.path.clone(),
             });
@@ -310,7 +312,7 @@ fn plan_deletes(
     };
     let mut deletes = Vec::new();
 
-    for (path, recorded_hash) in &record.files {
+    for path in record.files.keys() {
         if owned_paths.contains(path.as_str()) || path == agents_block::PATH {
             continue;
         }
@@ -319,7 +321,9 @@ fn plan_deletes(
             continue;
         };
 
-        if hash(&existing) != *recorded_hash {
+        let actual = hash(&existing);
+
+        if record_state(Some(record), path, &actual) != RecordState::Matches {
             return Err(SyncError::Edited { path: path.clone() });
         }
 
@@ -404,60 +408,26 @@ fn check_extra_files(
     owned: &BTreeSet<&str>,
     recorded: &BTreeSet<&str>,
 ) -> Result<(), SyncError> {
-    collect_extra_files(root, DOCS_FOLDER, owned, recorded)
-}
-
-fn collect_extra_files(
-    root: &Path,
-    folder: &str,
-    owned: &BTreeSet<&str>,
-    recorded: &BTreeSet<&str>,
-) -> Result<(), SyncError> {
-    let entries = match fs::read_dir(root.join(folder)) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(source) => {
-            return Err(SyncError::Read {
-                path: folder.to_string(),
-                source,
-            });
-        }
+    let files = match synced_tree::files(root, RECORD_FILE) {
+        Ok(files) => files,
+        Err(error) if error.source.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(read_error(error)),
     };
 
-    for entry in entries {
-        let entry = entry.map_err(|source| SyncError::Read {
-            path: folder.to_string(),
-            source,
-        })?;
-        let path = entry.path();
-        let relative = relative_path(root, &path);
-
-        if relative == RECORD_FILE {
-            continue;
-        }
-
-        let file_type = entry.file_type().map_err(|source| SyncError::Read {
-            path: relative.clone(),
-            source,
-        })?;
-
-        if file_type.is_dir() {
-            collect_extra_files(root, &relative, owned, recorded)?;
-        } else if !owned.contains(relative.as_str()) && !recorded.contains(relative.as_str()) {
-            return Err(SyncError::Extra { path: relative });
+    for path in files {
+        if !owned.contains(path.as_str()) && !recorded.contains(path.as_str()) {
+            return Err(SyncError::Extra { path });
         }
     }
 
     Ok(())
 }
 
-fn relative_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .expect("a docs/stomme entry lies inside the root")
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
+fn read_error(error: WalkError) -> SyncError {
+    SyncError::Read {
+        path: error.path,
+        source: error.source,
+    }
 }
 
 fn metadata(root: &Path, path: &str) -> Result<Option<fs::Metadata>, SyncError> {

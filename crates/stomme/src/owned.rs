@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use thiserror::Error;
 
 use crate::config::Selection;
-use crate::layer;
+use crate::layer::Catalog;
 
 pub(crate) const DOCS_FOLDER: &str = "docs/stomme";
 
@@ -81,7 +81,7 @@ pub(crate) enum LinkError {
     Broken { path: String, target: String },
 }
 
-pub(crate) fn owned_set(selection: &Selection) -> Vec<OwnedFile> {
+pub(crate) fn owned_set(selection: &Selection, catalog: &Catalog) -> Vec<OwnedFile> {
     let mut files: Vec<OwnedFile> = SHARED
         .iter()
         .map(|&(path, content)| owned(path, content))
@@ -96,7 +96,7 @@ pub(crate) fn owned_set(selection: &Selection) -> Vec<OwnedFile> {
     );
 
     for layer in &selection.layers {
-        let guide = layer::catalog()
+        let guide = catalog
             .guide(layer)
             .expect("the selection names a registered layer");
         let path = format!("layers/{layer}/guide.md");
@@ -324,7 +324,7 @@ fn run_length(bytes: &[u8], index: usize, marker: u8) -> usize {
 fn embedded_paths() -> BTreeSet<String> {
     let shared = SHARED.iter().map(|&(path, _)| path.to_string());
     let languages = LANGUAGE_GUIDES.iter().map(|&(path, _)| path.to_string());
-    let layers = layer::catalog()
+    let layers = crate::layer::catalog()
         .guides()
         .map(|(name, _)| format!("layers/{name}/guide.md"));
 
