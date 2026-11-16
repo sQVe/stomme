@@ -33,6 +33,8 @@
   on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 - `typescript/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
+- `typescript/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
+  `stomme.toml`.
 - `shared/rules.md` is generated from the rule catalog in `crates/stomme-cli/src/rule.rs`. A test
   fails when the two differ.
 
@@ -49,7 +51,8 @@ nextest, rustdoc, and `stomme check`, and reports every failed check at the end.
 Warnings fail clippy, the Rust tests, and rustdoc. Every Cargo build runs with `--locked`, so a
 stale `Cargo.lock` fails too.
 
-It also runs these package steps, each through `pnpm --filter @sqve/stomme-ts-style run <script>`:
+It also runs these package steps, each through `pnpm -r run <script>` in both `typescript/style`
+and `typescript/imports`:
 
 | Step | Script |
 |---|---|
@@ -76,6 +79,8 @@ Fix problems with these commands:
 | Some clippy warnings | `cargo clippy --workspace --all-targets --fix` |
 | TypeScript style | `pnpm --filter @sqve/stomme-ts-style run style:fix` |
 | TypeScript formatting | `pnpm --filter @sqve/stomme-ts-style run format` |
+| Import package style | `pnpm --filter @sqve/stomme-ts-imports run style:fix` |
+| Import package formatting | `pnpm --filter @sqve/stomme-ts-imports run format` |
 | Stale `shared/rules.md` | `UPDATE=1 cargo nextest run -p stomme rules_table` |
 
 The pre-commit hook runs rustfmt, clippy, typos, and taplo, but only in check mode. Run the fix
