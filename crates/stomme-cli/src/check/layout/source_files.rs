@@ -10,6 +10,7 @@ use crate::synced_tree::{describe_relative, relative_path};
 const SKIP_FOLDERS: &[&str] = &["target", "node_modules", "vendor", "dist", "fixtures"];
 
 pub(crate) struct Tree {
+    root: PathBuf,
     pub(super) files: Vec<SourceFile>,
     pub(super) folders: BTreeSet<String>,
 }
@@ -19,7 +20,6 @@ pub(crate) struct SourceFile {
     pub(super) name: String,
     pub(super) stem: String,
     pub(super) folder: String,
-    pub(super) text: String,
 }
 
 impl SourceFile {
@@ -33,6 +33,11 @@ impl SourceFile {
 }
 
 impl Tree {
+    pub(super) fn read(&self, file: &SourceFile) -> anyhow::Result<String> {
+        fs::read_to_string(self.root.join(&file.path))
+            .with_context(|| format!("Could not read {}", file.path))
+    }
+
     pub(super) fn source_folders(&self) -> BTreeSet<&str> {
         let mut folders = BTreeSet::new();
 
@@ -93,7 +98,7 @@ pub(super) fn walk(root: &Path, language: Language) -> anyhow::Result<Tree> {
                     return Err(not_utf8(root, &path));
                 };
 
-                if let Some(file) = source_file(root, relative, language)? {
+                if let Some(file) = source_file(relative, language)? {
                     files.push(file);
                 }
             }
@@ -102,14 +107,14 @@ pub(super) fn walk(root: &Path, language: Language) -> anyhow::Result<Tree> {
 
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
-    Ok(Tree { files, folders })
+    Ok(Tree {
+        root: root.to_path_buf(),
+        files,
+        folders,
+    })
 }
 
-fn source_file(
-    root: &Path,
-    path: String,
-    language: Language,
-) -> anyhow::Result<Option<SourceFile>> {
+fn source_file(path: String, language: Language) -> anyhow::Result<Option<SourceFile>> {
     let name = path.rsplit('/').next().unwrap_or(&path).to_string();
 
     if !matches_language(&name, language) {
@@ -120,15 +125,12 @@ fn source_file(
     let folder = path
         .rsplit_once('/')
         .map_or(String::new(), |(folder, _)| folder.to_string());
-    let text =
-        fs::read_to_string(root.join(&path)).with_context(|| format!("Could not read {path}"))?;
 
     Ok(Some(SourceFile {
         path,
         name,
         stem,
         folder,
-        text,
     }))
 }
 

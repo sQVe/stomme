@@ -1,18 +1,8 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::*;
-
-fn git(root: &Path, arguments: &[&str]) {
-    let output = Command::new("git")
-        .args(arguments)
-        .current_dir(root)
-        .output()
-        .expect("run git");
-
-    assert!(output.status.success(), "{arguments:?}: {output:?}");
-}
+use crate::test_support::{commit, git};
 
 fn repository(files: &[(&str, &str)], publish: bool) -> tempfile::TempDir {
     let root = tempfile::tempdir().expect("create a temporary directory");
@@ -23,19 +13,7 @@ fn repository(files: &[(&str, &str)], publish: bool) -> tempfile::TempDir {
         fs::write(root.path().join(path), text).expect("write a fixture file");
     }
 
-    git(root.path(), &["add", "-A"]);
-    git(
-        root.path(),
-        &[
-            "-c",
-            "user.name=Stomme Test",
-            "-c",
-            "user.email=stomme@example.com",
-            "commit",
-            "-qm",
-            "initial",
-        ],
-    );
+    commit(root.path(), "initial");
 
     if publish {
         git(

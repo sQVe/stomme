@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::Path;
 
 use super::*;
@@ -86,7 +87,7 @@ fn check_reports_each_typescript_layout_break() {
             write_file(root.path(), file, "");
         }
 
-        let problems = check(&tree(root.path()), &BTreeSet::new());
+        let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
 
         assert_problem(&problems, path, rule, key, case);
     }
@@ -104,10 +105,25 @@ fn check_passes_pascal_case_class_files() {
 
         write_file(root.path(), "src/Report.ts", text);
 
-        let problems = check(&tree(root.path()), &BTreeSet::new());
+        let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
 
         assert_eq!(problems, Vec::<Problem>::new(), "{case}");
     }
+}
+
+#[test]
+fn check_reports_a_pascal_case_file_it_cannot_read() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "src/Report.ts", "");
+    fs::write(root.path().join("src/Report.ts"), [0xff, 0xfe]).expect("write invalid UTF-8");
+
+    let error = check(&tree(root.path()), &BTreeSet::new()).expect_err("report the read error");
+
+    assert!(
+        error.to_string().contains("Could not read src/Report.ts"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -117,7 +133,7 @@ fn check_passes_a_test_named_after_its_owner_family() {
     write_file(root.path(), "src/report.ts", "");
     write_file(root.path(), "src/reportIncomplete.test.ts", "");
 
-    let problems = check(&tree(root.path()), &BTreeSet::new());
+    let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
 
     assert_eq!(problems, Vec::<Problem>::new());
 }

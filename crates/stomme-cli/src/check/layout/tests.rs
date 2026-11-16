@@ -10,7 +10,9 @@ fn problems(root: &Path, language: Language) -> Vec<Problem> {
 
     match language {
         Language::Rust => rust::check(&tree),
-        Language::TypeScript => typescript::check(&tree, &BTreeSet::new()),
+        Language::TypeScript => {
+            typescript::check(&tree, &BTreeSet::new()).expect("check the project")
+        }
     }
 }
 
