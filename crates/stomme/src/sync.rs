@@ -408,13 +408,13 @@ fn check_extra_files(
     owned: &BTreeSet<&str>,
     recorded: &BTreeSet<&str>,
 ) -> Result<(), SyncError> {
-    let files = match synced_tree::files(root, RECORD_FILE) {
-        Ok(files) => files,
-        Err(error) if error.source.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(read_error(error)),
-    };
+    for item in synced_tree::files(root, RECORD_FILE) {
+        let path = match item {
+            Ok(path) => path,
+            Err(error) if error.source.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(read_error(error)),
+        };
 
-    for path in files {
         if !owned.contains(path.as_str()) && !recorded.contains(path.as_str()) {
             return Err(SyncError::Extra { path });
         }
