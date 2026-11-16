@@ -1,25 +1,15 @@
 import type { ESTree, Rule } from '@oxlint/plugins';
 
-import { isWrappedExpression } from '../shared/wrappedExpression.ts';
-
-const unwrap = (node: ESTree.Node): ESTree.Node => {
-  let current = node;
-
-  while (isWrappedExpression(current) || current.type === 'ChainExpression') {
-    current = current.expression;
-  }
-
-  return current;
-};
+import { isWrappedExpression, unwrapExpressionAndChain } from '../shared/wrappedExpression.ts';
 
 const isCallChain = (node: ESTree.CallExpression): boolean => {
-  const callee = unwrap(node.callee);
+  const callee = unwrapExpressionAndChain(node.callee);
 
   if (callee.type !== 'MemberExpression') {
     return false;
   }
 
-  return unwrap(callee.object).type === 'CallExpression';
+  return unwrapExpressionAndChain(callee.object).type === 'CallExpression';
 };
 
 const isArgument = (parent: ESTree.Node, child: ESTree.Node): boolean => {
