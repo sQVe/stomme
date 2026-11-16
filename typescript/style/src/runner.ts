@@ -28,6 +28,9 @@ const statusOf = (result: ChildResult): number => {
   return result.status ?? 1;
 };
 
+const pathArguments = (paths: readonly string[]): string[] =>
+  paths.length === 0 ? [] : ['--', ...paths];
+
 export const runSeam = (argumentsList: readonly string[], run: RunVitePlus): number => {
   const fixing = argumentsList[0] === '--fix';
   const paths = fixing ? argumentsList.slice(1) : argumentsList;
@@ -37,9 +40,9 @@ export const runSeam = (argumentsList: readonly string[], run: RunVitePlus): num
     lintArguments.push('--fix');
   }
 
-  const lintStatus = statusOf(run([...lintArguments, ...paths], true));
+  const lintStatus = statusOf(run([...lintArguments, ...pathArguments(paths)], true));
   // Format even when a manual rename or helper move is still needed.
-  const formatStatus = fixing ? statusOf(run(['fmt', ...paths], false)) : 0;
+  const formatStatus = fixing ? statusOf(run(['fmt', ...pathArguments(paths)], false)) : 0;
 
   return lintStatus || formatStatus;
 };
