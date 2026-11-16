@@ -97,6 +97,32 @@ fn check_passes_when_a_pinned_package_is_absent() {
 }
 
 #[test]
+fn check_reports_a_manifest_that_is_not_valid_json() {
+    let root = project_with("{ not json");
+
+    let problems = check(root.path()).expect("check the project");
+
+    assert_eq!(found(&problems), [(PACKAGE_JSON, Rule::PackagePin)]);
+    assert!(
+        problems[0].message.contains("is not valid JSON"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn check_reports_dependencies_that_are_not_an_object() {
+    let root = project_with(&json!({ "dependencies": "not an object" }).to_string());
+
+    let problems = check(root.path()).expect("check the project");
+
+    assert_eq!(found(&problems), [(PACKAGE_JSON, Rule::PackagePin)]);
+    assert!(
+        problems[0].message.contains("is not valid JSON"),
+        "{problems:?}"
+    );
+}
+
+#[test]
 fn check_passes_without_a_package_json() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
