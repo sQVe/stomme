@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^stomme\\.toml$/"],
+      "matchStrings": [
+        "^(?:[^\\[\\n]*\\n)*?version[ \\t]*=[ \\t]*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "sQVe/stomme",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["sQVe/stomme"],
+      "groupName": "stomme",
+      "groupSlug": "stomme",
+      "groupSingleUpdates": true,
+      "separateMajorMinor": false
+    },
+    {
+      "matchPackageNames": [
+        "@sqve/stomme-ts-style",
+        "@sqve/stomme-ts-imports",
+        "@sqve/mutation"
+      ],
+      "enabled": false
+    }
+  ]
+}
