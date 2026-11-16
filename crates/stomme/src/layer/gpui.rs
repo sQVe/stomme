@@ -8,4 +8,5 @@ pub(super) const LAYER: Source = Source {
         text: include_str!("../../../../layers/gpui/clippy.toml"),
         rule: Rule::GpuiRequiredBan,
     }),
+    guide: include_str!("../../../../layers/gpui/guide.md"),
 };

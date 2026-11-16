@@ -6,11 +6,14 @@ use anyhow::Context as _;
 mod check;
 mod config;
 mod layer;
+mod owned;
 mod rule;
+mod sync;
 #[cfg(test)]
 mod test_support;
 
-const USAGE: &str = "Usage: stomme check\n\nCheck the project in the current directory.";
+const USAGE: &str =
+    "Usage: stomme <check|sync>\n\nCheck or sync the project in the current directory.";
 
 #[expect(
     clippy::print_stderr,
@@ -21,6 +24,7 @@ fn main() -> ExitCode {
 
     match arguments.as_slice() {
         [command] if command == "check" => run_check(),
+        [command] if command == "sync" => run_sync(),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::FAILURE
@@ -56,4 +60,23 @@ fn check_current_directory() -> anyhow::Result<Vec<check::Problem>> {
     let root = env::current_dir().context("Could not read the current directory")?;
 
     check::run(&root, layer::catalog())
+}
+
+#[expect(clippy::print_stderr, reason = "errors are the command's output")]
+fn run_sync() -> ExitCode {
+    let root = match env::current_dir().context("Could not read the current directory") {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("stomme: {error:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match sync::run(&root, layer::catalog()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("stomme: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }

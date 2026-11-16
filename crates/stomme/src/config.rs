@@ -19,6 +19,7 @@ pub(crate) enum Installation {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Selection {
+    pub(crate) version: String,
     pub(crate) language: Language,
     pub(crate) layers: BTreeSet<String>,
     pub(crate) roles: BTreeMap<String, String>,
@@ -27,6 +28,7 @@ pub(crate) struct Selection {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
+    version: String,
     language: Language,
     #[serde(default)]
     layers: Vec<String>,
@@ -73,10 +75,20 @@ fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
             .map_err(|error: toml::de::Error| {
                 format!("does not match schema {SCHEMA}: {}", error.message())
             })?;
+
+    if config.version != env!("CARGO_PKG_VERSION") {
+        return Err(format!(
+            "has `version = \"{}\"`; this stomme is version {}",
+            config.version,
+            env!("CARGO_PKG_VERSION")
+        ));
+    }
+
     let layers = layer::select(catalog, config.language, config.layers)
         .map_err(|error| error.to_string())?;
 
     Ok(Selection {
+        version: config.version,
         language: config.language,
         layers,
         roles: config.roles,

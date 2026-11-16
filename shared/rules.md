@@ -6,7 +6,7 @@ paths are relative to the stomme crate.
 | ID | Rule | Owner | Applies | `stomme.toml` fields | Checker | Fixtures | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `no-stomme` | The project has a `stomme.toml`. | common | always | none | src/check.rs | tests/fixtures/rules/no-stomme | enforced |
-| `broken-installation` | `stomme.toml` is valid TOML that matches the schema and selects a valid layer set. | common | `stomme.toml` exists | `schema`, `language`, `layers`, `roles` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
+| `broken-installation` | `stomme.toml` is valid TOML that matches the schema and selects a valid layer set. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
 | `required-part` | Every required file exists. | common | always | none | src/check/required_parts.rs | tests/fixtures/rules/required-part | enforced |
 | `tau-full-check` | `.pi/tau.json` names the full check as a non-empty `fullCheck.argv` of strings. | common | `.pi/tau.json` exists | none | src/check/required_parts.rs | tests/fixtures/rules/tau-full-check | enforced |
 | `adr-duplicate-number` | No two ADR files share a number. | common | `docs/adr/README.md` exists | none | src/check/adr_index.rs | tests/fixtures/rules/adr-duplicate-number | enforced |

@@ -40,7 +40,11 @@ const FILES: &[(&str, &str)] = &[
     ("crates/cli/Cargo.toml", MEMBER_MANIFEST),
     (
         "stomme.toml",
-        "schema = 1\nlanguage = \"rust\"\n\n[roles]\ncli = \"crates/cli\"\n",
+        concat!(
+            "schema = 1\nversion = \"",
+            env!("CARGO_PKG_VERSION"),
+            "\"\nlanguage = \"rust\"\n\n[roles]\ncli = \"crates/cli\"\n"
+        ),
     ),
     ("AGENTS.md", "# Fixture\n"),
     ("LICENSE", "MIT License\n"),

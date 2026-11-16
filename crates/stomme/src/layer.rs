@@ -63,6 +63,7 @@ impl fmt::Display for Language {
 pub(crate) struct Source {
     name: &'static str,
     manifest: &'static str,
+    guide: &'static str,
     bans: Option<LayerBans>,
 }
 
@@ -84,10 +85,16 @@ pub(crate) struct PolicyFile {
 
 #[derive(Debug)]
 pub(crate) struct Catalog {
-    layers: BTreeMap<&'static str, Manifest>,
+    layers: BTreeMap<&'static str, Layer>,
     layer_bans: BTreeMap<&'static str, (Rule, Vec<RequiredBan>)>,
     rust_lints: LintPolicy,
     rust_bans: Vec<RequiredBan>,
+}
+
+#[derive(Debug)]
+struct Layer {
+    manifest: Manifest,
+    guide: &'static str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,7 +162,7 @@ pub(crate) fn select(
     let mut layers = BTreeSet::new();
 
     for layer in listed {
-        let Some(manifest) = catalog.layers.get(layer.as_str()) else {
+        let Some(entry) = catalog.layers.get(layer.as_str()) else {
             return Err(SelectionError::UnknownLayer { layer });
         };
 
@@ -163,10 +170,10 @@ pub(crate) fn select(
             return Err(SelectionError::DuplicateLayer { layer });
         }
 
-        if manifest.language != language {
+        if entry.manifest.language != language {
             return Err(SelectionError::WrongLanguage {
                 layer,
-                layer_language: manifest.language,
+                layer_language: entry.manifest.language,
                 language,
             });
         }
@@ -175,7 +182,7 @@ pub(crate) fn select(
     }
 
     for layer in &layers {
-        let manifest = &catalog.layers[layer.as_str()];
+        let manifest = &catalog.layers[layer.as_str()].manifest;
 
         if let Some(required) = manifest
             .requires
@@ -237,7 +244,13 @@ impl Catalog {
                 }
             })?;
 
-            layers.insert(source.name, manifest);
+            layers.insert(
+                source.name,
+                Layer {
+                    manifest,
+                    guide: source.guide,
+                },
+            );
 
             if let Some(bans) = &source.bans {
                 let required = policy::parse_required_bans(bans.text).map_err(|reason| {
@@ -270,9 +283,22 @@ impl Catalog {
         Ok(catalog)
     }
 
+    pub(crate) fn guide(&self, name: &str) -> Option<&'static str> {
+        self.layers.get(name).map(|layer| layer.guide)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn guides(&self) -> impl Iterator<Item = (&'static str, &'static str)> + '_ {
+        self.layers.iter().map(|(name, layer)| (*name, layer.guide))
+    }
+
     fn check_names(&self) -> Result<(), CatalogError> {
-        for (layer, manifest) in &self.layers {
-            let names = manifest.requires.iter().chain(&manifest.conflicts);
+        for (layer, entry) in &self.layers {
+            let names = entry
+                .manifest
+                .requires
+                .iter()
+                .chain(&entry.manifest.conflicts);
 
             for name in names {
                 if !self.layers.contains_key(name.as_str()) {
@@ -315,7 +341,7 @@ impl Catalog {
 
         path.push(layer);
 
-        for required in &self.layers[layer].requires {
+        for required in &self.layers[layer].manifest.requires {
             if let Some(cycle) = self.cycle_from(required, path, finished) {
                 return Some(cycle);
             }
@@ -374,6 +400,7 @@ pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalo
             name,
             manifest,
             bans: None,
+            guide: "",
         })
         .collect();
 
@@ -396,6 +423,7 @@ pub(crate) fn test_policy_catalog(
         .map(|source| Source {
             name: source.name,
             manifest: source.manifest,
+            guide: source.guide,
             bans: source.bans.as_ref().map(|bans| LayerBans {
                 text: override_for(source.name).unwrap_or(bans.text),
                 rule: bans.rule,
