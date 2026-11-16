@@ -10,7 +10,7 @@
     "oxlint",
     "typescript"
   ],
-  "homepage": "https://github.com/sQVe/stomme/tree/main/typescript/imports#readme",
+  "homepage": "https://github.com/sQVe/stomme/tree/main/packages/imports#readme",
   "bugs": "https://github.com/sQVe/stomme/issues",
   "license": "MIT",
   "author": "Oskar Grunning",
