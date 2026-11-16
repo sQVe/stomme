@@ -411,8 +411,9 @@ fn check_extra_files(
     for item in synced_tree::files(root, RECORD_FILE) {
         let path = match item {
             Ok(path) => path,
-            Err(error) if error.source.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(read_error(error)),
+            Err(WalkError::MissingRoot { .. }) => return Ok(()),
+            Err(WalkError::Read { path, source }) => return Err(SyncError::Read { path, source }),
+            Err(WalkError::NotUtf8 { path }) => return Err(SyncError::NotText { path }),
         };
 
         if !owned.contains(path.as_str()) && !recorded.contains(path.as_str()) {
@@ -421,13 +422,6 @@ fn check_extra_files(
     }
 
     Ok(())
-}
-
-fn read_error(error: WalkError) -> SyncError {
-    SyncError::Read {
-        path: error.path,
-        source: error.source,
-    }
 }
 
 fn metadata(root: &Path, path: &str) -> Result<Option<fs::Metadata>, SyncError> {

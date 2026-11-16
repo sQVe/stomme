@@ -274,6 +274,30 @@ fn sync_refuses_a_directory_where_a_file_belongs() {
 
 #[cfg(unix)]
 #[test]
+fn sync_refuses_a_non_utf8_entry_name() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let root = rust_project(&[]);
+    let folder = root
+        .path()
+        .join("docs/stomme")
+        .join(OsStr::from_bytes(b"\xff"));
+    let extra = folder.join("extra.md");
+
+    fs::create_dir_all(&folder).expect("create a folder with a non-UTF-8 name");
+    fs::write(&extra, "extra\n").expect("write the extra file");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(error.to_string().contains("\\xFF"), "{error}");
+    assert!(error.to_string().contains("UTF-8"), "{error}");
+    assert!(extra.exists());
+    assert!(!root.path().join(RECORD_FILE).exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn sync_refuses_a_symlinked_docs_folder() {
     use std::os::unix::fs::symlink;
 
