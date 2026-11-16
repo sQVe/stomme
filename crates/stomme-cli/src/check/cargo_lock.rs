@@ -101,6 +101,10 @@ impl Lock {
         Ok(Self { packages, graph })
     }
 
+    pub(super) fn has_package(&self, name: &str) -> bool {
+        self.packages.iter().any(|package| package.name == name)
+    }
+
     pub(super) fn role_package(&self, name: &str) -> Option<Package> {
         self.packages
             .iter()

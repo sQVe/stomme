@@ -289,3 +289,31 @@ fn invalid_lock_is_reported_once() {
     assert_eq!(problems[0].rule, Rule::RustConfigFile);
     assert_eq!(problems[0].path, "Cargo.lock");
 }
+
+#[test]
+fn typescript_project_does_not_read_cargo_lock() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        CONFIG_FILE,
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"typescript\"\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+    write_file(
+        root.path(),
+        "Cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"gpui\"\nversion = \"0.0.0\"\n",
+    );
+    crate::sync_project(root.path());
+
+    let problems = check_project(root.path());
+    let layer_problems: Vec<&Problem> = problems
+        .iter()
+        .filter(|problem| problem.rule == Rule::LayerDeclared)
+        .collect();
+
+    assert_eq!(layer_problems, Vec::<&Problem>::new(), "{problems:?}");
+}

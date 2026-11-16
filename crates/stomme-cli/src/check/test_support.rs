@@ -3,9 +3,17 @@ use tempfile::TempDir;
 use crate::test_support::write_file;
 
 pub(crate) fn project(files: &[(&str, &str)], table: &str) -> TempDir {
+    project_with_language("rust", files, table)
+}
+
+pub(crate) fn project_with_language(
+    language: &str,
+    files: &[(&str, &str)],
+    table: &str,
+) -> TempDir {
     let root = tempfile::tempdir().expect("create a temporary directory");
     let config = format!(
-        "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n{table}",
+        "schema = 1\nversion = \"{}\"\nlanguage = \"{language}\"\n\n{table}",
         env!("CARGO_PKG_VERSION")
     );
 

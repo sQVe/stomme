@@ -10,6 +10,7 @@ mod adr_index;
 mod cargo_lock;
 mod cargo_manifest;
 mod clippy_bans;
+mod layer_use;
 mod layout;
 mod modules;
 mod package_boundaries;
@@ -84,10 +85,13 @@ pub(crate) fn run(
 
             match cargo_lock::read(root)? {
                 Ok(lock) => {
+                    problems.extend(layer_use::check(root, selection, catalog, lock.as_ref())?);
                     problems.extend(package_boundaries::check(root, selection, lock.as_ref())?);
                 }
                 Err(problem) => problems.push(problem),
             }
+        } else {
+            problems.extend(layer_use::check(root, selection, catalog, None)?);
         }
 
         problems.extend(roles::check(root, &selection.roles));

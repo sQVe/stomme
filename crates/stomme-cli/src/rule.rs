@@ -206,6 +206,17 @@ rules! {
             fixtures: "tests/fixtures/rules/package-pin",
         }),
     },
+    LayerDeclared => Metadata {
+        id: "layer-declared",
+        summary: "A project lists the layer of each framework it uses, so removing a layer cannot switch its rules off.",
+        owner: Owner::Common,
+        applies: "the project uses a framework that has a layer",
+        fields: &["layers"],
+        enforcement: Enforcement::Partial(Check {
+            checker: "src/check/layer_use.rs",
+            fixtures: "tests/fixtures/rules/layer-declared",
+        }),
+    },
     TauFullCheck => Metadata {
         id: "tau-full-check",
         summary: "`.pi/tau.json` names the full check as a non-empty `fullCheck.argv` of strings.",

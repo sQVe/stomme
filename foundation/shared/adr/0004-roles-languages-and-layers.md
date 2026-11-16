@@ -60,6 +60,8 @@ A framework layer adds rules for one framework. A project selects its layers as 
 - A layer that requires another layer does not add it. A missing required layer is an error, so the
   selection stays under the project's control.
 - Layer order never changes meaning.
+- A project that uses a framework without its layer fails `layer-declared`. Each layer names the
+  signal that detects its use, and use through any other signal is not detected.
 
 A wrong language, a conflicting pair, or an unknown layer is a broken installation, not an absent
 one. Rejecting these choices keeps fallback behavior from hiding invalid shared rules.
