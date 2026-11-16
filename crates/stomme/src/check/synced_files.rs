@@ -222,14 +222,14 @@ fn check_extra_files(
     known: &BTreeSet<&str>,
     problems: &mut Vec<Problem>,
 ) -> anyhow::Result<()> {
-    let files = match synced_tree::files(root, RECORD_FILE) {
-        Ok(files) => files,
-        Err(error) => {
-            return Err(error.source).with_context(|| format!("Could not read {}", error.path));
-        }
-    };
+    for item in synced_tree::files(root, RECORD_FILE) {
+        let relative = match item {
+            Ok(relative) => relative,
+            Err(error) => {
+                return Err(error.source).with_context(|| format!("Could not read {}", error.path));
+            }
+        };
 
-    for relative in files {
         if !known.contains(relative.as_str()) {
             problems.push(problem(&relative, "is not owned by stomme; remove it"));
         }
