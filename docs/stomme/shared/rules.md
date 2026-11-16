@@ -33,15 +33,15 @@ paths are relative to the stomme crate.
 | `rust-owner-folder` | A file that shares an owner's noun sits in the owner's folder. | rust | always | none | src/check/layout/rust.rs | tests/fixtures/rules/rust-owner-folder | enforced |
 | `rust-test-placement` | A Rust unit test lives in a `#[cfg(test)] mod tests` in the owning file, not below `src`. | rust | always | none | src/check/layout/rust.rs | tests/fixtures/rules/rust-test-placement | enforced |
 | `gpui-required-ban` | `clippy.toml` holds each GPUI `disallowed-methods` ban with its reason. | layer `gpui` | always | none | none | none | guidance only |
-| `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | none | none | none | project-local |
-| `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | none | none | none | project-local |
+| `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | `modules` | ../../typescript/imports/src/rules/moduleBoundaries.ts | ../../typescript/imports/src/rules/moduleBoundaries.test.ts | enforced by `@sqve/stomme-ts-imports` |
+| `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | `modules` | ../../typescript/imports/src/rules/moduleBoundaries.ts | ../../typescript/imports/src/rules/moduleBoundaries.test.ts | enforced by `@sqve/stomme-ts-imports` |
 | `module-table-order` | Module registries and their lists are sorted and free of duplicates. | typescript | the project has a module table | none | none | none | project-local |
 | `module-table-documented` | The import table in the module ADR equals the enforced module table. | typescript | the project has a module table | none | none | none | project-local |
-| `module-private-file` | Other modules import a folder module through its entry or public files only. | typescript | the project has a module table | none | none | none | project-local |
+| `module-private-file` | Other modules import a folder module through its entry or public files only. | typescript | the project has a module table | `modules` | ../../typescript/imports/src/rules/moduleBoundaries.ts | ../../typescript/imports/src/rules/moduleBoundaries.test.ts | enforced by `@sqve/stomme-ts-imports` |
 | `composition-root-import` | No module imports the composition root. | typescript | the project has a composition root | none | none | none | project-local |
 | `extension-isolation` | An extension does not import another extension. | typescript | the project has extensions | none | none | none | project-local |
 | `extension-direction` | A shared module does not import an extension. | typescript | the project has extensions | none | none | none | project-local |
-| `literal-import` | A dynamic import names a literal path, not a computed one. | typescript | the project has a module table | none | none | none | project-local |
+| `literal-import` | A dynamic import names a literal path, not a computed one. | typescript | the project has a module table | `modules` | ../../typescript/imports/src/rules/moduleBoundaries.ts | ../../typescript/imports/src/rules/moduleBoundaries.test.ts | enforced by `@sqve/stomme-ts-imports` |
 | `crate-root-path` | A module uses other modules through their module paths, not items at the crate root. | rust | the project has a module table | none | none | none | project-local |
 | `pure-dependencies` | A module uses only pure modules; no module uses an I/O module. | rust | the project has a module table | none | none | none | project-local |
 | `pure-module-effects` | A registered pure module performs no reads or effects and imports only types and other pure modules. | typescript | the project registers pure modules | none | none | none | project-local |

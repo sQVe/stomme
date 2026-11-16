@@ -20,6 +20,7 @@ pub(crate) enum Enforcement {
     Enforced(Check),
     #[expect(dead_code, reason = "no rule is partly enforced yet")]
     Partial(Check),
+    TypeScriptImports(Check),
     GuidanceOnly,
     ProjectLocal,
 }
@@ -391,16 +392,22 @@ rules! {
         summary: "Imports follow the module table: a module imports only the modules its row allows.",
         owner: Owner::Common,
         applies: "the project has a module table",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        fields: &["modules"],
+        enforcement: Enforcement::TypeScriptImports(Check {
+            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+        }),
     },
     ModuleListed => Metadata {
         id: "module-listed",
         summary: "Every source file belongs to a module in the module table.",
         owner: Owner::Common,
         applies: "the project has a module table",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        fields: &["modules"],
+        enforcement: Enforcement::TypeScriptImports(Check {
+            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+        }),
     },
     ModuleTableOrder => Metadata {
         id: "module-table-order",
@@ -423,8 +430,11 @@ rules! {
         summary: "Other modules import a folder module through its entry or public files only.",
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a module table",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        fields: &["modules"],
+        enforcement: Enforcement::TypeScriptImports(Check {
+            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+        }),
     },
     CompositionRootImport => Metadata {
         id: "composition-root-import",
@@ -455,8 +465,11 @@ rules! {
         summary: "A dynamic import names a literal path, not a computed one.",
         owner: Owner::Language(Language::TypeScript),
         applies: "the project has a module table",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        fields: &["modules"],
+        enforcement: Enforcement::TypeScriptImports(Check {
+            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+        }),
     },
     CrateRootPath => Metadata {
         id: "crate-root-path",
@@ -804,6 +817,15 @@ impl Enforcement {
     pub(crate) fn check(self) -> Option<Check> {
         match self {
             Self::Enforced(check) | Self::Partial(check) => Some(check),
+            Self::TypeScriptImports(_) | Self::GuidanceOnly | Self::ProjectLocal => None,
+        }
+    }
+
+    fn files(self) -> Option<Check> {
+        match self {
+            Self::Enforced(check) | Self::Partial(check) | Self::TypeScriptImports(check) => {
+                Some(check)
+            }
             Self::GuidanceOnly | Self::ProjectLocal => None,
         }
     }
@@ -812,6 +834,7 @@ impl Enforcement {
         match self {
             Self::Enforced(_) => "enforced",
             Self::Partial(_) => "partial",
+            Self::TypeScriptImports(_) => "enforced by `@sqve/stomme-ts-imports`",
             Self::GuidanceOnly => "guidance only",
             Self::ProjectLocal => "project-local",
         }
@@ -876,7 +899,7 @@ fn table_row(metadata: &Metadata) -> String {
 
         quoted.join(", ")
     };
-    let check = metadata.enforcement.check();
+    let check = metadata.enforcement.files();
     let checker = check.map_or("none", |check| check.checker);
     let fixtures = check.map_or("none", |check| check.fixtures);
 
