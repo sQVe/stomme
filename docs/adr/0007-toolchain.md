@@ -1,4 +1,4 @@
-# ADR 0006: Vite Plus, pnpm, and tsc as the toolchain
+# ADR 0007: Vite Plus, pnpm, and tsc as the toolchain
 
 **Date**: 2026-10-01\
 **Status**: Accepted

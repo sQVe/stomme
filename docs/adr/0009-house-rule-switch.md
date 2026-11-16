@@ -1,4 +1,4 @@
-# ADR 0008: One environment switch for house rules
+# ADR 0009: One environment switch for house rules
 
 **Date**: 2026-10-01\
 **Status**: Accepted

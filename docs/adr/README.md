@@ -46,11 +46,11 @@ the commit in its row.
 
 ### TypeScript style package
 
-- [0006: Vite Plus, pnpm, and tsc as the toolchain](./0006-toolchain.md)
-- [0007: Zero configuration, with every rule on](./0007-zero-configuration.md)
-- [0008: One environment switch for house rules](./0008-house-rule-switch.md)
-- [0009: Ship built JavaScript](./0009-built-javascript.md)
-- [0010: Exact tool pins and dependency kinds](./0010-exact-pins.md)
+- [0007: Vite Plus, pnpm, and tsc as the toolchain](./0007-toolchain.md)
+- [0008: Zero configuration, with every rule on](./0008-zero-configuration.md)
+- [0009: One environment switch for house rules](./0009-house-rule-switch.md)
+- [0010: Ship built JavaScript](./0010-built-javascript.md)
+- [0011: Exact tool pins and dependency kinds](./0011-exact-pins.md)
 
 ## Retired
 

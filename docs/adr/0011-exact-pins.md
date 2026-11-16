@@ -1,4 +1,4 @@
-# ADR 0010: Exact tool pins and dependency kinds
+# ADR 0011: Exact tool pins and dependency kinds
 
 **Date**: 2026-10-01\
 **Status**: Accepted
