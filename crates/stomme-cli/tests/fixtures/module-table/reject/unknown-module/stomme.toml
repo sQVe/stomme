@@ -1,0 +1,7 @@
+schema = 1
+version = "0.0.0"
+language = "typescript"
+
+[modules.config]
+entry = "src/config.ts"
+imports = ["errors"]

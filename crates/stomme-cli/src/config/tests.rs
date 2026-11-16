@@ -454,3 +454,103 @@ fn read_rejects_bad_violation_entries() {
         assert!(reason.contains(named), "{case}: {reason}");
     }
 }
+
+#[test]
+fn read_reports_an_import_of_a_module_without_a_row() {
+    let text = with_version(
+        "language = \"typescript\"\n\n[modules.config]\nentry = \"src/config.ts\"\nimports = [\"errors\"]\n",
+    );
+    let installation = installation(&text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("`config`"), "{reason}");
+    assert!(reason.contains("`errors`"), "{reason}");
+}
+
+#[test]
+fn read_accepts_a_closed_module_table() {
+    let text = with_version(
+        "language = \"typescript\"\n\n[modules.errors]\nentry = \"src/errors.ts\"\n\n[modules.config]\nentry = \"src/config/config.ts\"\npublic = [\"src/config/models.ts\"]\nimports = [\"errors\"]\n",
+    );
+
+    assert!(matches!(installation(&text), Installation::Valid(_)));
+}
+
+#[test]
+fn read_reports_an_absolute_module_path() {
+    let text = with_version("language = \"typescript\"\n\n[modules.a]\nentry = \"/src/a.ts\"\n");
+    let installation = installation(&text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("/src/a.ts"), "{reason}");
+}
+
+#[test]
+fn read_reports_a_module_path_with_a_parent_part() {
+    let text = with_version(
+        "language = \"typescript\"\n\n[modules.a]\nentry = \"src/a.ts\"\npublic = [\"src/../a.ts\"]\n",
+    );
+    let installation = installation(&text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("src/../a.ts"), "{reason}");
+}
+
+#[test]
+fn read_reports_an_unknown_module_row_field() {
+    let text = with_version(
+        "language = \"typescript\"\n\n[modules.a]\nentry = \"src/a.ts\"\nexports = []\n",
+    );
+    let installation = installation(&text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("exports"), "{reason}");
+}
+
+#[test]
+fn shared_module_table_fixtures_accept_and_reject_by_folder() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/module-table");
+
+    for (cases, accepts) in [("accept", true), ("reject", false)] {
+        let cases = module_table_cases(&folder.join(cases));
+
+        assert!(!cases.is_empty(), "{cases:?} has no cases");
+        for case in cases {
+            let root = tempfile::tempdir().expect("create a temporary directory");
+
+            fs::copy(case.join(CONFIG_FILE), root.path().join(CONFIG_FILE))
+                .expect("copy stomme.toml");
+
+            let installation = read(root.path(), layer::catalog());
+            let case = case.display();
+
+            if accepts {
+                assert!(
+                    matches!(installation, Installation::Valid(_)),
+                    "{case}: {installation:?}"
+                );
+            } else {
+                assert!(
+                    matches!(installation, Installation::Broken(_)),
+                    "{case}: {installation:?}"
+                );
+            }
+        }
+    }
+}
+
+fn module_table_cases(folder: &Path) -> Vec<std::path::PathBuf> {
+    fs::read_dir(folder)
+        .expect("list the module table fixtures")
+        .map(|entry| entry.expect("read a module table fixture").path())
+        .filter(|path| path.is_dir())
+        .collect()
+}

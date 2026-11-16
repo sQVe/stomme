@@ -1,0 +1,11 @@
+schema = 1
+version = "0.0.0"
+language = "typescript"
+
+[modules.errors]
+entry = "src/errors.ts"
+
+[modules.config]
+entry = "src/config/config.ts"
+public = ["src/config/models.ts"]
+imports = ["errors"]
