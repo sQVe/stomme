@@ -181,3 +181,14 @@ fn missing_manifests_report_nothing() {
 
     assert_eq!(layer_problems(typescript.path()), []);
 }
+
+#[test]
+fn git_sourced_gpui_without_the_gpui_layer_is_reported() {
+    let lock = "version = 4\n\n[[package]]\nname = \"gpui\"\nversion = \"0.0.0\"\nsource = \"git+https://github.com/zed-industries/zed\"\n";
+    let root = project(&[("Cargo.lock", lock)], "");
+
+    let problems = layer_problems(root.path());
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].key.as_deref(), Some("gpui"));
+}
