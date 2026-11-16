@@ -119,7 +119,8 @@ for tools declared by Vite Plus.
 
 The dependency audit workflow runs `pnpm audit --audit-level high` weekly. Dependency review
 checks the dependencies each pull request adds or changes, including `pnpm-lock.yaml`. Its
-`allow-ghsas` list holds the `vite-plus` 0.3.0 advisories until `vite-plus` reaches 1.1.0.
+`allow-ghsas` list holds the advisories of the pinned `vite-plus` 0.3.0 tool set until that set
+is upgraded.
 
 ## Package releases
 
