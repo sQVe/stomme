@@ -18,6 +18,10 @@ tempfile = "3"
 thiserror = "2"
 toml = "1"
 
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
