@@ -5,4 +5,4 @@ language = "rust"
 [[violations]]
 path = "src/domain"
 rule = "role-folder"
-key = "domain"
+key = "cli:domain"

@@ -47,9 +47,8 @@ strings produces one `violation-growth` problem naming the ref. Each current ent
 list lacks produces one `violation-growth` problem naming the entry. This catches an added entry and
 an entry the target branch removed.
 
-An empty list never reads the target branch. The stomme repository itself has no entries, so its own
-check does not depend on a fetched ref. A project's CI must fetch the target branch before it runs
-the check; adding that fetch step to other projects is outside this decision.
+An empty list never reads the target branch. A project's CI must fetch the target branch before it
+runs the check.
 
 ## Consequences
 

@@ -49,6 +49,17 @@ fn check_reports_each_rust_layout_break() {
             "report_extra.rs",
         ),
         (
+            "deep owner prefix",
+            &[
+                "src/report_state.rs",
+                "src/report_state/keep.rs",
+                "src/report_state_extra.rs",
+            ][..],
+            "src/report_state.rs",
+            Rule::RustOwnerFolder,
+            "report_state_extra.rs",
+        ),
+        (
             "misplaced test",
             &["src/report_test.rs"][..],
             "src/report_test.rs",

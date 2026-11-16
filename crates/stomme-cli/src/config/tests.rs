@@ -372,7 +372,7 @@ fn read_reports_an_unknown_exception_field() {
 #[test]
 fn read_accepts_recorded_violations() {
     let text = with_version(
-        "language = \"rust\"\n\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n",
+        "language = \"rust\"\n\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"cli:domain\"\n",
     );
 
     let Installation::Valid(selection) = installation(&text) else {
@@ -383,7 +383,7 @@ fn read_accepts_recorded_violations() {
         vec![Violation {
             path: "src/domain".to_string(),
             rule: Rule::RoleFolder,
-            key: "domain".to_string(),
+            key: "cli:domain".to_string(),
         }]
     );
 }
@@ -391,25 +391,61 @@ fn read_accepts_recorded_violations() {
 #[test]
 fn read_rejects_bad_violation_entries() {
     let cases = [
+        ("not a list", "violations = \"x\"\n", "not a list of tables"),
         (
-            "unknown rule",
-            "path = \"src/domain\"\nrule = \"unknown-rule\"\nkey = \"domain\"\n",
-            "unknown-rule",
+            "entry not a table",
+            "violations = [\"x\"]\n",
+            "entry 1 that is not a table",
+        ),
+        (
+            "missing path",
+            "[[violations]]\nrule = \"role-folder\"\nkey = \"cli:domain\"\n",
+            "without `path`",
+        ),
+        (
+            "path not a string",
+            "[[violations]]\npath = 1\nrule = \"role-folder\"\nkey = \"cli:domain\"\n",
+            "whose `path` is not a string",
+        ),
+        (
+            "missing rule",
+            "[[violations]]\npath = \"src/domain\"\nkey = \"domain\"\n",
+            "without `rule`",
+        ),
+        (
+            "rule not a string",
+            "[[violations]]\npath = \"src/domain\"\nrule = 1\nkey = \"domain\"\n",
+            "whose `rule` is not a string",
         ),
         (
             "missing key",
-            "path = \"src/domain\"\nrule = \"role-folder\"\n",
-            "src/domain",
+            "[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\n",
+            "without `key`",
+        ),
+        (
+            "key not a string",
+            "[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = 1\n",
+            "whose `key` is not a string",
+        ),
+        (
+            "unknown rule",
+            "[[violations]]\npath = \"src/domain\"\nrule = \"unknown-rule\"\nkey = \"domain\"\n",
+            "unknown-rule",
+        ),
+        (
+            "unknown field",
+            "[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\nextra = \"x\"\n",
+            "unknown field `extra`",
         ),
         (
             "duplicate entry",
-            "path = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n",
-            "src/domain",
+            "[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"cli:domain\"\n\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"cli:domain\"\n",
+            "twice",
         ),
     ];
 
     for (case, entry, named) in cases {
-        let text = with_version(&format!("language = \"rust\"\n\n[[violations]]\n{entry}"));
+        let text = with_version(&format!("language = \"rust\"\n\n{entry}"));
         let installation = installation(&text);
 
         let Installation::Broken(reason) = installation else {

@@ -41,7 +41,8 @@ a role itself, as [ADR 0002](./0002-capability-modules.md) says. The role list i
 rule can rely on it. Adding a role is a change to this ADR.
 
 A role's folder is named after the role or ends with `-<role>`, such as `crates/tikk-cli` or
-`src/core`.
+`src/core`. A `role-folder` problem is keyed by `<role>:<folder>`, so two roles that share the same
+wrong folder stay separate recorded breaks.
 
 ### Languages
 

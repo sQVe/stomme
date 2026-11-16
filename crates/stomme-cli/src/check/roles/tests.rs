@@ -167,3 +167,36 @@ fn check_accepts_role_folders_named_after_the_role() {
 
     assert_eq!(problems, Vec::new());
 }
+
+#[test]
+fn two_roles_in_the_same_wrong_folder_get_distinct_keys() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let roles = BTreeMap::from([
+        ("cli".to_string(), "src/domain".to_string()),
+        ("ui".to_string(), "src/domain".to_string()),
+    ]);
+
+    fs::create_dir_all(root.path().join("src/domain")).expect("create the role folder");
+
+    let problems = check(root.path(), &roles);
+    let mut keys: Vec<&str> = problems
+        .iter()
+        .filter_map(|problem| problem.key.as_deref())
+        .collect();
+
+    keys.sort();
+
+    assert_eq!(problems.len(), 2, "{problems:?}");
+    assert_eq!(keys, ["cli:domain", "ui:domain"]);
+
+    let recorded = vec![crate::config::Violation {
+        path: "src/domain".to_string(),
+        rule: Rule::RoleFolder,
+        key: "cli:domain".to_string(),
+    }];
+
+    let remaining = crate::check::violations::apply(problems, &recorded);
+
+    assert_eq!(remaining.len(), 1, "{remaining:?}");
+    assert_eq!(remaining[0].key.as_deref(), Some("ui:domain"));
+}
