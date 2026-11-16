@@ -235,6 +235,115 @@ fn check_reports_an_unknown_exception_field() {
 }
 
 #[test]
+fn check_reports_an_extra_doc_that_aliases_docs_stomme_with_a_dot() {
+    let root = complete_project();
+    let path = "docs/./stomme/shared/coding.md";
+
+    write_file(
+        root.path(),
+        "stomme.toml",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"{path}\"]\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "stomme.toml",
+        "broken-installation",
+        "dotted extra doc alias",
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(path),
+        "{output:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_an_extra_doc_symlinked_into_docs_stomme() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+
+    symlink(
+        root.path().join("docs/stomme/shared/coding.md"),
+        root.path().join("docs/link.md"),
+    )
+    .expect("create the symlink");
+    write_file(
+        root.path(),
+        "stomme.toml",
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"docs/link.md\"]\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "stomme.toml",
+        "broken-installation",
+        "symlinked extra doc alias",
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("docs/link.md"),
+        "{output:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_symlinked_docs_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::rename(root.path().join("docs"), outside.path().join("docs"))
+        .expect("move docs outside the project");
+    symlink(outside.path().join("docs"), root.path().join("docs")).expect("create the symlink");
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(&output, "docs", "synced-files", "symlinked docs folder");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_symlinked_docs_stomme_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::rename(
+        root.path().join("docs/stomme"),
+        outside.path().join("stomme"),
+    )
+    .expect("move docs/stomme outside the project");
+    symlink(
+        outside.path().join("stomme"),
+        root.path().join("docs/stomme"),
+    )
+    .expect("create the symlink");
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "docs/stomme",
+        "synced-files",
+        "symlinked docs/stomme folder",
+    );
+}
+
+#[test]
 fn check_passes_a_project_with_valid_layers() {
     let root = complete_project();
 
