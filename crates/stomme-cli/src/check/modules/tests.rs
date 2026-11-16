@@ -495,3 +495,72 @@ fn a_test_file_still_reports_an_unlisted_module() {
         "test file unlisted module",
     );
 }
+
+#[test]
+fn violations_follow_module_file_and_line_order_one_per_line() {
+    let root = project(
+        &[
+            ("src/ticket/b_parse.rs", "use crate::github::Client;\n"),
+            ("src/ticket/a_parse.rs", "use crate::sync::push;\n"),
+            (
+                "src/ticket.rs",
+                "fn a() {\n    crate::sync::a(crate::sync::b);\n}\nuse crate::store::read;\n",
+            ),
+            ("src/cache.rs", ""),
+            ("src/store.rs", ""),
+            ("src/sync.rs", ""),
+            ("src/github.rs", ""),
+        ],
+        "[modules.ticket]\nentry = \"src/ticket.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n\n[modules.sync]\nentry = \"src/sync.rs\"\n\n[modules.github]\nentry = \"src/github.rs\"\n",
+    );
+
+    let problems = problems(root.path());
+    let actual: Vec<(&str, Rule, Option<&str>, Option<&str>)> = problems
+        .iter()
+        .map(|problem| {
+            let line = problem
+                .message
+                .split(':')
+                .next()
+                .filter(|start| start.starts_with("line "));
+
+            (
+                problem.path.as_str(),
+                problem.rule,
+                problem.key.as_deref(),
+                line,
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        actual,
+        [
+            ("src/cache.rs", Rule::ModuleListed, None, None),
+            (
+                "src/ticket.rs",
+                Rule::ModuleImports,
+                Some("ticket:sync"),
+                Some("line 2"),
+            ),
+            (
+                "src/ticket.rs",
+                Rule::ModuleImports,
+                Some("ticket:store"),
+                Some("line 4"),
+            ),
+            (
+                "src/ticket/a_parse.rs",
+                Rule::ModuleImports,
+                Some("ticket:sync"),
+                Some("line 1"),
+            ),
+            (
+                "src/ticket/b_parse.rs",
+                Rule::ModuleImports,
+                Some("ticket:github"),
+                Some("line 1"),
+            ),
+        ]
+    );
+}

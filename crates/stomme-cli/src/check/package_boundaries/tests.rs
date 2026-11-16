@@ -272,3 +272,36 @@ fn role_package_missing_from_the_lock_is_a_config_problem() {
     assert_eq!(problems[0].path, "Cargo.lock");
     assert!(problems[0].message.contains("greppa-core"), "{problems:?}");
 }
+
+#[test]
+fn role_package_resolves_to_the_workspace_package_not_a_registry_package_with_the_same_name() {
+    let core = manifest("x-core");
+    let lock = "version = 4\n\n[[package]]\nname = \"x-core\"\nversion = \"0.0.0\"\ndependencies = [\"gpui\"]\n\n[[package]]\nname = \"x-core\"\nversion = \"1.0.0\"\nsource = \"registry+https://example.com/index\"\n\n[[package]]\nname = \"gpui\"\nversion = \"0.0.0\"\n";
+    let root = project(
+        &[("crates/x-core/Cargo.toml", &core), ("Cargo.lock", lock)],
+        "layers = [\"gpui\"]\n\n[roles]\ncore = \"crates/x-core\"\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].rule, Rule::GpuiPlainCore);
+    assert_eq!(problems[0].path, "crates/x-core");
+    assert_eq!(problems[0].key.as_deref(), Some("core:gpui"));
+    assert!(
+        problems[0].message.contains("through x-core -> gpui"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn registry_package_with_the_same_name_does_not_make_the_workspace_package_forbidden() {
+    let core = manifest("x-core");
+    let lock = "version = 4\n\n[[package]]\nname = \"x-core\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"x-core\"\nversion = \"1.0.0\"\nsource = \"registry+https://example.com/index\"\ndependencies = [\"gpui\"]\n\n[[package]]\nname = \"gpui\"\nversion = \"0.0.0\"\n";
+    let root = project(
+        &[("crates/x-core/Cargo.toml", &core), ("Cargo.lock", lock)],
+        "layers = [\"gpui\"]\n\n[roles]\ncore = \"crates/x-core\"\n",
+    );
+
+    assert_eq!(problems(root.path()), []);
+}
