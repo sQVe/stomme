@@ -136,29 +136,37 @@ fn describe_toml_error_names_the_line_of_the_error() {
 #[test]
 fn check_reports_an_unreadable_root_manifest() {
     let cases = [
-        ("invalid TOML", "[workspace\n"),
+        ("invalid TOML", "[workspace\n", "line 1: "),
         (
             "unknown level",
             "[workspace.lints.clippy]\ntodo = \"loud\"\n",
+            "line 2: ",
         ),
         (
             "level of the wrong type",
             "[workspace.lints.clippy]\ntodo = 3\n",
+            "line 2: ",
         ),
         (
             "members of the wrong type",
             "[workspace]\nmembers = \"crates/*\"\n",
+            "line 2: ",
+        ),
+        (
+            "exclude of the wrong type",
+            "[workspace]\nexclude = 3\n",
+            "line 2: ",
         ),
     ];
 
-    for (case, text) in cases {
+    for (case, text, line) in cases {
         let root = complete_project();
 
         write_file(root.path(), "Cargo.toml", text);
 
         let problems = check_project(root.path());
 
-        assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", case);
+        assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, line, case);
     }
 }
 
