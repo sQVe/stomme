@@ -37,17 +37,20 @@ jobs:
           path: project
           token: ${{ steps.token.outputs.token }}
           persist-credentials: false
-      - name: Install the candidate
-        working-directory: stomme
+      - name: Download the candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: artifacts-build-local-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/dist
+      - name: Extract the candidate
         run: |
-          cargo install --path crates/stomme-cli --locked --root "$RUNNER_TEMP/candidate"
-          version=$(cargo metadata --no-deps --format-version 1 | jq --raw-output '.packages[] | select(.name == "stomme") | .version')
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          tar -xJf "$RUNNER_TEMP/dist/stomme-x86_64-unknown-linux-gnu.tar.xz" -C "$RUNNER_TEMP/dist"
+          echo "VERSION=${{ fromJson(inputs.plan).releases[0].app_version }}" >> "$GITHUB_ENV"
       - name: Run the gate
         working-directory: stomme
         run: |
           cargo xtask release-gate \
-            --stomme "$RUNNER_TEMP/candidate/bin/stomme" \
+            --stomme "$RUNNER_TEMP/dist/stomme-x86_64-unknown-linux-gnu/stomme" \
             --version "$VERSION" \
             "$GITHUB_WORKSPACE/project" >> "$GITHUB_STEP_SUMMARY"
 
@@ -65,12 +68,15 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - name: Install the candidate
-        working-directory: stomme
+      - name: Download the candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: artifacts-build-local-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/dist
+      - name: Extract the candidate
         run: |
-          cargo install --path crates/stomme-cli --locked --root "$RUNNER_TEMP/candidate"
-          version=$(cargo metadata --no-deps --format-version 1 | jq --raw-output '.packages[] | select(.name == "stomme") | .version')
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          tar -xJf "$RUNNER_TEMP/dist/stomme-x86_64-unknown-linux-gnu.tar.xz" -C "$RUNNER_TEMP/dist"
+          echo "VERSION=${{ fromJson(inputs.plan).releases[0].app_version }}" >> "$GITHUB_ENV"
       - name: Prepare the consumer
         run: |
           mkdir -p "$RUNNER_TEMP/consumer"
@@ -85,7 +91,7 @@ jobs:
         working-directory: stomme
         run: |
           cargo xtask release-gate \
-            --stomme "$RUNNER_TEMP/candidate/bin/stomme" \
+            --stomme "$RUNNER_TEMP/dist/stomme-x86_64-unknown-linux-gnu/stomme" \
             --version "$VERSION" \
             "$RUNNER_TEMP/consumer" >> "$GITHUB_STEP_SUMMARY"
       - name: Install the recorded packages
