@@ -2,28 +2,6 @@ import type { ESTree, Rule } from '@oxlint/plugins';
 
 import { isWrappedExpression, unwrapExpressionAndChain } from '../shared/wrappedExpression.ts';
 
-const isCallChain = (node: ESTree.CallExpression): boolean => {
-  let callee = unwrapExpressionAndChain(node.callee);
-
-  while (callee.type === 'MemberExpression') {
-    callee = unwrapExpressionAndChain(callee.object);
-  }
-
-  return callee.type === 'CallExpression';
-};
-
-const methodReceiverOf = (node: ESTree.CallExpression): ESTree.MemberExpression | undefined => {
-  const callee = unwrapExpressionAndChain(node.callee);
-
-  if (callee.type !== 'MemberExpression') {
-    return undefined;
-  }
-
-  const parent = node.parent;
-
-  return parent.type === 'MemberExpression' && parent.object === node ? parent : undefined;
-};
-
 const isArgument = (parent: ESTree.Node, child: ESTree.Node): boolean => {
   if (parent.type !== 'CallExpression' && parent.type !== 'NewExpression') {
     return false;
@@ -54,6 +32,35 @@ const isOptionalPropertySpread = (node: ESTree.ConditionalExpression): boolean =
 
 const isTransparentParent = (node: ESTree.Node): boolean =>
   isWrappedExpression(node) || node.type === 'ChainExpression';
+
+const isMemberObject = (parent: ESTree.Node, child: ESTree.Node): boolean =>
+  parent.type === 'MemberExpression' && parent.object === child;
+
+const isCallee = (parent: ESTree.Node, child: ESTree.Node): boolean =>
+  parent.type === 'CallExpression' && parent.callee === child;
+
+const continuesChain = (parent: ESTree.Node, child: ESTree.Node): boolean =>
+  isTransparentParent(parent) || isMemberObject(parent, child) || isCallee(parent, child);
+
+const chainTop = (node: ESTree.Node): ESTree.Node => {
+  const parent = node.parent;
+
+  if (parent === null) {
+    return node;
+  }
+
+  return continuesChain(parent, node) ? chainTop(parent) : node;
+};
+
+const callCount = (node: ESTree.Node): number => {
+  const unwrapped = unwrapExpressionAndChain(node);
+
+  if (unwrapped.type === 'CallExpression') {
+    return 1 + callCount(unwrapped.callee);
+  }
+
+  return unwrapped.type === 'MemberExpression' ? callCount(unwrapped.object) : 0;
+};
 
 const isSideExpression = (
   node: ESTree.Node,
@@ -159,18 +166,19 @@ export const noUnnamedArgumentsRule: Rule = {
         }
       },
       CallExpression(node) {
-        if (isCallChain(node)) {
-          if (reachesArgument(node)) {
-            context.report({ node, messageId: 'callChain' });
-          }
-
+        // Only the first call of a chain checks it, so each chain is reported once.
+        if (callCount(node.callee) > 0) {
           return;
         }
 
-        const receiver = methodReceiverOf(node);
+        const top = chainTop(node);
 
-        if (receiver !== undefined && reachesArgument(receiver)) {
-          context.report({ node, messageId: 'callChain' });
+        if (callCount(top) < 2) {
+          return;
+        }
+
+        if (reachesArgument(top)) {
+          context.report({ node: top, messageId: 'callChain' });
         }
       },
     };

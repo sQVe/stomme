@@ -15,6 +15,8 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
     'send(user.name());',
     'send(user.profile.name());',
     'send(getUser().name);',
+    'send(user.name().length);',
+    'send(items.filter(isOpen).length > 0);',
     'items.filter(isOpen).map(toName);',
     'items.map((item) => (item.open ? 1 : 2));',
     'items.map((item) => item.open ? 1 : 2);',
@@ -167,7 +169,23 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
       ],
     },
     {
-      code: 'send(items.filter(isOpen).length > 0);',
+      code: 'send(items.filter(isOpen).map(toName).length > 0);',
+      errors: [
+        {
+          message: 'Assign this call chain to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(a.b().c().d);',
+      errors: [
+        {
+          message: 'Assign this call chain to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(a.b().c().d());',
       errors: [
         {
           message: 'Assign this call chain to a named variable before passing it as an argument.',
