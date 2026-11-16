@@ -26,7 +26,7 @@ Follow the template for every new ADR.
 
 const CARGO_MANIFEST: &str = concat!(
     "[workspace]\nmembers = [\"crates/*\"]\n\n",
-    include_str!("../../../languages/rust/lints.toml"),
+    include_str!("../../../foundation/languages/rust/lints.toml"),
 );
 
 const MEMBER_MANIFEST: &str = "\

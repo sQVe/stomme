@@ -30,10 +30,10 @@ words, while rust-analyzer's examples use names such as `s`. Zed bans `mod.rs` f
 
 ## Decision
 
-stomme keeps Tau's coding instructions and adds a shared Rust guide, `languages/rust/guide.md`,
-which states only the Rust rules that override, clarify, or add to them. `sync` writes it to each
-project as `docs/stomme/languages/rust/guide.md`. A Tau rule the guide does not change applies as
-written, so the guide never repeats one. The guide keeps one policy per item. Its reasons live in
+stomme keeps Tau's coding instructions and adds a shared Rust guide,
+`foundation/languages/rust/guide.md`, which states only the Rust rules that override, clarify, or
+add to them. `sync` writes it to each project as `docs/stomme/languages/rust/guide.md`. A Tau rule
+the guide does not change applies as written, so the guide never repeats one. The guide keeps one policy per item. Its reasons live in
 this ADR. The repository's own `docs/coding.md` holds only rules that apply to stomme alone.
 
 ### Names

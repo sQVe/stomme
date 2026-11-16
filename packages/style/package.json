@@ -1,34 +1,44 @@
 {
-  "name": "@sqve/stomme-ts-imports",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Oxlint import rules for the module table in stomme.toml.",
+  "name": "@sqve/stomme-ts-style",
+  "version": "0.2.0",
+  "description": "Zero-config Oxlint house style for TypeScript projects, run through Vite Plus.",
   "keywords": [
-    "imports",
     "lint",
-    "modules",
     "oxlint",
-    "typescript"
+    "style",
+    "typescript",
+    "vite-plus"
   ],
-  "homepage": "https://github.com/sQVe/stomme/tree/main/typescript/imports#readme",
+  "homepage": "https://github.com/sQVe/stomme/tree/main/packages/style#readme",
   "bugs": "https://github.com/sQVe/stomme/issues",
   "license": "MIT",
   "author": "Oskar Grunning",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sQVe/stomme.git",
-    "directory": "typescript/imports"
+    "directory": "packages/style"
+  },
+  "bin": {
+    "stomme-ts-style": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "type": "module",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./plugin": {
       "types": "./dist/plugin.d.ts",
       "default": "./dist/plugin.js"
     },
     "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
@@ -37,15 +47,15 @@
     "format:check": "vp fmt --check",
     "lint": "vp lint --deny-warnings",
     "prepare": "vp config --no-hooks",
-    "style:check": "node ../style/src/cli.ts",
-    "style:fix": "node ../style/src/cli.ts --fix",
+    "style:check": "node src/cli.ts",
+    "style:fix": "node src/cli.ts --fix",
     "test": "vp test",
     "typecheck": "tsc --noEmit",
     "prepack": "pnpm build"
   },
   "dependencies": {
     "@oxlint/plugins": "1.79.0",
-    "smol-toml": "1.9.1"
+    "@stylistic/eslint-plugin": "5.10.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
@@ -54,6 +64,9 @@
     "typescript": "7.0.2",
     "vite-plus": "0.3.0",
     "vitest": "4.1.11"
+  },
+  "peerDependencies": {
+    "vite-plus": "0.3.0"
   },
   "engines": {
     "bun": ">=1.4.2",

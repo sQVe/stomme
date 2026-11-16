@@ -1,5 +1,5 @@
 packages:
-  - typescript/*
+  - packages/*
 
 overrides:
   # oxfmt pins tinypool 2.1.0, which has critical advisories fixed in 2.1.2.

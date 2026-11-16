@@ -221,7 +221,7 @@ fn catalog_check_sees_the_compiled_in_rules() {
 
 #[test]
 fn registry_matches_the_layer_folders() {
-    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../layers");
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../foundation/layers");
     let folders: BTreeSet<String> = fs::read_dir(&folder)
         .expect("read the layers folder")
         .map(|entry| {
@@ -238,12 +238,12 @@ fn registry_matches_the_layer_folders() {
     assert_eq!(
         folders.difference(&registered).collect::<Vec<_>>(),
         Vec::<&String>::new(),
-        "folders under layers/ without a registered module"
+        "folders under foundation/layers/ without a registered module"
     );
     assert_eq!(
         registered.difference(&folders).collect::<Vec<_>>(),
         Vec::<&String>::new(),
-        "registered modules without a folder under layers/"
+        "registered modules without a folder under foundation/layers/"
     );
 }
 
@@ -259,7 +259,7 @@ fn catalog_reports_an_invalid_rust_policy_file() {
                 },
                 clippy: RUST.clippy,
             },
-            "languages/rust/lints.toml",
+            "foundation/languages/rust/lints.toml",
         ),
         (
             "bans",
@@ -270,7 +270,7 @@ fn catalog_reports_an_invalid_rust_policy_file() {
                     ..RUST.clippy
                 },
             },
-            "languages/rust/clippy.toml",
+            "foundation/languages/rust/clippy.toml",
         ),
     ];
 

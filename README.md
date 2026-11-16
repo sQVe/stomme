@@ -9,7 +9,7 @@ will fail the project's full check.
 stomme is in early development. `stomme check` checks the project in the current directory: its
 `stomme.toml`, its required files, and its ADR index.
 
-The TypeScript style package in [typescript/style](typescript/style/README.md) is published as
+The TypeScript style package in [packages/style](packages/style/README.md) is published as
 `@sqve/stomme-ts-style` with its own version.
 
 See [the documentation](docs/README.md) for the development guide and architecture decisions.

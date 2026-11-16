@@ -26,8 +26,9 @@ the ADR names the bounded field in `stomme.toml` that holds it.
 An ADR states the current decision. When its details change, edit it in place. Supersede it only
 when the core choice reverses. The new ADR then states the whole current rule and has a Supersedes
 line that names the old ADR without a link. Delete the old file, and add a row for it to the Retired
-table. Numbers are never reused. To read a retired ADR, run `git show <commit>:shared/adr/<file>` in
-the stomme repository with the commit in its row.
+table. Numbers are never reused. To read a retired ADR, run
+`git show <commit>:foundation/shared/adr/<file>` in the stomme repository with the commit in its
+row.
 
 ## Index
 

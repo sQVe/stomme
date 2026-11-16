@@ -29,8 +29,8 @@ has an `app`, a `cli`, both, or neither. This avoids a second declaration of the
 
 ### Layer ownership
 
-A layer owns one folder, `layers/<name>/`, containing its manifest, its guide, its required Clippy
-bans if any, and starter files. Its manifest declares `language`, `requires`, and `conflicts`. One Rust module
+A layer owns one folder, `foundation/layers/<name>/`, containing its manifest, its guide, its
+required Clippy bans if any, and starter files. Its manifest declares `language`, `requires`, and `conflicts`. One Rust module
 embeds the folder, and one registry entry registers the layer. This keeps a layer's shared
 material together and makes its inclusion in the distributed binary explicit.
 

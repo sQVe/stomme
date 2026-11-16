@@ -10,67 +10,70 @@ pub(crate) const DOCS_FOLDER: &str = "docs/stomme";
 const SHARED: &[(&str, &str)] = &[
     (
         "shared/adr/0001-documentation-scope.md",
-        include_str!("../../../shared/adr/0001-documentation-scope.md"),
+        include_str!("../../../foundation/shared/adr/0001-documentation-scope.md"),
     ),
     (
         "shared/adr/0002-capability-modules.md",
-        include_str!("../../../shared/adr/0002-capability-modules.md"),
+        include_str!("../../../foundation/shared/adr/0002-capability-modules.md"),
     ),
     (
         "shared/adr/0003-owner-folders-and-file-names.md",
-        include_str!("../../../shared/adr/0003-owner-folders-and-file-names.md"),
+        include_str!("../../../foundation/shared/adr/0003-owner-folders-and-file-names.md"),
     ),
     (
         "shared/adr/0004-roles-languages-and-layers.md",
-        include_str!("../../../shared/adr/0004-roles-languages-and-layers.md"),
+        include_str!("../../../foundation/shared/adr/0004-roles-languages-and-layers.md"),
     ),
     (
         "shared/adr/0005-results-and-parse-once.md",
-        include_str!("../../../shared/adr/0005-results-and-parse-once.md"),
+        include_str!("../../../foundation/shared/adr/0005-results-and-parse-once.md"),
     ),
     (
         "shared/adr/0006-side-effect-records.md",
-        include_str!("../../../shared/adr/0006-side-effect-records.md"),
+        include_str!("../../../foundation/shared/adr/0006-side-effect-records.md"),
     ),
     (
         "shared/adr/0007-test-placement-and-fakes.md",
-        include_str!("../../../shared/adr/0007-test-placement-and-fakes.md"),
+        include_str!("../../../foundation/shared/adr/0007-test-placement-and-fakes.md"),
     ),
     (
         "shared/adr/0008-backwards-compatibility.md",
-        include_str!("../../../shared/adr/0008-backwards-compatibility.md"),
+        include_str!("../../../foundation/shared/adr/0008-backwards-compatibility.md"),
     ),
     (
         "shared/adr/0009-advisory-review-signals.md",
-        include_str!("../../../shared/adr/0009-advisory-review-signals.md"),
+        include_str!("../../../foundation/shared/adr/0009-advisory-review-signals.md"),
     ),
     (
         "shared/adr/0010-recorded-violations.md",
-        include_str!("../../../shared/adr/0010-recorded-violations.md"),
+        include_str!("../../../foundation/shared/adr/0010-recorded-violations.md"),
     ),
     (
         "shared/adr/README.md",
-        include_str!("../../../shared/adr/README.md"),
+        include_str!("../../../foundation/shared/adr/README.md"),
     ),
     (
         "shared/adr/TEMPLATE.md",
-        include_str!("../../../shared/adr/TEMPLATE.md"),
+        include_str!("../../../foundation/shared/adr/TEMPLATE.md"),
     ),
     (
         "shared/coding.md",
-        include_str!("../../../shared/coding.md"),
+        include_str!("../../../foundation/shared/coding.md"),
     ),
-    ("shared/rules.md", include_str!("../../../shared/rules.md")),
+    (
+        "shared/rules.md",
+        include_str!("../../../foundation/shared/rules.md"),
+    ),
 ];
 
 const LANGUAGE_GUIDES: &[(&str, &str)] = &[
     (
         "languages/rust/guide.md",
-        include_str!("../../../languages/rust/guide.md"),
+        include_str!("../../../foundation/languages/rust/guide.md"),
     ),
     (
         "languages/typescript/guide.md",
-        include_str!("../../../languages/typescript/guide.md"),
+        include_str!("../../../foundation/languages/typescript/guide.md"),
     ),
 ];
 
