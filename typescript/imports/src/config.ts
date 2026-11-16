@@ -42,7 +42,7 @@ const isStringList = (value: unknown): value is string[] =>
 const isStringTable = (value: unknown): value is Record<string, string> =>
   isTable(value) && Object.values(value).every((item) => typeof item === 'string');
 
-const formatValue = (value: unknown) => {
+const formatValue = (value: string | bigint) => {
   if (typeof value === 'bigint') {
     return value.toString();
   }
@@ -208,6 +208,10 @@ const schemaProblem = (table: TomlTable): string | undefined => {
 
   if (value === undefined) {
     return `is missing \`schema\`; use \`schema = ${schema}\``;
+  }
+
+  if (typeof value !== 'bigint') {
+    return `has a \`schema\` that is not an integer; use \`schema = ${schema}\``;
   }
 
   if (value !== schema) {
