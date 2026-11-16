@@ -2,20 +2,16 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::LazyLock;
 
 use anyhow::Context as _;
 use serde::Deserialize;
 use serde_json::Value;
 
 use super::Problem;
+use crate::packages::pins;
 use crate::rule::Rule;
 
 const PACKAGE_JSON: &str = "package.json";
-const PACKAGES: &str = include_str!("../../../../packages.toml");
-
-static PINS: LazyLock<BTreeMap<String, String>> =
-    LazyLock::new(|| toml::from_str(PACKAGES).expect("packages.toml is valid TOML"));
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -47,10 +43,6 @@ pub(super) fn check(root: &Path) -> anyhow::Result<Vec<Problem>> {
         .collect();
 
     Ok(problems)
-}
-
-fn pins() -> &'static BTreeMap<String, String> {
-    &PINS
 }
 
 fn version_problem(package: &str, version: &Value) -> Option<Problem> {

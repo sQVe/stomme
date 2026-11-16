@@ -9,6 +9,7 @@ mod config;
 mod full_check;
 mod layer;
 mod owned;
+mod packages;
 mod rule;
 mod sync;
 mod synced_tree;
