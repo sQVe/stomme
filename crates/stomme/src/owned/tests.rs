@@ -98,6 +98,54 @@ fn validate_links_ignores_links_in_code_and_comments() {
 }
 
 #[test]
+fn validate_links_reports_a_link_after_a_closed_code_span() {
+    let files = [file(
+        "docs/stomme/shared/one.md",
+        "`[inside](./inside.md)`\n[after](./after.md)\n",
+    )];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::Broken {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./after.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_reports_a_link_after_a_closed_fence() {
+    let files = [file(
+        "docs/stomme/shared/one.md",
+        "```\n[inside](./inside.md)\n```\n[after](./after.md)\n",
+    )];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::Broken {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./after.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_ignores_a_link_inside_a_mismatched_code_span() {
+    let files = [file(
+        "docs/stomme/shared/one.md",
+        "`` `[inside](./inside.md)` ``\n[after](./after.md)\n",
+    )];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::Broken {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./after.md".to_string(),
+        })
+    );
+}
+
+#[test]
 fn validate_links_ignores_external_and_anchor_links() {
     let files = [file(
         "docs/stomme/shared/one.md",

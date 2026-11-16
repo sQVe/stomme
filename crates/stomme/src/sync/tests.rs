@@ -263,6 +263,64 @@ fn sync_refuses_a_directory_where_a_file_belongs() {
 
 #[cfg(unix)]
 #[test]
+fn sync_refuses_a_symlinked_docs_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = rust_project(&[]);
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    symlink(outside.path(), root.path().join("docs")).expect("create the docs symlink");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::SymlinkedFolder { ref path } if path == "docs"),
+        "{error:?}"
+    );
+    assert_eq!(snapshot(outside.path()), BTreeMap::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_refuses_a_symlinked_docs_stomme_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = rust_project(&[]);
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::create_dir(root.path().join("docs")).expect("create docs");
+    symlink(outside.path(), root.path().join("docs/stomme"))
+        .expect("create the docs/stomme symlink");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::SymlinkedFolder { ref path } if path == "docs/stomme"),
+        "{error:?}"
+    );
+    assert_eq!(snapshot(outside.path()), BTreeMap::new());
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_refuses_an_extra_file_with_a_literal_backslash() {
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join("docs/stomme")).expect("create docs/stomme");
+    fs::write(root.path().join("docs/stomme/shared\\coding.md"), "extra\n")
+        .expect("write the extra file");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::Extra { ref path } if path == "docs/stomme/shared\\coding.md"),
+        "{error:?}"
+    );
+    assert!(!root.path().join("docs/stomme/shared/coding.md").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn sync_refuses_a_symlink_where_a_file_belongs() {
     use std::os::unix::fs::symlink;
 

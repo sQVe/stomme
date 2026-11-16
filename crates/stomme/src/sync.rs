@@ -34,6 +34,8 @@ pub(crate) enum SyncError {
     MalformedRecord { path: String, reason: String },
     #[error("{path} is not a regular file")]
     NotAFile { path: String },
+    #[error("{path} is a symlink; synced files must stay inside the project")]
+    SymlinkedFolder { path: String },
     #[error("{path} differs from the synced content; edit it or remove it")]
     Edited { path: String },
     #[error("{path} is not owned by stomme; remove it")]
@@ -121,6 +123,8 @@ fn sync(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<(), S
 }
 
 fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan, SyncError> {
+    check_parent_folders(root, RECORD_FILE)?;
+
     let record = Record::read(root)?;
 
     if let Some(record) = &record {
@@ -134,6 +138,7 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
         .unwrap_or_default();
 
     for path in owned_paths.iter().chain(&recorded_paths) {
+        check_parent_folders(root, path)?;
         check_regular_file(root, path)?;
     }
 
@@ -248,6 +253,33 @@ fn validate_record(record: &Record) -> Result<(), SyncError> {
     Ok(())
 }
 
+fn check_parent_folders(root: &Path, path: &str) -> Result<(), SyncError> {
+    let parts: Vec<&str> = path.split('/').collect();
+
+    for end in 1..parts.len() {
+        let relative = parts[..end].join("/");
+
+        match fs::symlink_metadata(root.join(&relative)) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(SyncError::SymlinkedFolder { path: relative });
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(SyncError::NotAFile { path: relative });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(SyncError::Read {
+                    path: relative,
+                    source,
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn check_regular_file(root: &Path, path: &str) -> Result<(), SyncError> {
     if let Some(metadata) = metadata(root, path)?
         && !metadata.is_file()
@@ -291,11 +323,7 @@ fn collect_extra_files(
             source,
         })?;
         let path = entry.path();
-        let relative = path
-            .strip_prefix(root)
-            .expect("a docs/stomme entry lies inside the root")
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = relative_path(root, &path);
 
         if relative == RECORD_FILE {
             continue;
@@ -314,6 +342,15 @@ fn collect_extra_files(
     }
 
     Ok(())
+}
+
+fn relative_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .expect("a docs/stomme entry lies inside the root")
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn metadata(root: &Path, path: &str) -> Result<Option<fs::Metadata>, SyncError> {
