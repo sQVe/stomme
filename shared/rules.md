@@ -26,6 +26,10 @@ paths are relative to the stomme crate.
 | `rust-lint-level` | `[workspace.lints]` keeps every shared lint at its shared priority and at least its shared level. | rust | always | none | src/check/rust_lints.rs | tests/fixtures/rules/rust-lint-level | enforced |
 | `rust-lint-inheritance` | Every workspace member has `[lints] workspace = true`. | rust | always | none | src/check/rust_members.rs | tests/fixtures/rules/rust-lint-inheritance | enforced |
 | `rust-required-ban` | `clippy.toml` holds each shared Rust `disallowed-methods` ban with its reason. | rust | always | none | none | none | guidance only |
+| `rust-file-case` | A Rust file name is snake_case. | rust | always | none | src/check/layout/rust.rs | tests/fixtures/rules/rust-file-case | enforced |
+| `rust-catch-all-name` | A Rust file or folder is not named after a catch-all, and no file is `mod.rs`. | rust | always | none | src/check/layout/rust.rs | tests/fixtures/rules/rust-catch-all-name | enforced |
+| `rust-owner-folder` | A file that shares an owner's noun sits in the owner's folder. | rust | always | none | src/check/layout/rust.rs | tests/fixtures/rules/rust-owner-folder | enforced |
+| `rust-test-placement` | A Rust unit test lives in a `#[cfg(test)] mod tests` in the owning file, not below `src`. | rust | always | none | src/check/layout/rust.rs | tests/fixtures/rules/rust-test-placement | enforced |
 | `gpui-required-ban` | `clippy.toml` holds each GPUI `disallowed-methods` ban with its reason. | layer `gpui` | always | none | none | none | guidance only |
 | `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | none | none | none | project-local |
 | `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | none | none | none | project-local |
@@ -41,10 +45,13 @@ paths are relative to the stomme crate.
 | `pure-dependencies` | A module uses only pure modules; no module uses an I/O module. | rust | the project has a module table | none | none | none | project-local |
 | `pure-module-effects` | A registered pure module performs no reads or effects and imports only types and other pure modules. | typescript | the project registers pure modules | none | none | none | project-local |
 | `ui-dependency` | Core and CLI packages do not depend on UI packages, directly or through other packages. | rust | the workspace has UI packages | none | none | none | project-local |
-| `no-index-file` | Source folders hold no index files. | typescript | always | none | none | none | project-local |
+| `typescript-file-case` | A TypeScript file name is camelCase, or PascalCase for a file that exports one class. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/typescript-file-case | enforced |
+| `typescript-catch-all-name` | A TypeScript file or folder is not named after a catch-all. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/typescript-catch-all-name | enforced |
+| `typescript-owner-folder` | A file that shares an owner's noun sits in the owner's folder. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/typescript-owner-folder | enforced |
+| `no-index-file` | Source folders hold no index files. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/no-index-file | enforced |
 | `one-file-folder` | A module with one production source file is a flat file, not a folder. | typescript | always | none | none | none | project-local |
 | `folder-module-entry` | A folder module has an entry file named after its folder. | typescript | always | none | none | none | project-local |
-| `test-file-name` | A source test file is named after a module beside it. | typescript | always | none | none | none | project-local |
+| `test-file-name` | A source test file is named after a module beside it. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/test-file-name | enforced |
 | `fixture-import` | Production code does not load fixtures. | typescript | always | none | none | none | project-local |
 | `versioned-record` | A versioned record format has a version literal and current, newer, and malformed fixtures. | typescript | the project writes versioned records | none | none | none | project-local |
 | `test-project` | Every test file belongs to exactly one test project. | typescript | the project splits tests into projects | none | none | none | project-local |
@@ -66,8 +73,8 @@ paths are relative to the stomme crate.
 | `gpui-stale-result` | Drop a background result when the state it started from is no longer current. | layer `gpui` | always | none | none | none | guidance only |
 | `gpui-component-kit` | Only the `kit` role imports gpui-component; other code uses the project's own widget types. | layer `gpui-component` | the project has a `kit` role | `roles` | none | none | guidance only |
 | `react-jsx-extension` | Only a file that contains JSX uses `.tsx`. | layer `react` | always | none | none | none | guidance only |
-| `react-component-file` | A file that mainly exports one component is named after it in PascalCase. | layer `react` | always | none | none | none | guidance only |
-| `react-test-placement` | A component's unit test sits beside it as `<Component>.test.tsx`. | layer `react` | always | none | none | none | guidance only |
+| `react-component-file` | A file that mainly exports one component is named after it in PascalCase. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-component-file | enforced |
+| `react-test-placement` | A component's unit test sits beside it as `<Component>.test.tsx`. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-test-placement | enforced |
 | `pi-discovered-path` | `package.json` declares every path Pi discovers, and renaming code keeps those paths. | layer `pi` | always | none | none | none | guidance only |
 | `pi-registered-name` | Renaming code keeps every name registered with Pi. | layer `pi` | always | none | none | none | guidance only |
 | `herdr-mod-bundle` | Each mod builds into one `main.js` bundle; imports of Herdr's own modules stay imports. | layer `herdr` | always | none | none | none | guidance only |

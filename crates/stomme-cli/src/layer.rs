@@ -60,11 +60,17 @@ impl fmt::Display for Language {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Refinement {
+    TsxComponents,
+}
+
 pub(crate) struct Source {
     name: &'static str,
     manifest: &'static str,
     guide: &'static str,
     bans: Option<LayerBans>,
+    refinements: &'static [Refinement],
 }
 
 pub(crate) struct LayerBans {
@@ -95,6 +101,7 @@ pub(crate) struct Catalog {
 struct Layer {
     manifest: Manifest,
     guide: &'static str,
+    refinements: &'static [Refinement],
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,6 +256,7 @@ impl Catalog {
                 Layer {
                     manifest,
                     guide: source.guide,
+                    refinements: source.refinements,
                 },
             );
 
@@ -285,6 +293,14 @@ impl Catalog {
 
     pub(crate) fn guide(&self, name: &str) -> Option<&'static str> {
         self.layers.get(name).map(|layer| layer.guide)
+    }
+
+    pub(crate) fn refinements(&self, layers: &BTreeSet<String>) -> BTreeSet<Refinement> {
+        layers
+            .iter()
+            .filter_map(|layer| self.layers.get(layer.as_str()))
+            .flat_map(|layer| layer.refinements.iter().copied())
+            .collect()
     }
 
     #[cfg(test)]
@@ -401,6 +417,7 @@ pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalo
             manifest,
             bans: None,
             guide: "",
+            refinements: &[],
         })
         .collect();
 
@@ -428,6 +445,7 @@ pub(crate) fn test_policy_catalog(
                 text: override_for(source.name).unwrap_or(bans.text),
                 rule: bans.rule,
             }),
+            refinements: source.refinements,
         })
         .collect();
 

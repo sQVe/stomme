@@ -13,6 +13,7 @@ fn source(name: &'static str, manifest: &'static str) -> Source {
         manifest,
         bans: None,
         guide: "",
+        refinements: &[],
     }
 }
 
@@ -290,6 +291,7 @@ fn catalog_reports_invalid_layer_bans() {
         name: "one",
         manifest: "language = \"rust\"\n",
         guide: "",
+        refinements: &[],
         bans: Some(LayerBans {
             text: "disallowed-methods = [{ path = \"gpui::App::run\" }]\n",
             rule: Rule::GpuiRequiredBan,
