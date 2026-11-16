@@ -15,6 +15,8 @@ pub(crate) enum FullCheckError {
     InvalidJson { reason: String },
     #[error("needs `fullCheck.argv` as a non-empty array of strings")]
     Missing,
+    #[error("has a `fullCheck.argv` argument with a line break; use one line")]
+    LineBreak,
 }
 
 pub(crate) fn read(root: &Path) -> Result<Option<Vec<String>>, FullCheckError> {
@@ -40,7 +42,7 @@ pub(crate) fn read(root: &Path) -> Result<Option<Vec<String>>, FullCheckError> {
         return Err(FullCheckError::Missing);
     }
 
-    let argv = argv
+    let argv: Vec<String> = argv
         .iter()
         .map(|value| {
             value
@@ -50,5 +52,15 @@ pub(crate) fn read(root: &Path) -> Result<Option<Vec<String>>, FullCheckError> {
         })
         .collect();
 
+    if argv
+        .iter()
+        .any(|argument| argument.contains('\n') || argument.contains('\r'))
+    {
+        return Err(FullCheckError::LineBreak);
+    }
+
     Ok(Some(argv))
 }
+
+#[cfg(test)]
+mod tests;

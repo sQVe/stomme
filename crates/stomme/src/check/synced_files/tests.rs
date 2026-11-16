@@ -242,3 +242,47 @@ fn check_reports_a_missing_agents_marker() {
         "{problems:?}"
     );
 }
+
+#[test]
+fn check_reports_an_agents_block_missing_from_the_record() {
+    let root = complete_project();
+    let path = crate::agents_block::PATH;
+
+    rewrite_record(root.path(), |record| {
+        record.files.remove(path);
+    });
+
+    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path && problem.rule == Rule::AgentsBlock)
+        .expect("the block is reported");
+
+    assert!(
+        problem.message.contains("not in the ownership record"),
+        "{problem:?}"
+    );
+}
+
+#[test]
+fn check_reports_an_agents_block_record_hash_that_differs() {
+    let root = complete_project();
+    let path = crate::agents_block::PATH;
+
+    rewrite_record(root.path(), |record| {
+        record.files.insert(path.to_string(), "0".repeat(64));
+    });
+
+    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path && problem.rule == Rule::AgentsBlock)
+        .expect("the block is reported");
+
+    assert!(
+        problem
+            .message
+            .contains("does not match the ownership record"),
+        "{problem:?}"
+    );
+}

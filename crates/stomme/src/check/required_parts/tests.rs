@@ -62,6 +62,7 @@ fn check_reports_a_tau_config_without_a_full_check_command() {
         r#"{ "fullCheck": { "argv": [] } }"#,
         r#"{ "fullCheck": { "argv": "cargo xtask check" } }"#,
         r#"{ "fullCheck": { "argv": ["cargo", 1] } }"#,
+        r#"{ "fullCheck": { "argv": ["cargo", "xtask\ncheck"] } }"#,
         "{ not json",
     ];
 

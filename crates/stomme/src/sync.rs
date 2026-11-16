@@ -44,6 +44,8 @@ pub(crate) enum SyncError {
     Block { path: String, source: BlockError },
     #[error("{path} is not valid UTF-8")]
     NotText { path: String },
+    #[error("the managed block links to {target}, which does not exist")]
+    BlockLink { target: String },
     #[error("{path} is not owned by stomme; remove it")]
     Extra { path: String },
     #[error("could not read {path}: {source}")]
@@ -163,7 +165,14 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
 
     let (mut writes, mut files) = plan_writes(root, owned, record.as_ref())?;
 
-    plan_block(root, selection, record.as_ref(), &mut writes, &mut files)?;
+    plan_block(
+        root,
+        selection,
+        owned,
+        record.as_ref(),
+        &mut writes,
+        &mut files,
+    )?;
 
     let deletes = plan_deletes(root, record.as_ref(), &owned_paths)?;
     let record = Record {
@@ -181,6 +190,7 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
 fn plan_block(
     root: &Path,
     selection: &Selection,
+    owned: &[OwnedFile],
     record: Option<&Record>,
     writes: &mut Vec<(String, String)>,
     files: &mut BTreeMap<String, String>,
@@ -193,6 +203,8 @@ fn plan_block(
     })?;
     let argv = full_check::read(root).ok().flatten();
     let block = agents_block::render(selection, argv.as_deref());
+
+    validate_block_links(root, &block, owned)?;
 
     files.insert(agents_block::PATH.to_string(), hash(block.as_bytes()));
 
@@ -225,6 +237,29 @@ fn plan_block(
         agents_block::PATH.to_string(),
         agents_block::replace(&existing, &block)?,
     ));
+
+    Ok(())
+}
+
+fn validate_block_links(root: &Path, block: &str, owned: &[OwnedFile]) -> Result<(), SyncError> {
+    let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
+
+    for target in owned::link_targets(block) {
+        let Some(relative) = owned::relative_target(&target) else {
+            continue;
+        };
+        let Some(resolved) = owned::resolve("", relative) else {
+            return Err(SyncError::BlockLink { target });
+        };
+
+        if owned_paths.contains(resolved.as_str()) {
+            continue;
+        }
+
+        if !root.join(&resolved).is_file() {
+            return Err(SyncError::BlockLink { target });
+        }
+    }
 
     Ok(())
 }

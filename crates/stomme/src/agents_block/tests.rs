@@ -23,6 +23,8 @@ fn project(agents: Option<&str>) -> TempDir {
         r#"{ "fullCheck": { "argv": ["cargo", "xtask", "check"] } }"#,
     )
     .expect("write .pi/tau.json");
+    fs::create_dir_all(root.path().join("docs/adr")).expect("create docs/adr");
+    fs::write(root.path().join("docs/adr/README.md"), "# ADRs\n").expect("write the ADR index");
 
     if let Some(agents) = agents {
         fs::write(root.path().join(PATH), agents).expect("write AGENTS.md");
@@ -172,8 +174,6 @@ fn find_rejects_an_end_marker_before_a_start_marker() {
 fn sync_writes_links_that_resolve() {
     let root = project(Some("# Project\n"));
 
-    fs::create_dir_all(root.path().join("docs/adr")).expect("create docs/adr");
-    fs::write(root.path().join("docs/adr/README.md"), "# ADRs\n").expect("write the ADR index");
     fs::write(
         root.path().join("docs/adr/0001-documentation-scope.md"),
         "# ADR 0001: Documentation scope\n",
@@ -209,4 +209,85 @@ fn link_targets(text: &str) -> Vec<String> {
     }
 
     targets
+}
+
+#[test]
+fn sync_refuses_a_missing_block_link_target_and_writes_nothing() {
+    let original = "# Project\n";
+    let root = project(Some(original));
+
+    fs::remove_file(root.path().join("docs/adr/README.md")).expect("remove the ADR index");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::BlockLink { ref target } if target == "docs/adr/README.md"),
+        "{error:?}"
+    );
+    assert_eq!(read_agents(root.path()), original);
+    assert!(!root.path().join("docs/stomme").exists());
+}
+
+#[test]
+fn sync_omits_a_command_with_a_line_break_and_writes_one_block() {
+    let root = project(Some("# Project\n"));
+
+    fs::write(
+        root.path().join(".pi/tau.json"),
+        r#"{ "fullCheck": { "argv": ["cargo", "xtask\n<!-- stomme:start -->", "check"] } }"#,
+    )
+    .expect("write .pi/tau.json");
+
+    sync_project(root.path()).expect("sync succeeds");
+
+    let text = read_agents(root.path());
+
+    assert!(!text.contains("Run the full check"), "{text}");
+    assert_eq!(text.matches(START).count(), 1, "{text}");
+    assert_eq!(text.matches(END).count(), 1, "{text}");
+}
+
+#[test]
+fn find_rejects_a_duplicate_start_marker() {
+    let text = format!("{START}\n{START}\n{END}\n");
+
+    assert_eq!(find(&text), Err(BlockError::Duplicate { marker: "start" }));
+}
+
+#[test]
+fn find_rejects_a_duplicate_end_marker() {
+    let text = format!("{START}\n{END}\n{END}\n");
+
+    assert_eq!(find(&text), Err(BlockError::Duplicate { marker: "end" }));
+}
+
+#[test]
+fn find_rejects_an_end_marker_without_a_start_marker() {
+    let text = format!("{END}\n");
+
+    assert_eq!(find(&text), Err(BlockError::Unpaired { marker: "end" }));
+}
+
+#[test]
+fn find_reads_markers_with_crlf_line_endings() {
+    let text = format!("{START}\r\nbody\r\n{END}\r\n");
+
+    let range = find(&text)
+        .expect("find the block")
+        .expect("the block exists");
+
+    assert_eq!(&text[range], text);
+}
+
+#[test]
+fn replace_keeps_the_text_outside_the_block_byte_for_byte() {
+    let before = "before\r\n";
+    let after = "after\n";
+    let old_block = format!("{START}\nold\n{END}\n");
+    let new_block = format!("{START}\nnew\n{END}\n");
+    let text = format!("{before}{old_block}{after}");
+
+    let updated = replace(&text, &new_block).expect("replace the block");
+
+    assert_eq!(updated, format!("{before}{new_block}{after}"));
 }
