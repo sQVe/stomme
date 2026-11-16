@@ -12,12 +12,12 @@ use use_paths::{UsePath, paths};
 
 struct Module {
     name: String,
+    entry: String,
     path: Vec<String>,
     src_folder: String,
     owner_folder: String,
     public: BTreeSet<String>,
     imports: BTreeSet<String>,
-    files: BTreeSet<String>,
 }
 
 pub(super) fn check(
@@ -29,7 +29,7 @@ pub(super) fn check(
     }
 
     let tree = source_files::walk(root, Language::Rust)?;
-    let modules = read_modules(&tree, modules);
+    let modules = read_modules(modules);
     let src_folders: BTreeSet<String> = modules
         .iter()
         .map(|module| module.src_folder.clone())
@@ -63,7 +63,7 @@ pub(super) fn check(
     Ok(problems)
 }
 
-fn read_modules(tree: &Tree, rows: &BTreeMap<String, ModuleRow>) -> Vec<Module> {
+fn read_modules(rows: &BTreeMap<String, ModuleRow>) -> Vec<Module> {
     rows.iter()
         .map(|(name, row)| {
             let src_folder = src_folder(&row.entry).expect("config checked the `src` part");
@@ -73,22 +73,15 @@ fn read_modules(tree: &Tree, rows: &BTreeMap<String, ModuleRow>) -> Vec<Module> 
                 .strip_suffix(".rs")
                 .unwrap_or(&row.entry)
                 .to_string();
-            let folder_prefix = format!("{owner_folder}/");
-            let files = tree
-                .files
-                .iter()
-                .filter(|file| file.path == row.entry || file.path.starts_with(&folder_prefix))
-                .map(|file| file.path.clone())
-                .collect();
 
             Module {
                 name: name.clone(),
+                entry: row.entry.clone(),
                 path,
                 src_folder,
                 owner_folder,
                 public: row.public.iter().cloned().collect(),
                 imports: row.imports.iter().cloned().collect(),
-                files,
             }
         })
         .collect()
@@ -127,8 +120,14 @@ fn is_under_bin(path: &str, src_folder: &str) -> bool {
 fn owner_module<'a>(modules: &'a [Module], path: &str) -> Option<&'a Module> {
     modules
         .iter()
-        .filter(|module| module.files.contains(path))
+        .filter(|module| owns(module, path))
         .max_by_key(|module| module.path.len())
+}
+
+fn owns(module: &Module, path: &str) -> bool {
+    let folder_prefix = format!("{}/", module.owner_folder);
+
+    path == module.entry || path.starts_with(&folder_prefix)
 }
 
 fn module_listed(file: &SourceFile) -> Problem {
