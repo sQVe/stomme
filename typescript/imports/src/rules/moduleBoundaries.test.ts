@@ -54,6 +54,16 @@ imports = ["config"]
 `,
 );
 
+const commonJsRoot = projectRoot(
+  `${configHeader}
+[modules.alpha]
+entry = "src/alpha/index.cts"
+
+[modules.beta]
+entry = "src/beta/index.cts"
+`,
+);
+
 const tauRoot = projectRoot(tauModuleConfig);
 const noConfigRoot = projectRoot(undefined);
 const brokenRoot = projectRoot(configHeader.replace('typescript', 'rust'));
@@ -218,6 +228,12 @@ ruleTester.run('module-boundaries', moduleBoundariesRule, {
       name: 'reports a type import that crosses the table, naming the edge',
       code: "import type { Beta } from './beta.js';\n\nexport type Value = Beta;",
       filename: join(crossingRoot, 'src/alpha.ts'),
+      errors: [{ messageId: 'notAllowed', data: { source: 'alpha', target: 'beta' } }],
+    },
+    {
+      name: 'reports a forbidden import through a CommonJS specifier',
+      code: "import { beta } from '../beta/index.cjs';\n\nexport const value = beta;",
+      filename: join(commonJsRoot, 'src/alpha/index.cts'),
       errors: [{ messageId: 'notAllowed', data: { source: 'alpha', target: 'beta' } }],
     },
     {

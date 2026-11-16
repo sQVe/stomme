@@ -13,7 +13,8 @@ interface LocatedModule {
   isFolder: boolean;
 }
 
-const stripExtension = (path: string): string => path.replace(/\.(?:js|jsx|mjs|ts|tsx|mts)$/, '');
+const stripExtension = (path: string): string =>
+  path.replace(/\.(?:cjs|cts|js|jsx|mjs|mts|ts|tsx)$/, '');
 
 const packageRoots = new Map<string, string | undefined>();
 
