@@ -316,6 +316,31 @@ fn use_past_an_entry_file_passes_when_the_file_is_public() {
 }
 
 #[test]
+fn a_self_alias_of_the_crate_root_is_reported_as_the_crate_root() {
+    let root = project(
+        &[
+            ("src/ticket.rs", "use crate::{self as root, store};\n"),
+            ("src/store.rs", ""),
+        ],
+        "[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"store\"]\n\n[modules.store]\nentry = \"src/store.rs\"\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::CrateRootPath,
+        "ticket:crate",
+        "crate root alias",
+    );
+    assert!(
+        problems[0].message.contains("uses the crate root itself"),
+        "{problems:?}"
+    );
+}
+
+#[test]
 fn a_module_path_matches_only_modules_in_the_same_crate() {
     let root = project(
         &[

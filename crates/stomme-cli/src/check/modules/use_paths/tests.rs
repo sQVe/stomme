@@ -153,17 +153,44 @@ fn a_module_declaration_without_a_body_is_not_an_inline_module() {
 }
 
 #[test]
+fn alias_in_a_group_is_not_a_second_path() {
+    assert_eq!(
+        segments("use crate::{store as alias};"),
+        expected(&[&["crate", "store"]])
+    );
+}
+
+#[test]
+fn self_in_a_group_resolves_to_the_group_prefix() {
+    assert_eq!(
+        segments("use crate::store::{self, Read};"),
+        expected(&[&["crate", "store"], &["crate", "store", "Read"]])
+    );
+}
+
+#[test]
+fn self_alias_of_the_crate_root_yields_the_crate_path() {
+    assert_eq!(
+        segments("use crate::{self as root, store};"),
+        expected(&[&["crate"], &["crate", "store"]])
+    );
+}
+
+#[test]
+fn a_stray_close_brace_does_not_panic() {
+    assert_eq!(
+        segments("}\nuse crate::store;\n"),
+        expected(&[&["crate", "store"]])
+    );
+}
+
+#[test]
 fn group_parsing_stops_at_early_or_unexpected_tokens() {
     let cases: [(&str, &[&[&str]]); 2] = [
         ("use crate::{a, ;", &[&["crate", "a"], &["crate"]]),
         (
             "use crate::{a as b, #c}",
-            &[
-                &["crate", "a"],
-                &["crate", "b"],
-                &["crate"],
-                &["crate", "c"],
-            ],
+            &[&["crate", "a"], &["crate"], &["crate", "c"]],
         ),
     ];
 

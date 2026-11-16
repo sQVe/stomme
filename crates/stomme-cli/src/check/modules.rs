@@ -250,7 +250,7 @@ fn classify_unlisted(
     use_path: &UsePath,
 ) -> Option<Problem> {
     let Some(first) = resolved.first() else {
-        return Some(crate_root_path(file, module, use_path, "*"));
+        return Some(crate_root_itself(file, module, use_path));
     };
 
     if first == "*" {
@@ -276,6 +276,16 @@ fn classify_unlisted(
     let key = format!("{}:{first}", module.name);
 
     Some(problem(file, Rule::ModuleImports, message, key))
+}
+
+fn crate_root_itself(file: &SourceFile, module: &Module, use_path: &UsePath) -> Problem {
+    let message = format!(
+        "line {}: module `{}` uses the crate root itself; use a module path",
+        use_path.line, module.name
+    );
+    let key = format!("{}:crate", module.name);
+
+    problem(file, Rule::CrateRootPath, message, key)
 }
 
 fn crate_root_path(file: &SourceFile, module: &Module, use_path: &UsePath, name: &str) -> Problem {

@@ -73,7 +73,7 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
         match token.kind {
             TokenKind::OpenBrace => depth += 1,
             TokenKind::CloseBrace => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 let last_kept = inline_modules
                     .iter()
                     .rposition(|(open_depth, _)| *open_depth <= depth);
@@ -213,6 +213,14 @@ impl Parser<'_, '_> {
             }
 
             let mut item = self.parse_segments();
+            self.skip_alias();
+
+            for leaf in &mut item {
+                if leaf.segments == ["self"] {
+                    leaf.segments.clear();
+                }
+            }
+
             leaves.append(&mut item);
 
             match self.tokens.peek().map(|token| token.kind) {
@@ -228,6 +236,22 @@ impl Parser<'_, '_> {
         }
 
         leaves
+    }
+
+    fn skip_alias(&mut self) {
+        let is_alias = self
+            .tokens
+            .peek()
+            .is_some_and(|token| token.kind == TokenKind::Ident && token.text == "as");
+
+        if !is_alias {
+            return;
+        }
+
+        self.tokens
+            .next()
+            .expect("a peeked alias keyword is present");
+        self.tokens.next();
     }
 
     fn colon_colon(&self) -> bool {
