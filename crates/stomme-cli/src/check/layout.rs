@@ -25,7 +25,7 @@ pub(super) fn check(
     let refinements = catalog.refinements(&selection.layers);
     let mut problems = match selection.language {
         Language::Rust => rust::check(&tree),
-        Language::TypeScript => typescript::check(&tree, &refinements),
+        Language::TypeScript => typescript::check(&tree, &refinements)?,
     };
 
     if selection.language == Language::TypeScript

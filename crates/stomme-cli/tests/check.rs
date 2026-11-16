@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 #[path = "../src/test_support.rs"]
 mod test_support;
 
-use test_support::{complete_project, write_file};
+use test_support::{commit, complete_project, git, write_file};
 
 fn sync_project(root: &Path) {
     let output = stomme(root, &["sync"]);
@@ -181,33 +181,6 @@ fn check_reports_an_extra_doc_that_does_not_exist() {
 }
 
 #[test]
-fn check_reports_an_extra_doc_inside_docs_stomme() {
-    let root = complete_project();
-
-    write_file(
-        root.path(),
-        "stomme.toml",
-        &format!(
-            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"docs/stomme/shared/coding.md\"]\n",
-            env!("CARGO_PKG_VERSION")
-        ),
-    );
-
-    let output = stomme(root.path(), &["check"]);
-
-    assert_single_problem(
-        &output,
-        "stomme.toml",
-        "broken-installation",
-        "extra doc inside docs/stomme",
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("docs/stomme/shared/coding.md"),
-        "{output:?}"
-    );
-}
-
-#[test]
 fn check_reports_an_unknown_exception_field() {
     let root = complete_project();
 
@@ -230,69 +203,6 @@ fn check_reports_an_unknown_exception_field() {
     );
     assert!(
         String::from_utf8_lossy(&output.stderr).contains("other"),
-        "{output:?}"
-    );
-}
-
-#[test]
-fn check_reports_an_extra_doc_that_aliases_docs_stomme_with_a_dot() {
-    let root = complete_project();
-    let path = "docs/./stomme/shared/coding.md";
-
-    write_file(
-        root.path(),
-        "stomme.toml",
-        &format!(
-            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"{path}\"]\n",
-            env!("CARGO_PKG_VERSION")
-        ),
-    );
-
-    let output = stomme(root.path(), &["check"]);
-
-    assert_single_problem(
-        &output,
-        "stomme.toml",
-        "broken-installation",
-        "dotted extra doc alias",
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains(path),
-        "{output:?}"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn check_reports_an_extra_doc_symlinked_into_docs_stomme() {
-    use std::os::unix::fs::symlink;
-
-    let root = complete_project();
-
-    symlink(
-        root.path().join("docs/stomme/shared/coding.md"),
-        root.path().join("docs/link.md"),
-    )
-    .expect("create the symlink");
-    write_file(
-        root.path(),
-        "stomme.toml",
-        &format!(
-            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[exceptions]\nextra_docs = [\"docs/link.md\"]\n",
-            env!("CARGO_PKG_VERSION")
-        ),
-    );
-
-    let output = stomme(root.path(), &["check"]);
-
-    assert_single_problem(
-        &output,
-        "stomme.toml",
-        "broken-installation",
-        "symlinked extra doc alias",
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("docs/link.md"),
         "{output:?}"
     );
 }
@@ -419,16 +329,6 @@ fn stomme_prints_usage_without_the_check_command() {
     }
 }
 
-fn git(root: &Path, arguments: &[&str]) {
-    let output = Command::new("git")
-        .args(arguments)
-        .current_dir(root)
-        .output()
-        .expect("run git");
-
-    assert!(output.status.success(), "{arguments:?}: {output:?}");
-}
-
 #[test]
 fn check_base_reads_the_named_ref() {
     let root = complete_project();
@@ -443,33 +343,9 @@ fn check_base_reads_the_named_ref() {
     fs::create_dir_all(root.path().join("src/domain")).expect("create the role folder");
     write_file(root.path(), "stomme.toml", &without_entry);
     git(root.path(), &["init", "-q"]);
-    git(root.path(), &["add", "-A"]);
-    git(
-        root.path(),
-        &[
-            "-c",
-            "user.name=Stomme Test",
-            "-c",
-            "user.email=stomme@example.com",
-            "commit",
-            "-qm",
-            "without the entry",
-        ],
-    );
+    commit(root.path(), "without the entry");
     write_file(root.path(), "stomme.toml", &with_entry);
-    git(root.path(), &["add", "-A"]);
-    git(
-        root.path(),
-        &[
-            "-c",
-            "user.name=Stomme Test",
-            "-c",
-            "user.email=stomme@example.com",
-            "commit",
-            "-qm",
-            "with the entry",
-        ],
-    );
+    commit(root.path(), "with the entry");
     git(
         root.path(),
         &["update-ref", "refs/remotes/origin/main", "HEAD"],

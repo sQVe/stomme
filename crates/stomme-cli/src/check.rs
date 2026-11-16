@@ -58,8 +58,12 @@ pub(crate) fn run(
 ) -> anyhow::Result<Vec<Problem>> {
     let installation = config::read(root, catalog);
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
+    let selection = match &installation {
+        Installation::Valid(selection) => Some(selection),
+        Installation::NoStomme | Installation::Broken(_) => None,
+    };
 
-    if let Installation::Valid(selection) = &installation {
+    if let Some(selection) = selection {
         problems.extend(synced_files::check(root, selection, catalog)?);
     }
 
@@ -67,13 +71,11 @@ pub(crate) fn run(
     problems.extend(package_pins::check(root)?);
     problems.extend(adr_index::check(root, ADR_FOLDER)?);
 
-    if let Installation::Valid(selection) = &installation
-        && selection.language == Language::Rust
-    {
-        problems.extend(rust_problems(root, catalog, &selection.layers)?);
-    }
+    if let Some(selection) = selection {
+        if selection.language == Language::Rust {
+            problems.extend(rust_problems(root, catalog, &selection.layers)?);
+        }
 
-    if let Installation::Valid(selection) = &installation {
         problems.extend(roles::check(root, &selection.roles));
         problems.extend(layout::check(root, selection, catalog)?);
         problems = violations::apply(problems, &selection.violations);

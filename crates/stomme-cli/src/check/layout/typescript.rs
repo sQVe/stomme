@@ -7,12 +7,15 @@ use super::{
 use crate::layer::Refinement;
 use crate::rule::Rule;
 
-pub(super) fn check(tree: &Tree, refinements: &BTreeSet<Refinement>) -> Vec<Problem> {
+pub(super) fn check(
+    tree: &Tree,
+    refinements: &BTreeSet<Refinement>,
+) -> anyhow::Result<Vec<Problem>> {
     let skip_tsx = refinements.contains(&Refinement::TsxComponents);
     let mut problems = Vec::new();
 
     for file in &tree.files {
-        problems.extend(file_case(file, skip_tsx));
+        problems.extend(file_case(tree, file, skip_tsx)?);
         problems.extend(catch_all_file(file));
         problems.extend(index_file(file));
         problems.extend(test_name(file, tree, skip_tsx));
@@ -21,30 +24,30 @@ pub(super) fn check(tree: &Tree, refinements: &BTreeSet<Refinement>) -> Vec<Prob
     problems.extend(catch_all_folders(tree, Rule::TypeScriptCatchAllName));
     problems.extend(owner_folder(tree));
 
-    problems
+    Ok(problems)
 }
 
-fn file_case(file: &SourceFile, skip_tsx: bool) -> Option<Problem> {
+fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<Option<Problem>> {
     if skip_tsx && file.is_tsx() {
-        return None;
+        return Ok(None);
     }
 
     if is_camel_case(&file.stem) {
-        return None;
+        return Ok(None);
     }
 
-    if is_pascal_case(&file.stem) && exports_class(&file.text, &file.stem) {
-        return None;
+    if is_pascal_case(&file.stem) && exports_class(&tree.read(file)?, &file.stem) {
+        return Ok(None);
     }
 
-    Some(problem(
+    Ok(Some(problem(
         file,
         Rule::TypeScriptFileCase,
         format!(
             "names the file `{}`; use camelCase, or PascalCase for a file that exports one class",
             file.name
         ),
-    ))
+    )))
 }
 
 fn exports_class(text: &str, stem: &str) -> bool {

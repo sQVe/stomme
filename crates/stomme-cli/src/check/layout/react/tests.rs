@@ -24,7 +24,7 @@ fn tsx_rules_run_only_with_the_react_layer() {
 
     assert_eq!(rules(&check(&project)), [Rule::ReactComponentFile]);
     assert_eq!(
-        rules(&typescript::check(&project, &BTreeSet::new())),
+        rules(&typescript::check(&project, &BTreeSet::new()).expect("check the project")),
         Vec::<Rule>::new()
     );
 
@@ -34,7 +34,7 @@ fn tsx_rules_run_only_with_the_react_layer() {
 
     assert_eq!(rules(&check(&project)), Vec::<Rule>::new());
     assert_eq!(
-        rules(&typescript::check(&project, &BTreeSet::new())),
+        rules(&typescript::check(&project, &BTreeSet::new()).expect("check the project")),
         [Rule::TypeScriptFileCase]
     );
 }
