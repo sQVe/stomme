@@ -15,6 +15,8 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
     'send(user.name());',
     'send(user.profile.name());',
     'send(getUser().name);',
+    'send(record[key]);',
+    'send((ok ? a : b).name);',
     'send(user.name().length);',
     'send(items.filter(isOpen).length > 0);',
     'items.filter(isOpen).map(toName);',
@@ -186,6 +188,20 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
     },
     {
       code: 'send(a.b().c().d());',
+      errors: [
+        {
+          message: 'Assign this call chain to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(record[ok ? a : b]);',
+      errors: [
+        { message: 'Assign this ternary to a named variable before passing it as an argument.' },
+      ],
+    },
+    {
+      code: 'send(record[items.filter(isOpen).map(toName)]);',
       errors: [
         {
           message: 'Assign this call chain to a named variable before passing it as an argument.',
