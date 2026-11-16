@@ -312,6 +312,50 @@ rules! {
         fields: &[],
         enforcement: Enforcement::GuidanceOnly,
     },
+    RustFileCase => Metadata {
+        id: "rust-file-case",
+        summary: "A Rust file name is snake_case.",
+        owner: Owner::Language(Language::Rust),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/rust.rs",
+            fixtures: "tests/fixtures/rules/rust-file-case",
+        }),
+    },
+    RustCatchAllName => Metadata {
+        id: "rust-catch-all-name",
+        summary: "A Rust file or folder is not named after a catch-all, and no file is `mod.rs`.",
+        owner: Owner::Language(Language::Rust),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/rust.rs",
+            fixtures: "tests/fixtures/rules/rust-catch-all-name",
+        }),
+    },
+    RustOwnerFolder => Metadata {
+        id: "rust-owner-folder",
+        summary: "A file that shares an owner's noun sits in the owner's folder.",
+        owner: Owner::Language(Language::Rust),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/rust.rs",
+            fixtures: "tests/fixtures/rules/rust-owner-folder",
+        }),
+    },
+    RustTestPlacement => Metadata {
+        id: "rust-test-placement",
+        summary: "A Rust unit test lives in a `#[cfg(test)] mod tests` in the owning file, not below `src`.",
+        owner: Owner::Language(Language::Rust),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/rust.rs",
+            fixtures: "tests/fixtures/rules/rust-test-placement",
+        }),
+    },
     GpuiRequiredBan => Metadata {
         id: "gpui-required-ban",
         summary: "`clippy.toml` holds each GPUI `disallowed-methods` ban with its reason.",
@@ -432,13 +476,49 @@ rules! {
         fields: &[],
         enforcement: Enforcement::ProjectLocal,
     },
+    TypeScriptFileCase => Metadata {
+        id: "typescript-file-case",
+        summary: "A TypeScript file name is camelCase, or PascalCase for a file that exports one class.",
+        owner: Owner::Language(Language::TypeScript),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/typescript.rs",
+            fixtures: "tests/fixtures/rules/typescript-file-case",
+        }),
+    },
+    TypeScriptCatchAllName => Metadata {
+        id: "typescript-catch-all-name",
+        summary: "A TypeScript file or folder is not named after a catch-all.",
+        owner: Owner::Language(Language::TypeScript),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/typescript.rs",
+            fixtures: "tests/fixtures/rules/typescript-catch-all-name",
+        }),
+    },
+    TypeScriptOwnerFolder => Metadata {
+        id: "typescript-owner-folder",
+        summary: "A file that shares an owner's noun sits in the owner's folder.",
+        owner: Owner::Language(Language::TypeScript),
+        applies: "always",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/typescript.rs",
+            fixtures: "tests/fixtures/rules/typescript-owner-folder",
+        }),
+    },
     NoIndexFile => Metadata {
         id: "no-index-file",
         summary: "Source folders hold no index files.",
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/typescript.rs",
+            fixtures: "tests/fixtures/rules/no-index-file",
+        }),
     },
     OneFileFolder => Metadata {
         id: "one-file-folder",
@@ -462,7 +542,10 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/typescript.rs",
+            fixtures: "tests/fixtures/rules/test-file-name",
+        }),
     },
     FixtureImport => Metadata {
         id: "fixture-import",
@@ -638,7 +721,10 @@ rules! {
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],
-        enforcement: Enforcement::GuidanceOnly,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/react.rs",
+            fixtures: "tests/fixtures/rules/react-component-file",
+        }),
     },
     ReactTestPlacement => Metadata {
         id: "react-test-placement",
@@ -646,7 +732,10 @@ rules! {
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],
-        enforcement: Enforcement::GuidanceOnly,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/layout/react.rs",
+            fixtures: "tests/fixtures/rules/react-test-placement",
+        }),
     },
     PiDiscoveredPath => Metadata {
         id: "pi-discovered-path",

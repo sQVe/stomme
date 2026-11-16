@@ -117,7 +117,7 @@ impl Iterator for Files<'_> {
     }
 }
 
-fn relative_path(root: &Path, path: &Path) -> Option<String> {
+pub(crate) fn relative_path(root: &Path, path: &Path) -> Option<String> {
     let mut parts = Vec::new();
 
     for component in path.strip_prefix(root).ok()?.components() {
@@ -127,7 +127,7 @@ fn relative_path(root: &Path, path: &Path) -> Option<String> {
     Some(parts.join("/"))
 }
 
-fn describe_relative(root: &Path, path: &Path) -> String {
+pub(crate) fn describe_relative(root: &Path, path: &Path) -> String {
     describe(path.strip_prefix(root).unwrap_or(path))
 }
 

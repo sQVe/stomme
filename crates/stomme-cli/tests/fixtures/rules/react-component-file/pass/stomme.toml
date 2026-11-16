@@ -1,0 +1,4 @@
+schema = 1
+version = "0.0.0"
+language = "typescript"
+layers = ["react"]

@@ -9,6 +9,7 @@ use crate::rule::Rule;
 mod adr_index;
 mod cargo_manifest;
 mod clippy_bans;
+mod layout;
 mod package_pins;
 mod required_parts;
 mod roles;
@@ -67,6 +68,7 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
 
     if let Installation::Valid(selection) = &installation {
         problems.extend(roles::check(root, &selection.roles));
+        problems.extend(layout::check(root, selection, catalog)?);
     }
 
     Ok(problems)
