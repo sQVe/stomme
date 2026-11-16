@@ -7,6 +7,7 @@ use crate::layer::{Catalog, Language};
 use crate::rule::Rule;
 
 mod adr_index;
+mod cargo_lock;
 mod cargo_manifest;
 mod clippy_bans;
 mod layout;
@@ -80,7 +81,13 @@ pub(crate) fn run(
         if selection.language == Language::Rust {
             problems.extend(rust_problems(root, catalog, &selection.layers)?);
             problems.extend(modules::check(root, &selection.modules)?);
-            problems.extend(package_boundaries::check(root, selection)?);
+
+            match cargo_lock::read(root)? {
+                Ok(lock) => {
+                    problems.extend(package_boundaries::check(root, selection, lock.as_ref())?);
+                }
+                Err(problem) => problems.push(problem),
+            }
         }
 
         problems.extend(roles::check(root, &selection.roles));

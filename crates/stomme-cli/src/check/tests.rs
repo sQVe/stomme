@@ -258,3 +258,34 @@ fn check_reports_a_missing_root_manifest() {
 
     assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", "missing");
 }
+
+#[test]
+fn invalid_lock_is_reported_once() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        CONFIG_FILE,
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\nlayers = [\"gpui\"]\n\n[roles]\ncore = \"crates/core\"\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+    write_file(
+        root.path(),
+        "crates/core/Cargo.toml",
+        "[package]\nname = \"core\"\nversion = \"0.0.0\"\n\n[lints]\nworkspace = true\n",
+    );
+    write_file(
+        root.path(),
+        "Cargo.lock",
+        "version = 4\n\n[[package]]\nversion = \"0.0.0\"\n",
+    );
+    crate::sync_project(root.path());
+
+    let problems = check_project(root.path());
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].rule, Rule::RustConfigFile);
+    assert_eq!(problems[0].path, "Cargo.lock");
+}

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::check::cargo_lock;
 use crate::check::test_support::{lock_text, project};
 use crate::config::{self, Installation};
 use crate::layer;
@@ -9,8 +10,12 @@ fn problems(root: &Path) -> Vec<Problem> {
     let Installation::Valid(selection) = config::read(root, layer::catalog()) else {
         panic!("expected a valid installation");
     };
+    let lock = match cargo_lock::read(root).expect("read the lock") {
+        Ok(lock) => lock,
+        Err(problem) => return vec![problem],
+    };
 
-    check(root, &selection).expect("check the project")
+    check(root, &selection, lock.as_ref()).expect("check the project")
 }
 
 fn manifest(name: &str) -> String {
@@ -209,48 +214,6 @@ fn missing_lock_with_the_gpui_layer_is_a_config_problem() {
     assert_eq!(problems[0].rule, Rule::RustConfigFile);
     assert_eq!(problems[0].path, "Cargo.lock");
     assert!(problems[0].message.contains("is missing"), "{problems:?}");
-}
-
-#[test]
-fn malformed_lock_is_a_config_problem() {
-    let core = manifest("greppa-core");
-    let cases = [
-        (
-            "missing name",
-            "version = 4\n\n[[package]]\nversion = \"0.0.0\"\n",
-            "missing field `name`",
-        ),
-        (
-            "missing version",
-            "version = 4\n\n[[package]]\nname = \"greppa-core\"\n",
-            "missing field `version`",
-        ),
-        (
-            "ambiguous dependency",
-            "version = 4\n\n[[package]]\nname = \"greppa-core\"\nversion = \"0.0.0\"\ndependencies = [\"foo\"]\n\n[[package]]\nname = \"foo\"\nversion = \"1.0.0\"\n\n[[package]]\nname = \"foo\"\nversion = \"2.0.0\"\n",
-            "matches more than one lock package",
-        ),
-    ];
-
-    for (case, lock, expected) in cases {
-        let root = project(
-            &[
-                ("crates/greppa-core/Cargo.toml", &core),
-                ("Cargo.lock", lock),
-            ],
-            "layers = [\"gpui\"]\n\n[roles]\ncore = \"crates/greppa-core\"\n",
-        );
-
-        let problems = problems(root.path());
-
-        assert_eq!(problems.len(), 1, "{case}: {problems:?}");
-        assert_eq!(problems[0].rule, Rule::RustConfigFile, "{case}");
-        assert_eq!(problems[0].path, "Cargo.lock", "{case}");
-        assert!(
-            problems[0].message.contains(expected),
-            "{case}: {problems:?}"
-        );
-    }
 }
 
 #[test]

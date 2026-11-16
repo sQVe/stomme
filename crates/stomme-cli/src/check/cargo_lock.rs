@@ -3,10 +3,10 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use super::super::Problem;
-use super::super::cargo_manifest::{config_problem, read_toml_file};
+use super::Problem;
+use super::cargo_manifest::{config_problem, read_toml_file};
 #[cfg(test)]
-use super::super::describe_toml_error;
+use super::describe_toml_error;
 
 const LOCK_FILE: &str = "Cargo.lock";
 
@@ -38,22 +38,17 @@ pub(super) struct Lock {
     graph: BTreeMap<Package, Vec<Package>>,
 }
 
-pub(super) fn read(root: &Path) -> anyhow::Result<Result<Lock, Problem>> {
+pub(super) fn read(root: &Path) -> anyhow::Result<Result<Option<Lock>, Problem>> {
     let file = match read_toml_file::<LockFile>(root, LOCK_FILE)? {
         Some(Ok(file)) => file,
         Some(Err(reason)) => {
             return Ok(Err(problem(format!("is not a valid lock file: {reason}"))));
         }
-        None => {
-            return Ok(Err(problem(
-                "is missing; a package boundary check needs the resolved dependency graph"
-                    .to_string(),
-            )));
-        }
+        None => return Ok(Ok(None)),
     };
 
     match Lock::new(file) {
-        Ok(lock) => Ok(Ok(lock)),
+        Ok(lock) => Ok(Ok(Some(lock))),
         Err(reason) => Ok(Err(problem(reason))),
     }
 }
