@@ -11,6 +11,7 @@ mod cargo_manifest;
 mod clippy_bans;
 mod layout;
 mod modules;
+mod package_boundaries;
 mod package_pins;
 mod required_parts;
 mod roles;
@@ -77,6 +78,7 @@ pub(crate) fn run(
         if selection.language == Language::Rust {
             problems.extend(rust_problems(root, catalog, &selection.layers)?);
             problems.extend(modules::check(root, &selection.modules)?);
+            problems.extend(package_boundaries::check(root, selection)?);
         }
 
         problems.extend(roles::check(root, &selection.roles));

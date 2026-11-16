@@ -9,8 +9,8 @@ uses GPUI. They add to the Rust guide and never loosen it. Each rule starts with
 The roles come from [ADR 0004](../../shared/adr/0004-roles-languages-and-layers.md). A project maps
 them to paths in the `[roles]` table of `stomme.toml`.
 
-- `gpui-plain-core`: Keep GPUI types out of the `core` and `cli` roles. They take and return plain
-  project data.
+- `gpui-plain-core`: The `core` and `cli` role packages depend on no GPUI package and no `ui`,
+  `kit`, or `app` role package, directly or through other packages. They use plain project data.
 - `gpui-app-lifetime`: One module of the `app` role owns the GPUI application, its windows, action
   and key registration, background tasks, and shutdown. The entry point composes dependencies and
   starts that module. Every exit path, such as quit, the last window closing, or a system quit

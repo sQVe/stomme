@@ -46,7 +46,6 @@ paths are relative to the stomme crate.
 | `pure-dependencies` | A module uses only pure modules; no module uses an I/O module. | rust | the project has a module table | none | none | none | project-local |
 | `pure-std-io` | A pure module reaches no I/O through `std`, such as `std::fs` or `std::time::SystemTime::now`. | rust | the project has a module table | none | none | none | project-local |
 | `pure-module-effects` | A registered pure module performs no reads or effects and imports only types and other pure modules. | typescript | the project registers pure modules | none | none | none | project-local |
-| `ui-dependency` | Core and CLI packages do not depend on UI packages, directly or through other packages. | rust | the workspace has UI packages | none | none | none | project-local |
 | `typescript-file-case` | A TypeScript file name is camelCase, or PascalCase for a file that exports one class. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/typescript-file-case | enforced |
 | `typescript-catch-all-name` | A TypeScript file or folder is not named after a catch-all. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/typescript-catch-all-name | enforced |
 | `typescript-owner-folder` | A file that shares an owner's noun sits in the owner's folder. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/typescript-owner-folder | enforced |
@@ -58,7 +57,7 @@ paths are relative to the stomme crate.
 | `versioned-record` | A versioned record format has a version literal and current, newer, and malformed fixtures. | typescript | the project writes versioned records | none | none | none | project-local |
 | `test-project` | Every test file belongs to exactly one test project. | typescript | the project splits tests into projects | none | none | none | project-local |
 | `test-environment` | The cached test tasks declare every environment variable that test code reads. | typescript | the project caches test tasks | none | none | none | project-local |
-| `gpui-plain-core` | GPUI types stay out of the `core` and `cli` roles; they use plain project data. | layer `gpui` | the project has a `core` or `cli` role | `roles` | none | none | guidance only |
+| `gpui-plain-core` | The `core` and `cli` role packages depend on no GPUI package and no `ui`, `kit`, or `app` role package, directly or through other packages. | layer `gpui` | the project has a `core` or `cli` role | `roles` | src/check/package_boundaries.rs | tests/fixtures/rules/gpui-plain-core | enforced |
 | `gpui-app-lifetime` | One module of the `app` role owns the GPUI application, windows, tasks, and one shutdown path. | layer `gpui` | the project has an `app` role | `roles` | none | none | guidance only |
 | `gpui-context-names` | Name a GPUI context `cx` and a window `window`, with `window` before `cx`. | layer `gpui` | always | none | none | none | guidance only |
 | `gpui-builder-chain` | Write an element builder as one fluent chain, with `.when_some(...)` for an optional child. | layer `gpui` | always | none | none | none | guidance only |
@@ -73,7 +72,7 @@ paths are relative to the stomme crate.
 | `gpui-subscription-owner` | Store a `Subscription` in its owner, or detach it on purpose. | layer `gpui` | always | none | none | none | guidance only |
 | `gpui-no-discard-binding` | Never bind a `Task` or `Subscription` with `let _ =`. | layer `gpui` | always | none | none | none | guidance only |
 | `gpui-stale-result` | Drop a background result when the state it started from is no longer current. | layer `gpui` | always | none | none | none | guidance only |
-| `gpui-component-kit` | Only the `kit` role imports gpui-component; other code uses the project's own widget types. | layer `gpui-component` | the project has a `kit` role | `roles` | none | none | guidance only |
+| `gpui-component-kit` | Only the `kit` role imports gpui-component; other code uses the project's own widget types. | layer `gpui-component` | always | `roles` | src/check/package_boundaries.rs | tests/fixtures/rules/gpui-component-kit | partial |
 | `react-jsx-extension` | Only a file that contains JSX uses `.tsx`. | layer `react` | always | none | none | none | guidance only |
 | `react-component-file` | A file that mainly exports one component is named after it in PascalCase. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-component-file | enforced |
 | `react-test-placement` | A component's unit test sits beside it as `<Component>.test.tsx`. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-test-placement | enforced |

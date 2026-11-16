@@ -464,3 +464,28 @@ fn check_reports_a_tikk_module_table_break_naming_the_edge() {
     assert!(lines[0].contains("ticket"), "{lines:?}");
     assert!(lines[0].contains("store"), "{lines:?}");
 }
+
+#[test]
+fn check_passes_the_greppa_split() {
+    let root = adoption_project("greppa-split/pass");
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(stderr_lines(&output), Vec::<String>::new());
+}
+
+#[test]
+fn check_reports_a_greppa_core_gpui_dependency_naming_the_edge() {
+    let root = adoption_project("greppa-split/fail");
+
+    let output = stomme(root.path(), &["check"]);
+    let lines = stderr_lines(&output);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("[gpui-plain-core]"), "{lines:?}");
+    assert!(lines[0].contains("greppa-core"), "{lines:?}");
+    assert!(lines[0].contains("gpui-kit"), "{lines:?}");
+    assert!(lines[0].contains("layer `gpui`"), "{lines:?}");
+}

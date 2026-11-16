@@ -18,13 +18,9 @@ pub(crate) enum Owner {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Enforcement {
     Enforced(Check),
-    #[expect(dead_code, reason = "no rule is partly enforced yet")]
     Partial(Check),
     TypeScriptImports(Check),
-    RustAndTypeScript {
-        rust: Check,
-        typescript: Check,
-    },
+    RustAndTypeScript { rust: Check, typescript: Check },
     GuidanceOnly,
     ProjectLocal,
 }
@@ -528,14 +524,6 @@ rules! {
         fields: &[],
         enforcement: Enforcement::ProjectLocal,
     },
-    UiDependency => Metadata {
-        id: "ui-dependency",
-        summary: "Core and CLI packages do not depend on UI packages, directly or through other packages.",
-        owner: Owner::Language(Language::Rust),
-        applies: "the workspace has UI packages",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
-    },
     TypeScriptFileCase => Metadata {
         id: "typescript-file-case",
         summary: "A TypeScript file name is camelCase, or PascalCase for a file that exports one class.",
@@ -641,11 +629,14 @@ rules! {
     },
     GpuiPlainCore => Metadata {
         id: "gpui-plain-core",
-        summary: "GPUI types stay out of the `core` and `cli` roles; they use plain project data.",
+        summary: "The `core` and `cli` role packages depend on no GPUI package and no `ui`, `kit`, or `app` role package, directly or through other packages.",
         owner: Owner::Layer("gpui"),
         applies: "the project has a `core` or `cli` role",
         fields: &["roles"],
-        enforcement: Enforcement::GuidanceOnly,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/package_boundaries.rs",
+            fixtures: "tests/fixtures/rules/gpui-plain-core",
+        }),
     },
     GpuiAppLifetime => Metadata {
         id: "gpui-app-lifetime",
@@ -763,9 +754,12 @@ rules! {
         id: "gpui-component-kit",
         summary: "Only the `kit` role imports gpui-component; other code uses the project's own widget types.",
         owner: Owner::Layer("gpui-component"),
-        applies: "the project has a `kit` role",
+        applies: "always",
         fields: &["roles"],
-        enforcement: Enforcement::GuidanceOnly,
+        enforcement: Enforcement::Partial(Check {
+            checker: "src/check/package_boundaries.rs",
+            fixtures: "tests/fixtures/rules/gpui-component-kit",
+        }),
     },
     ReactJsxExtension => Metadata {
         id: "react-jsx-extension",

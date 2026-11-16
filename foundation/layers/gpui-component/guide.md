@@ -10,4 +10,6 @@ project maps it to a path in the `[roles]` table of `stomme.toml`.
 - `gpui-component-kit`: Only the `kit` role imports gpui-component. Other code uses the project's
   own types for widgets, themes, and events, and the `kit` role translates between them and
   component types. GPUI layout and rendering types may be used throughout the `ui` role. A switch
-  to a fork or another component library then changes the `kit` role only.
+  to a fork or another component library then changes the `kit` role only. The check is partial:
+  it sees direct dependencies only, not components reached through a bundle crate such as
+  `gpui-kit`.

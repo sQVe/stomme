@@ -1,0 +1,6 @@
+[package]
+name = "greppa-app"
+version = "0.0.0"
+
+[lints]
+workspace = true

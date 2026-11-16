@@ -1,0 +1,29 @@
+version = 4
+
+[[package]]
+name = "greppa-core"
+version = "0.0.0"
+dependencies = ["serde"]
+
+[[package]]
+name = "greppa-ui"
+version = "0.0.0"
+dependencies = ["gpui-kit"]
+
+[[package]]
+name = "greppa-app"
+version = "0.0.0"
+dependencies = ["greppa-core", "greppa-ui"]
+
+[[package]]
+name = "gpui-kit"
+version = "0.0.0"
+dependencies = ["gpui"]
+
+[[package]]
+name = "gpui"
+version = "0.0.0"
+
+[[package]]
+name = "serde"
+version = "1.0.0"
