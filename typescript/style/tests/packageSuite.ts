@@ -8,8 +8,6 @@ import { installConsumer, vitePlusSeenByPackage, writeFiles } from './consumer.t
 import type { PackageTests } from './packageHarness.ts';
 import { describePackage as describeSharedPackage } from './packageHarness.ts';
 
-export type { PackageContext, PackageTests } from './packageHarness.ts';
-
 const lines = (...text: string[]) => `${text.join('\n')}\n`;
 
 const linesWith = (output: string, text: string) =>
