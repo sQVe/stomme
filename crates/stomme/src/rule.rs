@@ -128,6 +128,17 @@ rules! {
             fixtures: "tests/fixtures/rules/synced-files",
         }),
     },
+    AgentsBlock => Metadata {
+        id: "agents-block",
+        summary: "`AGENTS.md` holds the managed block between its markers, and its record matches the block.",
+        owner: Owner::Common,
+        applies: "`AGENTS.md` exists",
+        fields: &["version", "language", "layers"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/synced_files.rs",
+            fixtures: "tests/fixtures/rules/agents-block",
+        }),
+    },
     TauFullCheck => Metadata {
         id: "tau-full-check",
         summary: "`.pi/tau.json` names the full check as a non-empty `fullCheck.argv` of strings.",

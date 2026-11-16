@@ -195,3 +195,50 @@ fn check_reports_a_symlinked_docs_stomme_folder() {
 
     assert!(reported(&problems, "docs/stomme"), "{problems:?}");
 }
+
+#[test]
+fn check_reports_an_edited_agents_block() {
+    let root = complete_project();
+    let path = crate::agents_block::PATH;
+    let text = fs::read_to_string(root.path().join(path)).expect("read AGENTS.md");
+    let range = crate::agents_block::find(&text)
+        .expect("find the block")
+        .expect("the block exists");
+    let edited = format!(
+        "{}{}\nedited\n{}\n{}",
+        &text[..range.start],
+        crate::agents_block::START,
+        crate::agents_block::END,
+        &text[range.end..]
+    );
+
+    write_file(root.path(), path, &edited);
+
+    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.path == path && problem.rule == Rule::AgentsBlock),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn check_reports_a_missing_agents_marker() {
+    let root = complete_project();
+    let path = crate::agents_block::PATH;
+    let text = fs::read_to_string(root.path().join(path)).expect("read AGENTS.md");
+    let without_end = text.replace(&format!("{}\n", crate::agents_block::END), "");
+
+    write_file(root.path(), path, &without_end);
+
+    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.path == path && problem.rule == Rule::AgentsBlock),
+        "{problems:?}"
+    );
+}

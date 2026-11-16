@@ -1,6 +1,7 @@
 version = "0.0.0"
 
 [files]
+"AGENTS.md" = "d7de3d051e5670f07bf04075e751232785e1d598c9136d54cf92fb21fec94600"
 "docs/stomme/languages/rust/guide.md" = "1461932c26db7081a0cfe660bdcb5f2796638d6e748fea3748befad42cdd80cb"
 "docs/stomme/shared/adr/0001-documentation-scope.md" = "9cb275c84dec055ce6aa7b19807e0c736615d20071d47694856685299680c2cb"
 "docs/stomme/shared/adr/0002-capability-modules.md" = "3b645ec3231109268649502771508d9d401e80f282176e8d9bd96d36a26ec20b"
@@ -14,4 +15,4 @@ version = "0.0.0"
 "docs/stomme/shared/adr/README.md" = "fcf26df8d963f2eb33b5c223cd9bfd89af7a083013c3ed3c54a6fe9e114e522b"
 "docs/stomme/shared/adr/TEMPLATE.md" = "7a7cfaaff820de36b149faa94638b0374102c5bf3c7fbb10932619418c825cf5"
 "docs/stomme/shared/coding.md" = "333d1fca757334bbf8f9724e4487fbb6886fdfc504afb4c7226634b09fa0cb21"
-"docs/stomme/shared/rules.md" = "6f1c483b29d952c7341fc4c2fd6b9d7fa74302b23a4308ebeec19a43bc47e558"
+"docs/stomme/shared/rules.md" = "512eeb40b87a9d62f11b559fa815b8e2c4d963679587704017436febb9bf4e3e"
