@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 #[path = "../src/test_support.rs"]
 mod test_support;
 
-use test_support::{commit, complete_project, git, write_file};
+use test_support::{commit, complete_project, copy_tree, git, write_file};
 
 fn sync_project(root: &Path) {
     let output = stomme(root, &["sync"]);
@@ -424,21 +424,6 @@ fn adoption_project(name: &str) -> tempfile::TempDir {
     sync_project(root.path());
 
     root
-}
-
-fn copy_tree(source: &Path, target: &Path) {
-    for entry in fs::read_dir(source).expect("read the fixture folder") {
-        let entry = entry.expect("read a fixture entry");
-        let path = entry.path();
-        let destination = target.join(entry.file_name());
-
-        if entry.file_type().expect("read the file type").is_dir() {
-            fs::create_dir_all(&destination).expect("create the fixture folder");
-            copy_tree(&path, &destination);
-        } else {
-            fs::copy(&path, &destination).expect("copy the fixture file");
-        }
-    }
 }
 
 #[test]

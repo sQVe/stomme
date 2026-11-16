@@ -1,27 +1,9 @@
 use std::path::Path;
 
-use tempfile::TempDir;
-
 use super::*;
+use crate::check::test_support::{lock_text, project};
 use crate::config::{self, Installation};
 use crate::layer;
-use crate::test_support::write_file;
-
-fn project(files: &[(&str, &str)], config: &str) -> TempDir {
-    let root = tempfile::tempdir().expect("create a temporary directory");
-    let text = format!(
-        "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n{config}",
-        env!("CARGO_PKG_VERSION")
-    );
-
-    write_file(root.path(), "stomme.toml", &text);
-
-    for (path, text) in files {
-        write_file(root.path(), path, text);
-    }
-
-    root
-}
 
 fn problems(root: &Path) -> Vec<Problem> {
     let Installation::Valid(selection) = config::read(root, layer::catalog()) else {
@@ -33,27 +15,6 @@ fn problems(root: &Path) -> Vec<Problem> {
 
 fn manifest(name: &str) -> String {
     format!("[package]\nname = \"{name}\"\nversion = \"0.0.0\"\n")
-}
-
-fn lock_text(packages: &[(&str, &str, &[&str])]) -> String {
-    let mut text = "version = 4\n".to_string();
-
-    for (name, version, dependencies) in packages {
-        text.push_str(&format!(
-            "\n[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n"
-        ));
-
-        if !dependencies.is_empty() {
-            let entries: Vec<String> = dependencies
-                .iter()
-                .map(|dependency| format!("\"{dependency}\""))
-                .collect();
-
-            text.push_str(&format!("dependencies = [{}]\n", entries.join(", ")));
-        }
-    }
-
-    text
 }
 
 #[test]

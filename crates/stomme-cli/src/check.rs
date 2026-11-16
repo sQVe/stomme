@@ -19,6 +19,8 @@ mod rust_lints;
 mod rust_members;
 mod source_files;
 mod synced_files;
+#[cfg(test)]
+mod test_support;
 mod violations;
 
 pub(crate) use violations::TargetBranch;

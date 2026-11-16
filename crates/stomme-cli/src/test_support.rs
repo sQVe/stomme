@@ -95,6 +95,21 @@ pub(crate) fn write_file(root: &Path, path: &str, text: &str) {
     fs::write(&path, text).expect("write the fixture file");
 }
 
+pub(crate) fn copy_tree(source: &Path, target: &Path) {
+    for entry in fs::read_dir(source).expect("read the fixture folder") {
+        let entry = entry.expect("read a fixture entry");
+        let path = entry.path();
+        let destination = target.join(entry.file_name());
+
+        if entry.file_type().expect("read the file type").is_dir() {
+            fs::create_dir_all(&destination).expect("create the fixture folder");
+            copy_tree(&path, &destination);
+        } else {
+            fs::copy(&path, &destination).expect("copy the fixture file");
+        }
+    }
+}
+
 pub(crate) fn git(root: &Path, arguments: &[&str]) {
     let output = Command::new("git")
         .args(arguments)

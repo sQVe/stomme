@@ -1,25 +1,5 @@
 use super::*;
-
-fn lock_text(packages: &[(&str, &str, &[&str])]) -> String {
-    let mut text = "version = 4\n".to_string();
-
-    for (name, version, dependencies) in packages {
-        text.push_str(&format!(
-            "\n[[package]]\nname = \"{name}\"\nversion = \"{version}\"\n"
-        ));
-
-        if !dependencies.is_empty() {
-            let entries: Vec<String> = dependencies
-                .iter()
-                .map(|dependency| format!("\"{dependency}\""))
-                .collect();
-
-            text.push_str(&format!("dependencies = [{}]\n", entries.join(", ")));
-        }
-    }
-
-    text
-}
+use crate::check::test_support::lock_text;
 
 fn lock(packages: &[(&str, &str, &[&str])]) -> Lock {
     parse(&lock_text(packages)).expect("parse the lock")

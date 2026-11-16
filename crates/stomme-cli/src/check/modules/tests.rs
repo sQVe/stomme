@@ -1,27 +1,9 @@
 use std::path::Path;
 
-use tempfile::TempDir;
-
 use super::*;
+use crate::check::test_support::project;
 use crate::config::{self, Installation};
 use crate::layer;
-use crate::test_support::write_file;
-
-fn project(files: &[(&str, &str)], table: &str) -> TempDir {
-    let root = tempfile::tempdir().expect("create a temporary directory");
-    let config = format!(
-        "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n{table}",
-        env!("CARGO_PKG_VERSION")
-    );
-
-    write_file(root.path(), "stomme.toml", &config);
-
-    for (path, text) in files {
-        write_file(root.path(), path, text);
-    }
-
-    root
-}
 
 fn problems(root: &Path) -> Vec<Problem> {
     let Installation::Valid(selection) = config::read(root, layer::catalog()) else {
