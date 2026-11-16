@@ -413,3 +413,54 @@ fn check_reports_a_weakened_shared_lint() {
         ]
     );
 }
+
+fn adoption_project(name: &str) -> tempfile::TempDir {
+    let root = complete_project();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/adoption")
+        .join(name);
+
+    copy_tree(&source, root.path());
+    sync_project(root.path());
+
+    root
+}
+
+fn copy_tree(source: &Path, target: &Path) {
+    for entry in fs::read_dir(source).expect("read the fixture folder") {
+        let entry = entry.expect("read a fixture entry");
+        let path = entry.path();
+        let destination = target.join(entry.file_name());
+
+        if entry.file_type().expect("read the file type").is_dir() {
+            fs::create_dir_all(&destination).expect("create the fixture folder");
+            copy_tree(&path, &destination);
+        } else {
+            fs::copy(&path, &destination).expect("copy the fixture file");
+        }
+    }
+}
+
+#[test]
+fn check_passes_the_tikk_module_table() {
+    let root = adoption_project("tikk-modules/pass");
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(stderr_lines(&output), Vec::<String>::new());
+}
+
+#[test]
+fn check_reports_a_tikk_module_table_break_naming_the_edge() {
+    let root = adoption_project("tikk-modules/fail");
+
+    let output = stomme(root.path(), &["check"]);
+    let lines = stderr_lines(&output);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].contains("[module-imports]"), "{lines:?}");
+    assert!(lines[0].contains("ticket"), "{lines:?}");
+    assert!(lines[0].contains("store"), "{lines:?}");
+}

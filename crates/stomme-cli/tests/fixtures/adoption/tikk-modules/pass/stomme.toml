@@ -1,0 +1,22 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+
+[modules.ticket]
+entry = "src/ticket.rs"
+
+[modules.fact]
+entry = "src/fact.rs"
+imports = ["ticket"]
+
+[modules.store]
+entry = "src/store.rs"
+imports = ["ticket", "fact"]
+
+[modules.sync]
+entry = "src/sync.rs"
+imports = ["ticket", "fact"]
+
+[modules.github]
+entry = "src/github.rs"
+imports = ["ticket", "fact"]

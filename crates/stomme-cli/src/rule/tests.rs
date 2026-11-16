@@ -190,7 +190,7 @@ fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
 
-        if let Some(check) = metadata.enforcement.files() {
+        for check in metadata.enforcement.files() {
             let checker = crate_path(check.checker);
             let fixtures = crate_path(check.fixtures);
 

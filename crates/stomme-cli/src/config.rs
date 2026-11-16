@@ -33,6 +33,7 @@ pub(crate) struct Selection {
     pub(crate) roles: BTreeMap<String, String>,
     pub(crate) violations: Vec<Violation>,
     pub(crate) extra_docs: Vec<String>,
+    pub(crate) modules: BTreeMap<String, ModuleRow>,
 }
 
 #[derive(Deserialize)]
@@ -57,14 +58,14 @@ struct Exceptions {
     extra_docs: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-struct ModuleRow {
-    entry: String,
+pub(crate) struct ModuleRow {
+    pub(crate) entry: String,
     #[serde(default)]
-    public: Vec<String>,
+    pub(crate) public: Vec<String>,
     #[serde(default)]
-    imports: Vec<String>,
+    pub(crate) imports: Vec<String>,
 }
 
 pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
@@ -74,7 +75,10 @@ pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
         Err(error) => return Installation::Broken(format!("could not read the file: {error}")),
     };
 
-    match parse(&text, catalog).and_then(|selection| validate_exceptions(root, selection)) {
+    match parse(&text, catalog)
+        .and_then(|selection| validate_rust_modules(root, selection))
+        .and_then(|selection| validate_exceptions(root, selection))
+    {
         Ok(selection) => Installation::Valid(selection),
         Err(reason) => Installation::Broken(reason),
     }
@@ -128,6 +132,7 @@ fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
         roles: config.roles,
         violations,
         extra_docs: config.exceptions.extra_docs,
+        modules: config.modules,
     })
 }
 
@@ -227,6 +232,45 @@ fn validate_modules(modules: &BTreeMap<String, ModuleRow>) -> Result<(), String>
     }
 
     Ok(())
+}
+
+fn validate_rust_modules(root: &Path, selection: Selection) -> Result<Selection, String> {
+    if selection.language != Language::Rust {
+        return Ok(selection);
+    }
+
+    let mut entries: BTreeMap<&str, &str> = BTreeMap::new();
+
+    for (name, row) in &selection.modules {
+        for path in std::iter::once(&row.entry).chain(&row.public) {
+            if !path.ends_with(".rs") {
+                return Err(format!(
+                    "has a module `{name}` path `{path}` that does not end in `.rs`; use a Rust file"
+                ));
+            }
+
+            if !path.split('/').any(|part| part == "src") {
+                return Err(format!(
+                    "has a module `{name}` path `{path}` with no `src` folder part; put the file under `src`"
+                ));
+            }
+
+            if !root.join(path).is_file() {
+                return Err(format!(
+                    "has a module `{name}` path `{path}` that is not an existing file"
+                ));
+            }
+        }
+
+        if let Some(other) = entries.insert(&row.entry, name) {
+            return Err(format!(
+                "has two modules, `{other}` and `{name}`, with the entry `{}`; each module needs its own entry file",
+                row.entry
+            ));
+        }
+    }
+
+    Ok(selection)
 }
 
 fn validate_exceptions(root: &Path, selection: Selection) -> Result<Selection, String> {

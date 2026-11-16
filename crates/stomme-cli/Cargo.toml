@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+ra-ap-rustc_lexer.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -22,4 +23,4 @@ tempfile.workspace = true
 workspace = true
 
 [package.metadata.cargo-shear]
-ignored-paths = ["tests/fixtures/rules/*/*/src/*.rs", "tests/fixtures/rules/*/*/src/*/*.rs"]
+ignored-paths = ["tests/fixtures/rules/**/*.rs", "tests/fixtures/adoption/**/*.rs"]

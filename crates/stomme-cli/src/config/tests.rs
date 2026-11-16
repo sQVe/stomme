@@ -91,6 +91,7 @@ fn read_accepts_a_schema_one_file() {
             roles: BTreeMap::from([("cli".to_string(), "crates/cli".to_string())]),
             violations: Vec::new(),
             extra_docs: Vec::new(),
+            modules: BTreeMap::new(),
         })
     );
 }
@@ -106,6 +107,7 @@ fn read_defaults_to_no_layers_and_no_roles() {
             roles: BTreeMap::new(),
             violations: Vec::new(),
             extra_docs: Vec::new(),
+            modules: BTreeMap::new(),
         })
     );
 }
@@ -245,6 +247,7 @@ fn read_accepts_extra_docs_under_docs() {
             roles: BTreeMap::new(),
             violations: Vec::new(),
             extra_docs: vec!["docs/development.md".to_string()],
+            modules: BTreeMap::new(),
         })
     );
 }
@@ -553,4 +556,59 @@ fn module_table_cases(folder: &Path) -> Vec<std::path::PathBuf> {
         .map(|entry| entry.expect("read a module table fixture").path())
         .filter(|path| path.is_dir())
         .collect()
+}
+
+#[test]
+fn read_reports_a_rust_module_path_that_is_not_a_rust_file() {
+    let root = project_with(&[("src/a.rs", "")]);
+    let text = with_version("language = \"rust\"\n\n[modules.a]\nentry = \"src/a.txt\"\n");
+    let installation = installation_in(root.path(), &text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("src/a.txt"), "{reason}");
+    assert!(reason.contains(".rs"), "{reason}");
+}
+
+#[test]
+fn read_reports_a_rust_module_path_without_a_src_folder() {
+    let root = project_with(&[("a.rs", "")]);
+    let text = with_version("language = \"rust\"\n\n[modules.a]\nentry = \"a.rs\"\n");
+    let installation = installation_in(root.path(), &text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("a.rs"), "{reason}");
+    assert!(reason.contains("src"), "{reason}");
+}
+
+#[test]
+fn read_reports_a_rust_module_path_that_is_not_a_file() {
+    let root = project_with(&[]);
+    let text = with_version("language = \"rust\"\n\n[modules.a]\nentry = \"src/a.rs\"\n");
+    let installation = installation_in(root.path(), &text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("src/a.rs"), "{reason}");
+    assert!(reason.contains("existing file"), "{reason}");
+}
+
+#[test]
+fn read_reports_two_modules_with_the_same_entry() {
+    let root = project_with(&[("src/a.rs", "")]);
+    let text = with_version(
+        "language = \"rust\"\n\n[modules.a]\nentry = \"src/a.rs\"\n\n[modules.b]\nentry = \"src/a.rs\"\n",
+    );
+    let installation = installation_in(root.path(), &text);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("`a`"), "{reason}");
+    assert!(reason.contains("`b`"), "{reason}");
+    assert!(reason.contains("src/a.rs"), "{reason}");
 }

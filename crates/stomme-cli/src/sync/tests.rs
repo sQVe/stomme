@@ -97,6 +97,7 @@ fn selection(language: Language) -> Selection {
         roles: BTreeMap::new(),
         violations: Vec::new(),
         extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
     }
 }
 

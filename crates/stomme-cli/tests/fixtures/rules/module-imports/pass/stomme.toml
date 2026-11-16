@@ -1,0 +1,9 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+
+[modules.ticket]
+entry = "src/ticket.rs"
+
+[modules.store]
+entry = "src/store.rs"
