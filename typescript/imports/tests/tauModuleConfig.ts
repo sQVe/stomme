@@ -1,5 +1,3 @@
-// Tau's module list and import table as stomme.toml rows. Extensions and src/tau.ts are rows that
-// no shared row imports, and each extension row lists the shared modules it uses.
 export const tauModuleConfig = `schema = 1
 version = "0.0.0"
 language = "typescript"

@@ -36,8 +36,6 @@ const packageRootOf = (directory: string): string | undefined => {
   return found;
 };
 
-// The src folder of the package that holds the file. Without a package.json above the file, the
-// last src folder in the path counts.
 const sourceRootOf = (path: string): string | undefined => {
   const packageRoot = packageRootOf(posix.dirname(path));
 

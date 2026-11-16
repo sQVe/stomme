@@ -50,7 +50,6 @@ const run = (
     let stderr = '';
     let error: Error | undefined;
 
-    // Node's own spawn timeout keeps its timer alive after a spawn error, so this one is cleared.
     const timer = setTimeout(() => {
       error = new Error(`${command} timed out after ${commandTimeout} ms`);
       child.kill();
