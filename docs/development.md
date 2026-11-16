@@ -32,11 +32,13 @@
   directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
   on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
-- `typescript/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
-- `typescript/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
+- `packages/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
+- `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
   `stomme.toml`.
-- `shared/rules.md` is generated from the rule catalog in `crates/stomme-cli/src/rule.rs`. A test
-  fails when the two differ.
+- `foundation/` holds the guides, ADRs, and manifests that the binary embeds and `stomme sync`
+  writes to `docs/stomme/`.
+- `foundation/shared/rules.md` is generated from the rule catalog in
+  `crates/stomme-cli/src/rule.rs`. A test fails when the two differ.
 
 ## Check your work
 
@@ -51,8 +53,8 @@ nextest, rustdoc, and `stomme check`, and reports every failed check at the end.
 Warnings fail clippy, the Rust tests, and rustdoc. Every Cargo build runs with `--locked`, so a
 stale `Cargo.lock` fails too.
 
-It also runs these package steps, each through `pnpm -r run <script>` in both `typescript/style`
-and `typescript/imports`:
+It also runs these package steps, each through `pnpm -r run <script>` in both `packages/style`
+and `packages/imports`:
 
 | Step | Script |
 |---|---|
@@ -81,7 +83,7 @@ Fix problems with these commands:
 | TypeScript formatting | `pnpm --filter @sqve/stomme-ts-style run format` |
 | Import package style | `pnpm --filter @sqve/stomme-ts-imports run style:fix` |
 | Import package formatting | `pnpm --filter @sqve/stomme-ts-imports run format` |
-| Stale `shared/rules.md` | `UPDATE=1 cargo nextest run -p stomme rules_table` |
+| Stale `foundation/shared/rules.md` | `UPDATE=1 cargo nextest run -p stomme rules_table` |
 
 The pre-commit hook runs rustfmt, clippy, typos, and taplo, but only in check mode. Run the fix
 commands yourself.
@@ -132,7 +134,7 @@ is upgraded.
 
 ## Package releases
 
-For changes under `typescript/style/src`, add a Changeset from the repository root with
+For changes under `packages/style/src`, add a Changeset from the repository root with
 `pnpm changeset`. Select `@sqve/stomme-ts-style`, choose the version bump, and describe the change.
 Commit the generated file with the code. The Changeset workflow checks that source changes have
 one with `pnpm changeset:check`.

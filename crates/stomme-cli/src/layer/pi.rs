@@ -2,8 +2,8 @@ use super::Source;
 
 pub(super) const LAYER: Source = Source {
     name: "pi",
-    manifest: include_str!("../../../../layers/pi/layer.toml"),
+    manifest: include_str!("../../../../foundation/layers/pi/layer.toml"),
     bans: None,
     refinements: &[],
-    guide: include_str!("../../../../layers/pi/guide.md"),
+    guide: include_str!("../../../../foundation/layers/pi/guide.md"),
 };

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::{check, layer};
 
-const RULES_FILE: &str = "../../shared/rules.md";
-const LAYERS_FOLDER: &str = "../../layers";
+const RULES_FILE: &str = "../../foundation/shared/rules.md";
+const LAYERS_FOLDER: &str = "../../foundation/layers";
 
 fn crate_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)

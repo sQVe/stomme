@@ -20,7 +20,7 @@ House rules are the `seam` plugin rules, the Stylistic padding rules, `eslint/on
 `eslint/no-cond-assign` with `always`. Unused disable directives are reported only with house
 rules. Without the plugin loaded, a directive for a house rule looks unused.
 
-Within `typescript/style`, checks and hooks that lint run `stomme-ts-style`, not `vp lint`.
+Within `packages/style`, checks and hooks that lint run `stomme-ts-style`, not `vp lint`.
 This does not replace the repository-wide hook rules in
 [ADR 0003](./0003-toolchain-and-quality-gates.md). Consumers must also use `stomme-ts-style` in
 their checks and lint hooks to enforce the full style.

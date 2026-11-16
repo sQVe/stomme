@@ -13,9 +13,9 @@ Consumers use pnpm with a strict, non-hoisted tree, or Bun. The package must loa
 
 ## Decision
 
-The `typescript/style` package uses pnpm, Vite Plus, and `tsc`.
+The `packages/style` package uses pnpm, Vite Plus, and `tsc`.
 
-These toolchain rules apply only to `typescript/style`; repository-wide gates follow
+These toolchain rules apply only to `packages/style`; repository-wide gates follow
 [ADR 0003](./0003-toolchain-and-quality-gates.md).
 
 pnpm's strict tree proves the package resolves its own dependencies. `pnpm-lock.yaml` is the only

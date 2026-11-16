@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+fn foundation_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../foundation")
 }
 
 fn collect_files(root: &Path, folder: &Path, files: &mut BTreeSet<String>) {
@@ -14,7 +14,7 @@ fn collect_files(root: &Path, folder: &Path, files: &mut BTreeSet<String>) {
         let path = entry.path();
         let relative = path
             .strip_prefix(root)
-            .expect("a source file lies inside the repository")
+            .expect("a source file lies inside the foundation folder")
             .to_string_lossy()
             .replace('\\', "/");
 
@@ -27,7 +27,7 @@ fn collect_files(root: &Path, folder: &Path, files: &mut BTreeSet<String>) {
 }
 
 fn source_files() -> BTreeSet<String> {
-    let root = repository_root();
+    let root = foundation_root();
     let mut files = BTreeSet::new();
 
     collect_files(&root, Path::new("shared"), &mut files);

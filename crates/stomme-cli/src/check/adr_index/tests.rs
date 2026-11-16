@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 
 use super::*;
 use crate::rule::Rule;
@@ -265,15 +266,16 @@ fn check_reports_every_problem_in_one_run() {
 
 const SHARED_FOLDER: &str = "shared/adr";
 
-fn repository_root() -> &'static Path {
+fn foundation_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
         .expect("the stomme crate lives two levels below the repository root")
+        .join("foundation")
 }
 
 fn copy_shared_adrs(target: &Path) {
-    let source = repository_root().join(SHARED_FOLDER);
+    let source = foundation_root().join(SHARED_FOLDER);
     let entries = fs::read_dir(&source).expect("list the shared ADRs");
 
     for entry in entries {
@@ -287,10 +289,10 @@ fn copy_shared_adrs(target: &Path) {
 
 #[test]
 fn check_passes_the_shared_adrs() {
-    let root = repository_root();
+    let root = foundation_root();
 
     assert!(root.join(SHARED_FOLDER).join("README.md").is_file());
-    assert_eq!(check(root, SHARED_FOLDER).expect("read the ADRs"), []);
+    assert_eq!(check(&root, SHARED_FOLDER).expect("read the ADRs"), []);
 }
 
 #[test]

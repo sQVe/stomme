@@ -33,8 +33,8 @@ macro_rules! policy_file {
 }
 
 pub(crate) const RUST: RustSource = RustSource {
-    lints: policy_file!("languages/rust/lints.toml"),
-    clippy: policy_file!("languages/rust/clippy.toml"),
+    lints: policy_file!("foundation/languages/rust/lints.toml"),
+    clippy: policy_file!("foundation/languages/rust/clippy.toml"),
 };
 
 static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {

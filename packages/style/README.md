@@ -136,7 +136,7 @@ Decisions and their reasons are in [docs/adr](../../docs/adr/README.md).
 Releases use [Changesets](https://github.com/changesets/changesets).
 
 1. From the repository root, add a changeset with `pnpm changeset` for each user-facing change. A
-   pull request that changes `typescript/style/src/` fails CI without one.
+   pull request that changes `packages/style/src/` fails CI without one.
 2. When changesets reach `main`, the release workflow opens or updates a release pull request. It
    bumps the version and updates `CHANGELOG.md`.
 3. Merging the release pull request runs the full check and publishes to npm through npm trusted

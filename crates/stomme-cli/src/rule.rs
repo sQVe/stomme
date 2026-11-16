@@ -394,8 +394,8 @@ rules! {
         applies: "the project has a module table",
         fields: &["modules"],
         enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
         }),
     },
     ModuleListed => Metadata {
@@ -405,8 +405,8 @@ rules! {
         applies: "the project has a module table",
         fields: &["modules"],
         enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
         }),
     },
     ModuleTableOrder => Metadata {
@@ -432,8 +432,8 @@ rules! {
         applies: "the project has a module table",
         fields: &["modules"],
         enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
         }),
     },
     CompositionRootImport => Metadata {
@@ -467,8 +467,8 @@ rules! {
         applies: "the project has a module table",
         fields: &["modules"],
         enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../typescript/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../typescript/imports/src/rules/moduleBoundaries.test.ts",
+            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
         }),
     },
     CrateRootPath => Metadata {
