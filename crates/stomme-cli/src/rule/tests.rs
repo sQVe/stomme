@@ -243,9 +243,53 @@ fn copy_tree(source: &Path, target: &Path) {
             fs::create_dir_all(&destination).expect("create the fixture folder");
             copy_tree(&path, &destination);
         } else {
-            fs::copy(&path, &destination).expect("copy the fixture file");
+            copy_file(&path, &destination);
         }
     }
+}
+
+fn copy_file(source: &Path, destination: &Path) {
+    if source.file_name().is_some_and(|name| name == "stomme.toml") {
+        let text = fs::read_to_string(source).expect("read the fixture config");
+
+        match rewrite_fixture_version(&text) {
+            Some(text) => fs::write(destination, text).expect("write the fixture config"),
+            None => {
+                fs::copy(source, destination).expect("copy the fixture config");
+            }
+        }
+    } else {
+        fs::copy(source, destination).expect("copy the fixture file");
+    }
+}
+
+fn rewrite_fixture_version(text: &str) -> Option<String> {
+    let mut rewritten = String::new();
+    let mut replaced = false;
+    let mut in_table = false;
+
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with('[') {
+            in_table = true;
+        }
+
+        if !replaced && !in_table && trimmed.trim_end() == "version = \"0.0.0\"" {
+            let indent = &line[..line.len() - trimmed.len()];
+            let ending = if line.ends_with('\n') { "\n" } else { "" };
+
+            rewritten.push_str(&format!(
+                "{indent}version = \"{}\"{ending}",
+                env!("CARGO_PKG_VERSION")
+            ));
+            replaced = true;
+        } else {
+            rewritten.push_str(line);
+        }
+    }
+
+    replaced.then_some(rewritten)
 }
 
 fn apply_after_sync(root: &Path) {
