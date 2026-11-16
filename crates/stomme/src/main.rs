@@ -3,8 +3,10 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 
+mod agents_block;
 mod check;
 mod config;
+mod full_check;
 mod layer;
 mod owned;
 mod rule;

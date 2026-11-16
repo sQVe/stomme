@@ -31,7 +31,9 @@ holds the pinned version, language, layers, role paths, module table, and bounde
 `docs/stomme/` holds synced shared text that projects never edit. Its layout mirrors the source
 tree, with `shared/`, `languages/<language>/`, and `layers/<name>/`, so relative links keep working.
 `docs/stomme/.sync-record.toml` records the pinned version and a content hash for each synced path,
-and `sync` writes it last. `docs/adr/` holds only project ADRs, with independent numbering.
+and `sync` writes it last. `AGENTS.md` holds one managed block between `<!-- stomme:start -->` and
+`<!-- stomme:end -->` markers, and the record holds a hash of that block. Text outside the markers
+belongs to the project. `docs/adr/` holds only project ADRs, with independent numbering.
 
 Side effects in Rust are records of functions declared by the consuming module, not
 single-implementation traits. Seam lives in stomme as `typescript/style`, published as
@@ -44,9 +46,10 @@ A Rust binary provides `init`, `sync`, and `check`. A TypeScript package supplie
 for TypeScript projects. Both read the same project configuration. Tau loads coding guides from
 the project's synced text and uses its bundled guides only when stomme is absent, not broken.
 
-`sync` writes only the owned set for the project's version, language, and layers. It validates every
-relative link in that set before writing, refuses a file whose bytes match neither the record nor
-the new content, and writes the record last.
+`sync` writes only the owned set for the project's version, language, and layers. It also writes the
+managed `AGENTS.md` block and leaves the text outside its markers alone. It validates every relative
+link in that set before writing, refuses a file whose bytes match neither the record nor the new
+content, and writes the record last.
 
 Checks reject changed synced text, missing required files, invalid ADR indexes, broken layout or
 imports, and dependency version drift. Existing projects may record violations by path and rule,

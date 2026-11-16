@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::agents_block::{self, BlockError};
 use crate::config::{self, Installation, Selection};
+use crate::full_check;
 use crate::layer::Catalog;
 use crate::owned::{self, DOCS_FOLDER, LinkError, OwnedFile};
 
@@ -38,6 +40,10 @@ pub(crate) enum SyncError {
     SymlinkedFolder { path: String },
     #[error("{path} differs from the synced content; edit it or remove it")]
     Edited { path: String },
+    #[error("{path}: {source}")]
+    Block { path: String, source: BlockError },
+    #[error("{path} is not valid UTF-8")]
+    NotText { path: String },
     #[error("{path} is not owned by stomme; remove it")]
     Extra { path: String },
     #[error("could not read {path}: {source}")]
@@ -48,10 +54,19 @@ pub(crate) enum SyncError {
     Remove { path: String, source: io::Error },
 }
 
-type PlannedWrites = (Vec<(String, &'static str)>, BTreeMap<String, String>);
+type PlannedWrites = (Vec<(String, String)>, BTreeMap<String, String>);
+
+impl From<BlockError> for SyncError {
+    fn from(source: BlockError) -> Self {
+        Self::Block {
+            path: agents_block::PATH.to_string(),
+            source,
+        }
+    }
+}
 
 struct Plan {
-    writes: Vec<(String, &'static str)>,
+    writes: Vec<(String, String)>,
     deletes: Vec<String>,
     record: Record,
 }
@@ -142,9 +157,14 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
         check_regular_file(root, path)?;
     }
 
+    check_parent_folders(root, agents_block::PATH)?;
+    check_regular_file(root, agents_block::PATH)?;
     check_extra_files(root, &owned_paths, &recorded_paths)?;
 
-    let (writes, files) = plan_writes(root, owned, record.as_ref())?;
+    let (mut writes, mut files) = plan_writes(root, owned, record.as_ref())?;
+
+    plan_block(root, selection, record.as_ref(), &mut writes, &mut files)?;
+
     let deletes = plan_deletes(root, record.as_ref(), &owned_paths)?;
     let record = Record {
         version: selection.version.clone(),
@@ -156,6 +176,57 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
         deletes,
         record,
     })
+}
+
+fn plan_block(
+    root: &Path,
+    selection: &Selection,
+    record: Option<&Record>,
+    writes: &mut Vec<(String, String)>,
+    files: &mut BTreeMap<String, String>,
+) -> Result<(), SyncError> {
+    let Some(existing) = read_existing(root, agents_block::PATH)? else {
+        return Ok(());
+    };
+    let existing = String::from_utf8(existing).map_err(|_| SyncError::NotText {
+        path: agents_block::PATH.to_string(),
+    })?;
+    let argv = full_check::read(root).ok().flatten();
+    let block = agents_block::render(selection, argv.as_deref());
+
+    files.insert(agents_block::PATH.to_string(), hash(block.as_bytes()));
+
+    let Some(range) = agents_block::find(&existing)? else {
+        writes.push((
+            agents_block::PATH.to_string(),
+            agents_block::replace(&existing, &block)?,
+        ));
+
+        return Ok(());
+    };
+
+    let current = &existing[range];
+
+    if current == block {
+        return Ok(());
+    }
+
+    let recorded = record
+        .and_then(|record| record.files.get(agents_block::PATH))
+        .is_some_and(|recorded| *recorded == hash(current.as_bytes()));
+
+    if !recorded {
+        return Err(SyncError::Edited {
+            path: agents_block::PATH.to_string(),
+        });
+    }
+
+    writes.push((
+        agents_block::PATH.to_string(),
+        agents_block::replace(&existing, &block)?,
+    ));
+
+    Ok(())
 }
 
 fn plan_writes(
@@ -170,7 +241,7 @@ fn plan_writes(
         files.insert(file.path.clone(), hash(file.content.as_bytes()));
 
         let Some(existing) = read_existing(root, &file.path)? else {
-            writes.push((file.path.clone(), file.content));
+            writes.push((file.path.clone(), file.content.to_string()));
             continue;
         };
 
@@ -188,7 +259,7 @@ fn plan_writes(
             });
         }
 
-        writes.push((file.path.clone(), file.content));
+        writes.push((file.path.clone(), file.content.to_string()));
     }
 
     Ok((writes, files))
@@ -205,7 +276,7 @@ fn plan_deletes(
     let mut deletes = Vec::new();
 
     for (path, recorded_hash) in &record.files {
-        if owned_paths.contains(path.as_str()) {
+        if owned_paths.contains(path.as_str()) || path == agents_block::PATH {
             continue;
         }
 
@@ -238,11 +309,12 @@ fn execute(root: &Path, plan: Plan) -> Result<(), SyncError> {
 fn validate_record(record: &Record) -> Result<(), SyncError> {
     for path in record.files.keys() {
         let inside = path.starts_with(&format!("{DOCS_FOLDER}/"));
+        let allowed = inside || path == agents_block::PATH;
         let clean = !path
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..");
 
-        if path == RECORD_FILE || !inside || !clean {
+        if path == RECORD_FILE || !allowed || !clean {
             return Err(SyncError::MalformedRecord {
                 path: RECORD_FILE.to_string(),
                 reason: format!("names `{path}`, which is not an owned file"),

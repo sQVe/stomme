@@ -9,6 +9,7 @@ paths are relative to the stomme crate.
 | `broken-installation` | `stomme.toml` is valid TOML that matches the schema and selects a valid layer set. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
 | `required-part` | Every required file exists. | common | always | none | src/check/required_parts.rs | tests/fixtures/rules/required-part | enforced |
 | `synced-files` | `docs/stomme/` equals the owned set, and its record matches the files and the version. | common | `stomme.toml` is valid | `version`, `language`, `layers` | src/check/synced_files.rs | tests/fixtures/rules/synced-files | enforced |
+| `agents-block` | `AGENTS.md` holds the managed block between its markers, and its record matches the block. | common | `AGENTS.md` exists | `version`, `language`, `layers` | src/check/synced_files.rs | tests/fixtures/rules/agents-block | enforced |
 | `tau-full-check` | `.pi/tau.json` names the full check as a non-empty `fullCheck.argv` of strings. | common | `.pi/tau.json` exists | none | src/check/required_parts.rs | tests/fixtures/rules/tau-full-check | enforced |
 | `adr-duplicate-number` | No two ADR files share a number. | common | `docs/adr/README.md` exists | none | src/check/adr_index.rs | tests/fixtures/rules/adr-duplicate-number | enforced |
 | `adr-heading` | An ADR's first heading is `# ADR NNNN: Title` with its own number. | common | `docs/adr/README.md` exists | none | src/check/adr_index.rs | tests/fixtures/rules/adr-heading | enforced |
