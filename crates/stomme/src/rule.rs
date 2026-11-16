@@ -211,9 +211,10 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "always",
         fields: &[],
-        checker: Some("src/check/cargo_manifest.rs"),
-        fixtures: Some("tests/fixtures/rules/rust-config-file"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/cargo_manifest.rs",
+            fixtures: "tests/fixtures/rules/rust-config-file",
+        }),
     },
     RustLintLevel => Metadata {
         id: "rust-lint-level",
@@ -221,9 +222,10 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "always",
         fields: &[],
-        checker: Some("src/check/rust_lints.rs"),
-        fixtures: Some("tests/fixtures/rules/rust-lint-level"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/rust_lints.rs",
+            fixtures: "tests/fixtures/rules/rust-lint-level",
+        }),
     },
     RustLintInheritance => Metadata {
         id: "rust-lint-inheritance",
@@ -231,9 +233,10 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "always",
         fields: &[],
-        checker: Some("src/check/rust_members.rs"),
-        fixtures: Some("tests/fixtures/rules/rust-lint-inheritance"),
-        status: Status::Enforced,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/rust_members.rs",
+            fixtures: "tests/fixtures/rules/rust-lint-inheritance",
+        }),
     },
     RustRequiredBan => Metadata {
         id: "rust-required-ban",
@@ -241,9 +244,7 @@ rules! {
         owner: Owner::Language(Language::Rust),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     GpuiRequiredBan => Metadata {
         id: "gpui-required-ban",
@@ -251,9 +252,7 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],
-        checker: None,
-        fixtures: None,
-        status: Status::GuidanceOnly,
+        enforcement: Enforcement::GuidanceOnly,
     },
     ModuleImports => Metadata {
         id: "module-imports",
