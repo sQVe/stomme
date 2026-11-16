@@ -179,3 +179,19 @@ fn missing_manifests_report_nothing() {
 
     assert_eq!(layer_problems(typescript.path()), []);
 }
+
+#[test]
+fn unreadable_package_json_is_an_error() {
+    let typescript = project_with_language("typescript", &[], "");
+
+    std::fs::create_dir(typescript.path().join("package.json"))
+        .expect("make package.json a folder");
+
+    let Installation::Valid(selection) = config::read(typescript.path(), layer::catalog()) else {
+        panic!("expected a valid installation");
+    };
+    let error = check(typescript.path(), &selection, layer::catalog(), None)
+        .expect_err("a folder named package.json cannot be read");
+
+    assert_eq!(error.to_string(), "Could not read package.json");
+}
