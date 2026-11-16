@@ -2,6 +2,8 @@ packages:
   - typescript/*
 
 overrides:
+  # oxfmt pins tinypool 2.1.0, which has critical advisories fixed in 2.1.2.
+  tinypool: 2.1.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.0
 # Vite+ uses its own version for the Vite-compatible core.
 peerDependencyRules:
