@@ -1,4 +1,4 @@
-name: Changeset
+name: Package release
 
 on:
   pull_request:
