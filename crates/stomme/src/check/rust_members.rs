@@ -2,24 +2,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
-use serde::de::IgnoredAny;
 
-use super::cargo_manifest::{ROOT_MANIFEST, read_manifest};
+use super::cargo_manifest::{
+    Dependencies, Dependency, ROOT_MANIFEST, RootManifest, Workspace, read_manifest,
+};
 use super::{Problem, Rule};
 
 const MEMBER_MISSING: &str = "is missing; the workspace makes this folder a member";
-
-type Dependencies = BTreeMap<String, Dependency>;
-
-#[derive(Default, Deserialize)]
-pub(super) struct Workspace {
-    #[serde(default)]
-    members: Vec<String>,
-    #[serde(default)]
-    exclude: Vec<String>,
-    #[serde(default)]
-    dependencies: Dependencies,
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -53,28 +42,14 @@ struct TargetDependencies {
     build_dependencies: Dependencies,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Dependency {
-    Table {
-        path: Option<String>,
-        #[serde(default)]
-        workspace: bool,
-    },
-    Version(IgnoredAny),
-}
-
 type MemberRead = Result<MemberManifest, Problem>;
 
-pub(super) fn check(
-    root: &Path,
-    root_package: bool,
-    workspace: &Workspace,
-) -> anyhow::Result<Vec<Problem>> {
+pub(super) fn check(root: &Path, manifest: &RootManifest) -> anyhow::Result<Vec<Problem>> {
+    let workspace = &manifest.workspace;
     let mut problems = Vec::new();
     let mut listed = Vec::new();
 
-    if root_package {
+    if manifest.has_package() {
         listed.push(String::new());
     }
 
@@ -223,25 +198,6 @@ impl MemberManifest {
         ]
         .into_iter()
         .chain(targets)
-    }
-}
-
-impl Dependency {
-    fn path(&self) -> Option<&str> {
-        match self {
-            Self::Version(_) => None,
-            Self::Table { path, .. } => path.as_deref(),
-        }
-    }
-
-    fn inherits(&self) -> bool {
-        matches!(
-            self,
-            Self::Table {
-                workspace: true,
-                ..
-            }
-        )
     }
 }
 

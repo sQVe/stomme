@@ -1,15 +1,19 @@
 use std::fs;
 use std::path::Path;
 
-use crate::check::rust_lints;
+use super::check;
+use crate::check::cargo_manifest::read_root;
 use crate::check::{Problem, Rule};
-use crate::layer;
 use crate::test_support::{complete_project, write_file};
 
 const MEMBER_WITHOUT_LINTS: &str = "[package]\nname = \"two\"\nversion = \"0.0.0\"\n";
 
 fn check_project(root: &Path) -> Vec<Problem> {
-    rust_lints::check(root, layer::catalog().rust_lints()).expect("read the project")
+    let manifest = read_root(root)
+        .expect("read Cargo.toml")
+        .expect("Cargo.toml is valid");
+
+    check(root, &manifest).expect("read the members")
 }
 
 fn replace_in_manifest(root: &Path, from: &str, to: &str) {

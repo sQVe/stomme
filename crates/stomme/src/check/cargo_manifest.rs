@@ -2,12 +2,54 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use std::collections::BTreeMap;
+
 use anyhow::Context as _;
-use serde::de::DeserializeOwned;
+use serde::Deserialize;
+use serde::de::{DeserializeOwned, IgnoredAny};
 
 use super::{Problem, Rule, describe_toml_error};
+use crate::layer::policy::LintTable;
 
 pub(super) const ROOT_MANIFEST: &str = "Cargo.toml";
+const ROOT_MISSING: &str =
+    "is missing; a Rust project needs a root manifest with `[workspace.lints]`";
+
+pub(super) type Dependencies = BTreeMap<String, Dependency>;
+
+#[derive(Deserialize)]
+pub(super) struct RootManifest {
+    package: Option<IgnoredAny>,
+    #[serde(default)]
+    pub(super) workspace: Workspace,
+}
+
+#[derive(Default, Deserialize)]
+pub(super) struct Workspace {
+    #[serde(default)]
+    pub(super) members: Vec<String>,
+    #[serde(default)]
+    pub(super) exclude: Vec<String>,
+    #[serde(default)]
+    pub(super) dependencies: Dependencies,
+    #[serde(default)]
+    pub(super) lints: LintTable,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum Dependency {
+    Table {
+        path: Option<String>,
+        #[serde(default)]
+        workspace: bool,
+    },
+    Version(IgnoredAny),
+}
+
+pub(super) fn read_root(root: &Path) -> anyhow::Result<Result<RootManifest, Problem>> {
+    read_manifest(root, ROOT_MANIFEST, ROOT_MISSING)
+}
 
 pub(super) fn read_manifest<T: DeserializeOwned>(
     root: &Path,
@@ -37,5 +79,30 @@ pub(super) fn config_problem(path: String, message: String) -> Problem {
         path,
         rule: Rule::RustConfigFile,
         message,
+    }
+}
+
+impl RootManifest {
+    pub(super) fn has_package(&self) -> bool {
+        self.package.is_some()
+    }
+}
+
+impl Dependency {
+    pub(super) fn path(&self) -> Option<&str> {
+        match self {
+            Self::Version(_) => None,
+            Self::Table { path, .. } => path.as_deref(),
+        }
+    }
+
+    pub(super) fn inherits(&self) -> bool {
+        matches!(
+            self,
+            Self::Table {
+                workspace: true,
+                ..
+            }
+        )
     }
 }

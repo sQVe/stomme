@@ -1,11 +1,18 @@
 use std::fs;
 
+use std::path::Path;
+
 use super::*;
+use crate::check::cargo_manifest::read_root;
 use crate::layer;
-use crate::test_support::{complete_project, write_file};
+use crate::test_support::complete_project;
 
 fn check_project(root: &Path) -> Vec<Problem> {
-    check(root, layer::catalog().rust_lints()).expect("read the project")
+    let manifest = read_root(root)
+        .expect("read Cargo.toml")
+        .expect("Cargo.toml is valid");
+
+    check(&manifest, layer::catalog().rust_lints())
 }
 
 fn replace_in_manifest(root: &Path, from: &str, to: &str) {
@@ -115,46 +122,6 @@ fn check_passes_added_lints_and_raised_levels() {
     );
 
     assert_eq!(check_project(root.path()), []);
-}
-
-#[test]
-fn check_reports_an_unreadable_root_manifest() {
-    let cases = [
-        ("invalid TOML", "[workspace\n"),
-        (
-            "unknown level",
-            "[workspace.lints.clippy]\ntodo = \"loud\"\n",
-        ),
-        (
-            "level of the wrong type",
-            "[workspace.lints.clippy]\ntodo = 3\n",
-        ),
-        (
-            "members of the wrong type",
-            "[workspace]\nmembers = \"crates/*\"\n",
-        ),
-    ];
-
-    for (case, text) in cases {
-        let root = complete_project();
-
-        write_file(root.path(), "Cargo.toml", text);
-
-        let problems = check_project(root.path());
-
-        assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", case);
-    }
-}
-
-#[test]
-fn check_reports_a_missing_root_manifest() {
-    let root = complete_project();
-
-    fs::remove_file(root.path().join("Cargo.toml")).expect("remove Cargo.toml");
-
-    let problems = check_project(root.path());
-
-    assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", "missing");
 }
 
 #[test]

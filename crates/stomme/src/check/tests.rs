@@ -4,6 +4,21 @@ use super::*;
 use crate::layer;
 use crate::test_support::{complete_project, write_file};
 
+fn assert_single_problem(problems: &[Problem], path: &str, rule: Rule, named: &str, case: &str) {
+    assert_eq!(problems.len(), 1, "{case}: {problems:?}");
+    assert_eq!(problems[0].path, path, "{case}");
+    assert_eq!(problems[0].rule, rule, "{case}");
+    assert!(
+        problems[0].message.contains(named),
+        "{case}: {}",
+        problems[0].message
+    );
+}
+
+fn check_project(root: &Path) -> Vec<Problem> {
+    run(root, layer::catalog()).expect("check the project")
+}
+
 #[test]
 fn run_reports_a_conflicting_pair_in_either_order() {
     let catalog = layer::test_catalog(&[
@@ -113,4 +128,44 @@ fn describe_toml_error_names_the_line_of_the_error() {
     let description = describe_toml_error(&error, text);
 
     assert!(description.starts_with("line 3: "), "{description}");
+}
+
+#[test]
+fn check_reports_an_unreadable_root_manifest() {
+    let cases = [
+        ("invalid TOML", "[workspace\n"),
+        (
+            "unknown level",
+            "[workspace.lints.clippy]\ntodo = \"loud\"\n",
+        ),
+        (
+            "level of the wrong type",
+            "[workspace.lints.clippy]\ntodo = 3\n",
+        ),
+        (
+            "members of the wrong type",
+            "[workspace]\nmembers = \"crates/*\"\n",
+        ),
+    ];
+
+    for (case, text) in cases {
+        let root = complete_project();
+
+        write_file(root.path(), "Cargo.toml", text);
+
+        let problems = check_project(root.path());
+
+        assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", case);
+    }
+}
+
+#[test]
+fn check_reports_a_missing_root_manifest() {
+    let root = complete_project();
+
+    fs::remove_file(root.path().join("Cargo.toml")).expect("remove Cargo.toml");
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", "missing");
 }

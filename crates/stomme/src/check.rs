@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
 
@@ -120,12 +121,28 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     if let Installation::Valid(selection) = &installation
         && selection.language == Language::Rust
     {
-        problems.extend(rust_lints::check(root, catalog.rust_lints())?);
-        problems.extend(clippy_bans::check(
-            root,
-            &catalog.required_bans(&selection.layers),
-        )?);
+        problems.extend(rust_problems(root, catalog, &selection.layers)?);
     }
+
+    Ok(problems)
+}
+
+fn rust_problems(
+    root: &Path,
+    catalog: &Catalog,
+    layers: &BTreeSet<String>,
+) -> anyhow::Result<Vec<Problem>> {
+    let mut problems = Vec::new();
+
+    match cargo_manifest::read_root(root)? {
+        Ok(manifest) => {
+            problems.extend(rust_lints::check(&manifest, catalog.rust_lints()));
+            problems.extend(rust_members::check(root, &manifest)?);
+        }
+        Err(problem) => problems.push(problem),
+    }
+
+    problems.extend(clippy_bans::check(root, &catalog.required_bans(layers))?);
 
     Ok(problems)
 }
