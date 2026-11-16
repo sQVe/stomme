@@ -1,24 +1,14 @@
-import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { readFile, realpath, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, inject, it } from 'vitest';
+import { it } from 'vitest';
 
-import type { Consumer, Runtime } from './consumer.ts';
+import type { Runtime } from './consumer.ts';
 import { installConsumer, vitePlusSeenByPackage, writeFiles } from './consumer.ts';
+import type { PackageTests } from './packageHarness.ts';
+import { describePackage as describeSharedPackage } from './packageHarness.ts';
 
-type CaseFolder = (
-  files: Record<string, string>,
-  onTestFinished: (cleanup: () => Promise<void>) => void,
-  base?: string,
-) => Promise<{ folder: string; directory: string }>;
-
-export interface PackageContext {
-  readonly consumer: Consumer;
-  caseFolder: CaseFolder;
-}
-
-export type PackageTests = (context: PackageContext) => void;
+export type { PackageContext, PackageTests } from './packageHarness.ts';
 
 const lines = (...text: string[]) => `${text.join('\n')}\n`;
 
@@ -33,9 +23,6 @@ const diagnosticOutput = (output: string) =>
     .split('\n')
     .filter((line) => line.trim() !== '' && !summaryPattern.test(line))
     .join('\n');
-
-// Each test spawns up to three commands, and a fix runs lint and the formatter.
-const spawnedTestTimeout = 120_000;
 
 // These tests load the package's config, plugin, and presets, so they run under every runtime.
 export const loadingTests: PackageTests = (context) => {
@@ -631,48 +618,8 @@ export const behaviorTests: PackageTests = (context) => {
 
 // Each runtime's test file installs its own consumer, and its tests run at the same time.
 export const describePackage = (runtime: Runtime, groups: PackageTests[]): void => {
-  describe.concurrent(
-    `the built package under ${runtime.name}`,
-    () => {
-      let consumerDirectory = '';
-      let consumer: Consumer;
-
-      // Each test writes its fixtures into its own folder inside the consumer project.
-      const caseFolder: CaseFolder = async (files, onTestFinished, base = '') => {
-        const project = join(consumer.directory, base);
-        const cases = join(project, 'cases');
-
-        await mkdir(cases, { recursive: true });
-
-        const directory = await mkdtemp(join(cases, 'case-'));
-        const folder = relative(project, directory);
-
-        await writeFiles(directory, files);
-        onTestFinished(() => rm(directory, { recursive: true, force: true }));
-
-        return { folder, directory };
-      };
-
-      const context: PackageContext = {
-        get consumer() {
-          return consumer;
-        },
-        caseFolder,
-      };
-
-      beforeAll(async () => {
-        consumerDirectory = await mkdtemp(join(tmpdir(), 'seam-consumer-'));
-        consumer = await installConsumer(runtime, inject('tarball'), consumerDirectory);
-      }, 300_000);
-
-      afterAll(async () => {
-        await rm(consumerDirectory, { recursive: true, force: true });
-      });
-
-      for (const group of groups) {
-        group(context);
-      }
-    },
-    spawnedTestTimeout,
-  );
+  describeSharedPackage(runtime, groups, {
+    consumerPrefix: 'seam-consumer-',
+    installConsumer,
+  });
 };

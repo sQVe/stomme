@@ -1,23 +1,10 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { it } from 'vitest';
 
-import { afterAll, beforeAll, describe, inject, it } from 'vitest';
-
-import type { Consumer, Runtime } from './consumer.ts';
-import { installConsumer, writeFiles } from './consumer.ts';
-
-type CaseFolder = (
-  files: Record<string, string>,
-  onTestFinished: (cleanup: () => Promise<void>) => void,
-) => Promise<{ folder: string; directory: string }>;
-
-export interface PackageContext {
-  readonly consumer: Consumer;
-  caseFolder: CaseFolder;
-}
-
-export type PackageTests = (context: PackageContext) => void;
+import type { Runtime } from '../../style/tests/consumer.ts';
+import type { PackageTests } from '../../style/tests/packageHarness.ts';
+import { describePackage as describeSharedPackage } from '../../style/tests/packageHarness.ts';
+import type { Consumer } from './consumer.ts';
+import { installConsumer } from './consumer.ts';
 
 const configHeader = 'schema = 1\nversion = "0.0.0"\nlanguage = "typescript"\n';
 
@@ -32,9 +19,7 @@ const linesWith = (output: string, text: string) =>
 
 const diagnostics = (output: string) => linesWith(output, 'stomme-imports(module-boundaries)');
 
-const spawnedTestTimeout = 120_000;
-
-export const loadingTests: PackageTests = (context) => {
+export const loadingTests: PackageTests<Consumer> = (context) => {
   it('loads the plugin by package name and reports a refused import', async ({
     expect,
     onTestFinished,
@@ -64,7 +49,7 @@ entry = "src/beta.ts"
   });
 };
 
-export const behaviorTests: PackageTests = (context) => {
+export const behaviorTests: PackageTests<Consumer> = (context) => {
   it('fails new shared files and shared imports that the module table does not list', async ({
     expect,
     onTestFinished,
@@ -201,47 +186,10 @@ public = ["src/extensions/subagents/controller/budget.ts", "src/extensions/subag
   });
 };
 
-export const describePackage = (runtime: Runtime, groups: PackageTests[]): void => {
-  describe.concurrent(
-    `the built package under ${runtime.name}`,
-    () => {
-      let consumerDirectory = '';
-      let consumer: Consumer;
-
-      const caseFolder: CaseFolder = async (files, onTestFinished) => {
-        const cases = join(consumer.directory, 'cases');
-
-        await mkdir(cases, { recursive: true });
-
-        const directory = await mkdtemp(join(cases, 'case-'));
-        const folder = relative(consumer.directory, directory);
-
-        await writeFiles(directory, files);
-        onTestFinished(() => rm(directory, { recursive: true, force: true }));
-
-        return { folder, directory };
-      };
-
-      const context: PackageContext = {
-        get consumer() {
-          return consumer;
-        },
-        caseFolder,
-      };
-
-      beforeAll(async () => {
-        consumerDirectory = await mkdtemp(join(tmpdir(), 'stomme-imports-consumer-'));
-        consumer = await installConsumer(runtime, inject('tarball'), consumerDirectory);
-      }, 300_000);
-
-      afterAll(async () => {
-        await rm(consumerDirectory, { recursive: true, force: true });
-      });
-
-      for (const group of groups) {
-        group(context);
-      }
-    },
-    spawnedTestTimeout,
-  );
+// Each runtime's test file installs its own consumer, and its tests run at the same time.
+export const describePackage = (runtime: Runtime, groups: PackageTests<Consumer>[]): void => {
+  describeSharedPackage(runtime, groups, {
+    consumerPrefix: 'stomme-imports-consumer-',
+    installConsumer,
+  });
 };
