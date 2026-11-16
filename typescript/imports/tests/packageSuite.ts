@@ -34,7 +34,6 @@ const diagnostics = (output: string) => linesWith(output, 'stomme-imports(module
 
 const spawnedTestTimeout = 120_000;
 
-// These tests load the package's plugin, so they run under every runtime.
 export const loadingTests: PackageTests = (context) => {
   it('loads the plugin by package name and reports a refused import', async ({
     expect,
@@ -65,7 +64,6 @@ entry = "src/beta.ts"
   });
 };
 
-// These tests check lint results, which do not depend on the runtime that loads the package.
 export const behaviorTests: PackageTests = (context) => {
   it('fails new shared files and shared imports that the module table does not list', async ({
     expect,
@@ -210,7 +208,6 @@ export const describePackage = (runtime: Runtime, groups: PackageTests[]): void 
       let consumerDirectory = '';
       let consumer: Consumer;
 
-      // Each test writes its fixtures into its own folder inside the consumer project.
       const caseFolder: CaseFolder = async (files, onTestFinished) => {
         const cases = join(consumer.directory, 'cases');
 

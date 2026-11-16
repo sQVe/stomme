@@ -12,7 +12,6 @@ declare module 'vitest' {
   }
 }
 
-// Packs once per run so every runtime's test file installs the same tarball.
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
   const directory = await mkdtemp(join(tmpdir(), 'stomme-imports-pack-'));
 
