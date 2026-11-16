@@ -57,13 +57,14 @@ The command runs Vite Plus with the runtime that started it. Under Bun, run it w
 ### House rules
 
 House rules check style: names, abbreviations, helper order, type placement, condition size,
-comments that cite tickets or reviews, disable comments without a reason, and blank lines between
-statements. Rules ported from [anti-slop](https://github.com/dmmulroy/anti-slop) reject object
-parameters, accumulator copies in `reduce`, `Reflect.apply` and `Reflect.get`, type aliases that
-hide `unknown`, and widen-then-assert casts. Outside tests, a type assertion needs a `SAFETY:`
-comment, or a one-line disable comment for `typescript/no-unsafe-type-assertion` with a reason after
-`--` that covers the line where the assertion starts. They load only when `SEAM_STYLE=1`, which the
-`stomme-ts-style` command sets. Editors and plain `vp lint` show the ordinary rules only.
+ternaries and call chains passed as arguments, comments that cite tickets or reviews, disable
+comments without a reason, and blank lines between statements. Rules ported from
+[anti-slop](https://github.com/dmmulroy/anti-slop) reject object parameters, accumulator copies in
+`reduce`, `Reflect.apply` and `Reflect.get`, type aliases that hide `unknown`, and widen-then-assert
+casts. Outside tests, a type assertion needs a `SAFETY:` comment, or a one-line disable comment for
+`typescript/no-unsafe-type-assertion` with a reason after `--` that covers the line where the
+assertion starts. They load only when `SEAM_STYLE=1`, which the `stomme-ts-style` command sets.
+Editors and plain `vp lint` show the ordinary rules only.
 
 ### Presets
 

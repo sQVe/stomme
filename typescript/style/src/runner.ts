@@ -13,10 +13,12 @@ export const runVitePlus: RunVitePlus = (commandArguments, styleEnabled) => {
   const executable = fileURLToPath(import.meta.resolve('vite-plus/bin'));
 
   // The current runtime runs the child, so Bun stays Bun and Node stays Node.
+  const styleValue = styleEnabled ? '1' : '0';
+
   return spawnSync(process.execPath, [executable, ...commandArguments], {
     stdio: 'inherit',
     // eslint-disable-next-line node/no-process-env -- Only the lint child enables house style.
-    env: { ...process.env, SEAM_STYLE: styleEnabled ? '1' : '0' },
+    env: { ...process.env, SEAM_STYLE: styleValue },
   });
 };
 

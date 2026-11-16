@@ -109,11 +109,11 @@ export const loadingTests: PackageTests = (context) => {
       expect(style.stdout).toContain(rule);
     }
 
-    expect(
-      linesWith(style.stdout, 'view.tsx:')
-        .filter((line) => line.includes('seam(naming-convention)'))
-        .map((line) => /"(\w+)"/.exec(line)?.[1]),
-    ).toEqual(expect.arrayContaining(['MAIN_VIEW', 'NotView']));
+    const namingDiagnostics = linesWith(style.stdout, 'view.tsx:')
+      .filter((line) => line.includes('seam(naming-convention)'))
+      .map((line) => /"(\w+)"/.exec(line)?.[1]);
+
+    expect(namingDiagnostics).toEqual(expect.arrayContaining(['MAIN_VIEW', 'NotView']));
 
     expect(linesWith(style.stdout, 'fake.test.ts:')).toEqual([]);
   });
@@ -610,9 +610,11 @@ export const behaviorTests: PackageTests = (context) => {
       ],
     };
 
-    const files = Object.fromEntries(
-      Object.entries(fixtures).map(([name, [, source]]) => [name, `${source}\n`]),
+    const fixtureEntries: [string, string][] = Object.entries(fixtures).map(
+      ([name, [, source]]) => [name, `${source}\n`],
     );
+
+    const files = Object.fromEntries(fixtureEntries);
 
     const { folder } = await context.caseFolder(files, onTestFinished);
     const result = await context.consumer.seam([folder]);

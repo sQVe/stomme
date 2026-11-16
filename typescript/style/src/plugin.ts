@@ -10,6 +10,7 @@ import { noReferenceCommentsRule } from './rules/noReferenceComments.ts';
 import { noReflectApplyRule } from './rules/noReflectApply.ts';
 import { noReflectGetRule } from './rules/noReflectGet.ts';
 import { noUnknownTypeAliasesRule } from './rules/noUnknownTypeAliases.ts';
+import { noUnnamedArgumentsRule } from './rules/noUnnamedArguments.ts';
 import { noWidenThenAssertRule } from './rules/noWidenThenAssert.ts';
 import { requireDisableReasonRule } from './rules/requireDisableReason.ts';
 import { requireSafetyCommentForTypeAssertionRule } from './rules/requireSafetyCommentForTypeAssertion.ts';
@@ -28,6 +29,7 @@ const seamPlugin: Plugin = {
     'no-reflect-apply': noReflectApplyRule,
     'no-reflect-get': noReflectGetRule,
     'no-unknown-type-aliases': noUnknownTypeAliasesRule,
+    'no-unnamed-arguments': noUnnamedArgumentsRule,
     'no-widen-then-assert': noWidenThenAssertRule,
     'require-disable-reason': requireDisableReasonRule,
     'require-safety-comment-for-type-assertion': requireSafetyCommentForTypeAssertionRule,

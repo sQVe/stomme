@@ -216,8 +216,9 @@ export const namingConventionRule: Rule = {
       const componentName = /^[A-Z]/.test(name) && isComponent(definition, variable);
 
       const pascalCase = definition.type === 'ClassName' || componentName;
+      const casing = pascalCase ? 'PascalCase' : 'camelCase';
 
-      checkName(definition.name, pascalCase ? 'PascalCase' : 'camelCase', name);
+      checkName(definition.name, casing, name);
     };
 
     // The file cannot see whether an imported value is a class or a component, so a chosen import

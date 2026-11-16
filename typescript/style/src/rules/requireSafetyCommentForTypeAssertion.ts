@@ -93,7 +93,9 @@ const disabledLinesOf = (sourceCode: SourceCode): Set<number> => {
       continue;
     }
 
-    disabled.add(scope === 'line' ? comment.loc.start.line : comment.loc.end.line + 1);
+    const assertedLine = scope === 'line' ? comment.loc.start.line : comment.loc.end.line + 1;
+
+    disabled.add(assertedLine);
   }
 
   return disabled;
