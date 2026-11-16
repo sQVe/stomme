@@ -381,18 +381,23 @@ pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalo
 }
 
 #[cfg(test)]
-pub(crate) fn test_policy_catalog(rust: &RustSource, gpui_bans: &'static str) -> Catalog {
+pub(crate) fn test_policy_catalog(
+    rust: &RustSource,
+    layer_bans: &[(&str, &'static str)],
+) -> Catalog {
+    let override_for = |layer: &str| {
+        layer_bans
+            .iter()
+            .find(|(name, _)| *name == layer)
+            .map(|&(_, text)| text)
+    };
     let sources: Vec<Source> = REGISTRY
         .iter()
         .map(|source| Source {
             name: source.name,
             manifest: source.manifest,
             bans: source.bans.as_ref().map(|bans| LayerBans {
-                text: if source.name == "gpui" {
-                    gpui_bans
-                } else {
-                    bans.text
-                },
+                text: override_for(source.name).unwrap_or(bans.text),
                 rule: bans.rule,
             }),
         })

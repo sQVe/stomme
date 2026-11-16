@@ -26,7 +26,7 @@ fn policy_catalog() -> Catalog {
                 ..RUST.clippy
             },
         },
-        GPUI_BANS,
+        &[("gpui", GPUI_BANS)],
     )
 }
 

@@ -60,7 +60,10 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
                 ..layer::RUST.clippy
             },
         },
-        "disallowed-methods = [{ path = \"gpui::Window::refresh\", reason = \"notify instead\" }]\n",
+        &[(
+            "gpui",
+            "disallowed-methods = [{ path = \"gpui::Window::refresh\", reason = \"notify instead\" }]\n",
+        )],
     );
     let cases = [
         (
