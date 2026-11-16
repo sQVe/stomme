@@ -154,3 +154,57 @@ fn validate_links_ignores_external_and_anchor_links() {
 
     assert_eq!(validate_links(&files), Ok(()));
 }
+
+#[test]
+fn fences_indented_by_three_or_fewer_spaces_hide_links() {
+    for spaces in 0..=3 {
+        let indent = " ".repeat(spaces);
+        let text = format!("{indent}~~~\n[inside](./missing.md)\n{indent}~~~\n");
+
+        assert_eq!(link_targets(&text), Vec::<String>::new(), "indent {spaces}");
+    }
+}
+
+#[test]
+fn a_fence_indented_by_four_spaces_does_not_hide_links() {
+    let text = "    ~~~\n[inside](./missing.md)\n    ~~~\n";
+
+    assert_eq!(link_targets(text), vec!["./missing.md"]);
+}
+
+#[test]
+fn tilde_fences_hide_links() {
+    let text = "~~~\n[inside](./missing.md)\n~~~\n";
+
+    assert_eq!(link_targets(text), Vec::<String>::new());
+}
+
+#[test]
+fn fewer_than_three_fence_markers_do_not_hide_links() {
+    for markers in ["~", "~~"] {
+        let text = format!("{markers}\n[inside](./missing.md)\n{markers}\n");
+
+        assert_eq!(link_targets(&text), vec!["./missing.md"], "{markers}");
+    }
+}
+
+#[test]
+fn a_run_of_three_dashes_does_not_open_a_fence() {
+    let text = "---\n[after](./after.md)\n---\n";
+
+    assert_eq!(link_targets(text), vec!["./after.md"]);
+}
+
+#[test]
+fn a_closing_fence_needs_the_same_marker() {
+    let text = "~~~\n[inside](./inside.md)\n```\n[after](./after.md)\n~~~\n";
+
+    assert_eq!(link_targets(text), Vec::<String>::new());
+}
+
+#[test]
+fn a_closing_fence_needs_at_least_the_opening_length() {
+    let text = "````\n[inside](./inside.md)\n```\n[after](./after.md)\n````\n";
+
+    assert_eq!(link_targets(text), Vec::<String>::new());
+}
