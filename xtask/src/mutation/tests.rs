@@ -96,8 +96,8 @@ fn report_keeps_request_errors_in_json_without_starting_work() {
     );
     let expected = json!({
         "version": 1, "status": "error",
-        "error": "Unknown mode other. Use changed or audit.",
         "survivors": [], "unmutated": [],
+        "error": "Unknown mode other. Use changed or audit.",
     });
 
     assert_eq!(actual.1, 1);
