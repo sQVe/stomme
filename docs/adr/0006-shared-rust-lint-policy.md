@@ -26,6 +26,8 @@ missing lint, a lower level, or a different priority fails, naming the lint. A d
 fails because it changes which of two overlapping lints wins.
 
 Every workspace member must have `[lints] workspace = true`, so no crate escapes the block.
+Members include the path dependencies that Cargo makes members because they lie inside the
+workspace root and are not excluded.
 
 ### Required bans
 
