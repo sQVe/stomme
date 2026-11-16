@@ -3,13 +3,13 @@ import type { ESTree, Rule } from '@oxlint/plugins';
 import { isWrappedExpression, unwrapExpressionAndChain } from '../shared/wrappedExpression.ts';
 
 const isCallChain = (node: ESTree.CallExpression): boolean => {
-  const callee = unwrapExpressionAndChain(node.callee);
+  let callee = unwrapExpressionAndChain(node.callee);
 
-  if (callee.type !== 'MemberExpression') {
-    return false;
+  while (callee.type === 'MemberExpression') {
+    callee = unwrapExpressionAndChain(callee.object);
   }
 
-  return unwrapExpressionAndChain(callee.object).type === 'CallExpression';
+  return callee.type === 'CallExpression';
 };
 
 const isArgument = (parent: ESTree.Node, child: ESTree.Node): boolean => {
@@ -20,6 +20,12 @@ const isArgument = (parent: ESTree.Node, child: ESTree.Node): boolean => {
   return parent.arguments.some((argument) => argument === child);
 };
 
+const isEmptyObjectExpression = (node: ESTree.Node): boolean => {
+  const unwrapped = unwrapExpressionAndChain(node);
+
+  return unwrapped.type === 'ObjectExpression' && unwrapped.properties.length === 0;
+};
+
 const isOptionalPropertySpread = (node: ESTree.ConditionalExpression): boolean => {
   let parent = node.parent;
 
@@ -27,7 +33,11 @@ const isOptionalPropertySpread = (node: ESTree.ConditionalExpression): boolean =
     parent = parent.parent;
   }
 
-  return parent.type === 'SpreadElement' && parent.parent.type === 'ObjectExpression';
+  if (parent.type !== 'SpreadElement' || parent.parent.type !== 'ObjectExpression') {
+    return false;
+  }
+
+  return isEmptyObjectExpression(node.consequent) || isEmptyObjectExpression(node.alternate);
 };
 
 const reachesArgument = (node: ESTree.Node): boolean => {
