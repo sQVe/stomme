@@ -17,6 +17,9 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
     'send(getUser().name);',
     'items.filter(isOpen).map(toName);',
     'items.map((item) => (item.open ? 1 : 2));',
+    'items.map((item) => item.open ? 1 : 2);',
+    'send({ key: 1 });',
+    `const label = ok ? a : b; send(\`\${label}\`);`,
   ],
   invalid: [
     {
@@ -109,6 +112,62 @@ ruleTester.run('no-unnamed-arguments', noUnnamedArgumentsRule, {
     },
     {
       code: 'send(make().value.method());',
+      errors: [
+        {
+          message: 'Assign this call chain to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(flag && (ok ? a : b));',
+      errors: [
+        {
+          message: 'Assign this ternary to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(count + (ok ? 1 : 2));',
+      errors: [
+        {
+          message: 'Assign this ternary to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(!(ok ? a : b));',
+      errors: [
+        {
+          message: 'Assign this ternary to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: `send(\`\${ok ? a : b}\`);`,
+      errors: [
+        {
+          message: 'Assign this ternary to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send({ [ok ? a : b]: 1 });',
+      errors: [
+        {
+          message: 'Assign this ternary to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: `send(\`\${items.filter(isOpen).map(toName)}\`);`,
+      errors: [
+        {
+          message: 'Assign this call chain to a named variable before passing it as an argument.',
+        },
+      ],
+    },
+    {
+      code: 'send(items.filter(isOpen).length > 0);',
       errors: [
         {
           message: 'Assign this call chain to a named variable before passing it as an argument.',

@@ -12,6 +12,18 @@ const isCallChain = (node: ESTree.CallExpression): boolean => {
   return callee.type === 'CallExpression';
 };
 
+const methodReceiverOf = (node: ESTree.CallExpression): ESTree.MemberExpression | undefined => {
+  const callee = unwrapExpressionAndChain(node.callee);
+
+  if (callee.type !== 'MemberExpression') {
+    return undefined;
+  }
+
+  const parent = node.parent;
+
+  return parent.type === 'MemberExpression' && parent.object === node ? parent : undefined;
+};
+
 const isArgument = (parent: ESTree.Node, child: ESTree.Node): boolean => {
   if (parent.type !== 'CallExpression' && parent.type !== 'NewExpression') {
     return false;
@@ -40,6 +52,78 @@ const isOptionalPropertySpread = (node: ESTree.ConditionalExpression): boolean =
   return isEmptyObjectExpression(node.consequent) || isEmptyObjectExpression(node.alternate);
 };
 
+const isTransparentParent = (node: ESTree.Node): boolean =>
+  isWrappedExpression(node) || node.type === 'ChainExpression';
+
+const isSideExpression = (
+  node: ESTree.Node,
+): node is ESTree.LogicalExpression | ESTree.BinaryExpression =>
+  node.type === 'LogicalExpression' || node.type === 'BinaryExpression';
+
+const isFromArray = (parent: ESTree.ArrayExpression, child: ESTree.Node): boolean =>
+  parent.elements.some((element) => element === child);
+
+const isFromSide = (
+  parent: ESTree.LogicalExpression | ESTree.BinaryExpression,
+  child: ESTree.Node,
+): boolean => parent.left === child || parent.right === child;
+
+const isFromTemplate = (parent: ESTree.TemplateLiteral, child: ESTree.Node): boolean =>
+  parent.expressions.some((expression) => expression === child);
+
+const isFromPropertyValue = (parent: ESTree.Node, child: ESTree.Node): boolean =>
+  parent.type === 'Property' && 'value' in parent && parent.value === child;
+
+const isFromComputedPropertyKey = (parent: ESTree.Node, child: ESTree.Node): boolean => {
+  if (parent.type !== 'Property') {
+    return false;
+  }
+
+  if (!('computed' in parent) || !parent.computed) {
+    return false;
+  }
+
+  return 'key' in parent && parent.key === child;
+};
+
+const isFromPropertySlot = (parent: ESTree.Node, child: ESTree.Node): boolean =>
+  isFromPropertyValue(parent, child) || isFromComputedPropertyKey(parent, child);
+
+const isFromObject = (parent: ESTree.ObjectExpression, child: ESTree.Node): boolean =>
+  parent.properties.some((property) => property === child);
+
+const isEvaluatedChild = (parent: ESTree.Node, child: ESTree.Node): boolean => {
+  if (isTransparentParent(parent) || parent.type === 'SpreadElement') {
+    return true;
+  }
+
+  if (parent.type === 'ArrayExpression') {
+    return isFromArray(parent, child);
+  }
+
+  if (isSideExpression(parent)) {
+    return isFromSide(parent, child);
+  }
+
+  if (parent.type === 'UnaryExpression') {
+    return parent.argument === child;
+  }
+
+  if (parent.type === 'TemplateLiteral') {
+    return isFromTemplate(parent, child);
+  }
+
+  if (parent.type === 'Property') {
+    return isFromPropertySlot(parent, child);
+  }
+
+  if (parent.type === 'ObjectExpression') {
+    return isFromObject(parent, child);
+  }
+
+  return false;
+};
+
 const reachesArgument = (node: ESTree.Node): boolean => {
   const parent = node.parent;
 
@@ -47,28 +131,8 @@ const reachesArgument = (node: ESTree.Node): boolean => {
     return false;
   }
 
-  if (isWrappedExpression(parent) || parent.type === 'ChainExpression') {
+  if (isEvaluatedChild(parent, node)) {
     return reachesArgument(parent);
-  }
-
-  if (parent.type === 'SpreadElement') {
-    return reachesArgument(parent);
-  }
-
-  if (parent.type === 'ArrayExpression') {
-    const fromElement = parent.elements.some((element) => element === node);
-
-    return fromElement && reachesArgument(parent);
-  }
-
-  if (parent.type === 'Property') {
-    return parent.value === node && reachesArgument(parent);
-  }
-
-  if (parent.type === 'ObjectExpression') {
-    const fromProperty = parent.properties.some((property) => property === node);
-
-    return fromProperty && reachesArgument(parent);
   }
 
   return isArgument(parent, node);
@@ -95,11 +159,17 @@ export const noUnnamedArgumentsRule: Rule = {
         }
       },
       CallExpression(node) {
-        if (!isCallChain(node)) {
+        if (isCallChain(node)) {
+          if (reachesArgument(node)) {
+            context.report({ node, messageId: 'callChain' });
+          }
+
           return;
         }
 
-        if (reachesArgument(node)) {
+        const receiver = methodReceiverOf(node);
+
+        if (receiver !== undefined && reachesArgument(receiver)) {
           context.report({ node, messageId: 'callChain' });
         }
       },
