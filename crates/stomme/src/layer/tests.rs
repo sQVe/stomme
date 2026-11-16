@@ -251,7 +251,10 @@ fn catalog_reports_an_invalid_rust_policy_file() {
         (
             "lints",
             RustSource {
-                lints: "[workspace.lints.clippy]\ntodo = \"loud\"\n",
+                lints: PolicyFile {
+                    text: "[workspace.lints.clippy]\ntodo = \"loud\"\n",
+                    ..RUST.lints
+                },
                 clippy: RUST.clippy,
             },
             "languages/rust/lints.toml",
@@ -260,7 +263,10 @@ fn catalog_reports_an_invalid_rust_policy_file() {
             "bans",
             RustSource {
                 lints: RUST.lints,
-                clippy: "disallowed-methods = [\"std::process::exit\"]\n",
+                clippy: PolicyFile {
+                    text: "disallowed-methods = [\"std::process::exit\"]\n",
+                    ..RUST.clippy
+                },
             },
             "languages/rust/clippy.toml",
         ),

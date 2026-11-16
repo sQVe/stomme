@@ -6,21 +6,9 @@ use anyhow::Context as _;
 use serde::Deserialize;
 
 use super::{Problem, Rule, describe_toml_error};
+use crate::layer::policy::RequiredBan;
 
 const CLIPPY_FILE: &str = "clippy.toml";
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RequiredBan {
-    path: String,
-    reason: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct PolicyFile {
-    disallowed_methods: Vec<RequiredBan>,
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -40,13 +28,6 @@ enum ProjectBan {
         path: String,
         reason: Option<String>,
     },
-}
-
-pub(crate) fn parse_policy(text: &str) -> Result<Vec<RequiredBan>, String> {
-    let file: PolicyFile =
-        toml::from_str(text).map_err(|error| describe_toml_error(&error, text))?;
-
-    Ok(file.disallowed_methods)
 }
 
 pub(super) fn check(

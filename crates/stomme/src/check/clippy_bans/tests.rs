@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::*;
-use crate::layer::{self, Catalog, RUST, RustSource};
+use crate::layer::{self, Catalog, PolicyFile, RUST, RustSource};
 use crate::test_support::{complete_project, write_file};
 
 const RUST_BANS: &str = r#"disallowed-methods = [
@@ -21,7 +21,10 @@ fn policy_catalog() -> Catalog {
     layer::test_policy_catalog(
         &RustSource {
             lints: RUST.lints,
-            clippy: RUST_BANS,
+            clippy: PolicyFile {
+                text: RUST_BANS,
+                ..RUST.clippy
+            },
         },
         GPUI_BANS,
     )

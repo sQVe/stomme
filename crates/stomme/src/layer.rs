@@ -5,14 +5,14 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::check::clippy_bans::{self, RequiredBan};
-use crate::check::rust_lints::{self, LintPolicy};
 use crate::check::{Owner, Rule};
+use policy::{LintPolicy, RequiredBan};
 
 mod gpui;
 mod gpui_component;
 mod herdr;
 mod pi;
+pub(crate) mod policy;
 mod react;
 
 const REGISTRY: &[Source] = &[
@@ -23,9 +23,18 @@ const REGISTRY: &[Source] = &[
     react::LAYER,
 ];
 
+macro_rules! policy_file {
+    ($path:literal) => {
+        PolicyFile {
+            path: $path,
+            text: include_str!(concat!("../../../", $path)),
+        }
+    };
+}
+
 pub(crate) const RUST: RustSource = RustSource {
-    lints: include_str!("../../../languages/rust/lints.toml"),
-    clippy: include_str!("../../../languages/rust/clippy.toml"),
+    lints: policy_file!("languages/rust/lints.toml"),
+    clippy: policy_file!("languages/rust/clippy.toml"),
 };
 
 static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
@@ -63,8 +72,14 @@ pub(crate) struct LayerBans {
 }
 
 pub(crate) struct RustSource {
-    pub(crate) lints: &'static str,
-    pub(crate) clippy: &'static str,
+    pub(crate) lints: PolicyFile,
+    pub(crate) clippy: PolicyFile,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct PolicyFile {
+    pub(crate) path: &'static str,
+    pub(crate) text: &'static str,
 }
 
 #[derive(Debug)]
@@ -225,7 +240,7 @@ impl Catalog {
             layers.insert(source.name, manifest);
 
             if let Some(bans) = &source.bans {
-                let required = clippy_bans::parse_policy(bans.text).map_err(|reason| {
+                let required = policy::parse_required_bans(bans.text).map_err(|reason| {
                     CatalogError::InvalidLayerBans {
                         layer: source.name,
                         reason,
@@ -314,17 +329,14 @@ impl Catalog {
 }
 
 fn parse_rust_policy(rust: &RustSource) -> Result<(LintPolicy, Vec<RequiredBan>), CatalogError> {
-    let lints =
-        rust_lints::parse_policy(rust.lints).map_err(|reason| CatalogError::InvalidRustPolicy {
-            file: "languages/rust/lints.toml",
-            reason,
-        })?;
-    let bans = clippy_bans::parse_policy(rust.clippy).map_err(|reason| {
-        CatalogError::InvalidRustPolicy {
-            file: "languages/rust/clippy.toml",
+    let invalid = |file: PolicyFile| {
+        move |reason| CatalogError::InvalidRustPolicy {
+            file: file.path,
             reason,
         }
-    })?;
+    };
+    let lints = policy::parse_lint_policy(rust.lints.text).map_err(invalid(rust.lints))?;
+    let bans = policy::parse_required_bans(rust.clippy.text).map_err(invalid(rust.clippy))?;
 
     Ok((lints, bans))
 }

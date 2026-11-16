@@ -40,7 +40,10 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
     let catalog = layer::test_policy_catalog(
         &layer::RustSource {
             lints: layer::RUST.lints,
-            clippy: "disallowed-methods = []\n",
+            clippy: layer::PolicyFile {
+                text: "disallowed-methods = []\n",
+                ..layer::RUST.clippy
+            },
         },
         "disallowed-methods = [{ path = \"gpui::Window::refresh\", reason = \"notify instead\" }]\n",
     );

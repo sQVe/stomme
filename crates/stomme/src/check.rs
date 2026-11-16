@@ -6,9 +6,9 @@ use crate::layer::{Catalog, Language};
 
 mod adr_index;
 mod cargo_manifest;
-pub(crate) mod clippy_bans;
+mod clippy_bans;
 mod required_parts;
-pub(crate) mod rust_lints;
+mod rust_lints;
 mod rust_members;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -130,7 +130,7 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     Ok(problems)
 }
 
-fn describe_toml_error(error: &toml::de::Error, text: &str) -> String {
+pub(crate) fn describe_toml_error(error: &toml::de::Error, text: &str) -> String {
     match error.span() {
         Some(span) => {
             let line = text[..span.start].matches('\n').count() + 1;
