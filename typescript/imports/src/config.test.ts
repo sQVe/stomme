@@ -83,16 +83,16 @@ it('accepts and refuses the shared stomme.toml fixtures like the binary', () => 
 });
 
 it('refuses a rust project', () => {
-  const reason = refusal(validConfig().replace('language = "typescript"', 'language = "rust"'));
+  const config = validConfig().replace('language = "typescript"', 'language = "rust"');
+  const reason = refusal(config);
 
   expect(reason).toContain('rust');
   expect(reason).toContain('typescript');
 });
 
 it('refuses a version other than the package version', () => {
-  const reason = refusal(
-    validConfig().replace(`version = "${packageVersion()}"`, 'version = "9.9.9"'),
-  );
+  const config = validConfig().replace(`version = "${packageVersion()}"`, 'version = "9.9.9"');
+  const reason = refusal(config);
 
   expect(reason).toContain('9.9.9');
   expect(reason).toContain(packageVersion());
@@ -112,17 +112,21 @@ it('refuses a missing schema', () => {
 });
 
 it('refuses a schema other than 1', () => {
-  expect(refusal(validConfig().replace('schema = 1', 'schema = 2'))).toContain('schema = 2');
+  const config = validConfig().replace('schema = 1', 'schema = 2');
+
+  expect(refusal(config)).toContain('schema = 2');
 });
 
 it('refuses a float schema', () => {
-  const reason = refusal(validConfig().replace('schema = 1', 'schema = 1.0'));
+  const config = validConfig().replace('schema = 1', 'schema = 1.0');
+  const reason = refusal(config);
 
   expect(reason).toContain('not an integer');
 });
 
 it('refuses an exponent schema', () => {
-  const reason = refusal(validConfig().replace('schema = 1', 'schema = 1e0'));
+  const config = validConfig().replace('schema = 1', 'schema = 1e0');
+  const reason = refusal(config);
 
   expect(reason).toContain('not an integer');
 });
@@ -340,10 +344,12 @@ it('sees an edit after the file changes', () => {
     writeFileSync(path, validConfig());
     expect(findConfig(folder)?.ok).toBe(true);
 
-    writeFileSync(
-      path,
-      validConfig().replace(`version = "${packageVersion()}"`, 'version = "9.9.9"'),
+    const otherVersion = validConfig().replace(
+      `version = "${packageVersion()}"`,
+      'version = "9.9.9"',
     );
+
+    writeFileSync(path, otherVersion);
 
     utimesSync(path, new Date(), new Date(Date.now() + 10_000));
 
