@@ -38,7 +38,7 @@ export const nodeRuntime: Runtime = {
 
 export const bunRuntime: Runtime = { name: 'Bun', executable: 'bun', install: ['bun', 'install'] };
 
-const run = (
+export const run = (
   command: string,
   argumentsList: string[],
   cwd: string,
@@ -103,16 +103,19 @@ const succeed = async (command: string, argumentsList: string[], cwd: string) =>
 };
 
 // The style switch must come from the runner alone, never from the test's own environment.
-const environmentWithoutStyle = () => {
+export const agentEnvironment = (agentName: string): NodeJS.ProcessEnv => {
   const { SEAM_STYLE: _styleSwitch, ...environment } = process.env;
 
   // Oxlint prints one line per diagnostic only when it detects an agent; otherwise the format
   // depends on the shell that runs the tests.
-  return { ...environment, AI_AGENT: 'seam-tests', CI: '1' };
+  return { ...environment, AI_AGENT: agentName, CI: '1' };
 };
 
-export const packPackage = async (destination: string): Promise<string> => {
-  await succeed('pnpm', ['pack', '--pack-destination', destination], root);
+export const packPackage = async (
+  destination: string,
+  packageDirectory: string,
+): Promise<string> => {
+  await succeed('pnpm', ['pack', '--pack-destination', destination], packageDirectory);
 
   const tarball = (await readdir(destination)).find((name) => name.endsWith('.tgz'));
 
@@ -176,16 +179,24 @@ const consumerFiles = (tarball: string) => ({
   }),
 });
 
+export const installPackage = async (
+  runtime: Runtime,
+  directory: string,
+  files: Record<string, string>,
+): Promise<void> => {
+  await writeFiles(directory, files);
+
+  const [installer = 'pnpm', ...installArguments] = runtime.install;
+
+  await succeed(installer, installArguments, directory);
+};
+
 export const installConsumer = async (
   runtime: Runtime,
   tarball: string,
   directory: string,
 ): Promise<Consumer> => {
-  await writeFiles(directory, consumerFiles(tarball));
-
-  const [installer = 'pnpm', ...installArguments] = runtime.install;
-
-  await succeed(installer, installArguments, directory);
+  await installPackage(runtime, directory, consumerFiles(tarball));
 
   const cli = join(directory, 'node_modules/@sqve/stomme-ts-style/dist/cli.js');
   const vitePlus = join(directory, 'node_modules/vite-plus/dist/bin.js');
@@ -193,13 +204,13 @@ export const installConsumer = async (
   return {
     directory,
     seam: (argumentsList, cwd = directory) =>
-      run(runtime.executable, [cli, ...argumentsList], cwd, environmentWithoutStyle()),
+      run(runtime.executable, [cli, ...argumentsList], cwd, agentEnvironment('seam-tests')),
     ordinaryLint: (argumentsList, cwd = directory) =>
       run(
         runtime.executable,
         [vitePlus, 'lint', '--deny-warnings', ...argumentsList],
         cwd,
-        environmentWithoutStyle(),
+        agentEnvironment('seam-tests'),
       ),
     typecheck: (project) => run(process.execPath, [typescriptCompiler, '-p', project], directory),
   };
