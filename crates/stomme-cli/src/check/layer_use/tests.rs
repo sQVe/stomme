@@ -15,8 +15,10 @@ fn problems(root: &Path) -> Vec<Problem> {
         Ok(lock) => lock,
         Err(problem) => return vec![problem],
     };
+    let package = crate::check::package_json::read(root).expect("read package.json");
+    let package = package.as_ref().and_then(|result| result.as_ref().ok());
 
-    check(root, &selection, layer::catalog(), lock.as_ref()).expect("check the project")
+    check(root, &selection, layer::catalog(), lock.as_ref(), package).expect("check the project")
 }
 
 fn layer_problems(root: &Path) -> Vec<Problem> {
@@ -178,20 +180,4 @@ fn missing_manifests_report_nothing() {
     let typescript = project_with_language("typescript", &[], "");
 
     assert_eq!(layer_problems(typescript.path()), []);
-}
-
-#[test]
-fn unreadable_package_json_is_an_error() {
-    let typescript = project_with_language("typescript", &[], "");
-
-    std::fs::create_dir(typescript.path().join("package.json"))
-        .expect("make package.json a folder");
-
-    let Installation::Valid(selection) = config::read(typescript.path(), layer::catalog()) else {
-        panic!("expected a valid installation");
-    };
-    let error = check(typescript.path(), &selection, layer::catalog(), None)
-        .expect_err("a folder named package.json cannot be read");
-
-    assert_eq!(error.to_string(), "Could not read package.json");
 }

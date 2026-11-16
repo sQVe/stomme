@@ -317,3 +317,15 @@ fn typescript_project_does_not_read_cargo_lock() {
 
     assert_eq!(layer_problems, Vec::<&Problem>::new(), "{problems:?}");
 }
+
+#[test]
+fn unreadable_package_json_is_an_error() {
+    let root = complete_project();
+
+    fs::create_dir(root.path().join("package.json")).expect("make package.json a folder");
+
+    let error = run(root.path(), layer::catalog(), &target())
+        .expect_err("a folder named package.json cannot be read");
+
+    assert_eq!(error.to_string(), "Could not read package.json");
+}

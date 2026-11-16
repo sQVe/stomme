@@ -1,8 +1,5 @@
-use std::fs;
-use std::io;
 use std::path::Path;
 
-use anyhow::Context as _;
 use serde_json::Value;
 
 use super::Problem;
@@ -22,8 +19,8 @@ pub(super) fn check(
     selection: &Selection,
     catalog: &Catalog,
     lock: Option<&Lock>,
+    package: Option<&Value>,
 ) -> anyhow::Result<Vec<Problem>> {
-    let package = read_package_json(root)?;
     let mut tree: Option<Tree> = None;
     let mut problems = Vec::new();
 
@@ -34,10 +31,8 @@ pub(super) fn check(
 
         let evidence = match detection {
             Detection::CargoPackage(name) => cargo_package_evidence(lock, name),
-            Detection::PackageDependency(name) => {
-                package_dependency_evidence(package.as_ref(), name)
-            }
-            Detection::PackageField(name) => package_field_evidence(package.as_ref(), name),
+            Detection::PackageDependency(name) => package_dependency_evidence(package, name),
+            Detection::PackageField(name) => package_field_evidence(package, name),
             Detection::FilesTogether { manifest, entry } => {
                 if tree.is_none() {
                     tree = Some(source_files::walk(root, selection.language)?);
@@ -101,19 +96,6 @@ fn files_together_evidence(
         .min()?;
 
     Some((path, format!("is a mod manifest beside `{entry}`")))
-}
-
-fn read_package_json(root: &Path) -> anyhow::Result<Option<Value>> {
-    let path = root.join(PACKAGE_JSON);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| format!("Could not read {PACKAGE_JSON}"));
-        }
-    };
-
-    Ok(serde_json::from_str(&text).ok())
 }
 
 fn problem(layer: &str, path: String, evidence: String) -> Problem {
