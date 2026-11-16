@@ -21,7 +21,8 @@ fn check_reports_an_edited_synced_file() {
 
     write_file(root.path(), path, "edited\n");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(
         problems
@@ -56,7 +57,8 @@ fn check_reports_a_missing_synced_file() {
 
     fs::remove_file(root.path().join(path)).expect("remove the synced file");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, path), "{problems:?}");
 }
@@ -68,7 +70,8 @@ fn check_reports_an_extra_file_under_docs_stomme() {
 
     write_file(root.path(), path, "extra\n");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, path), "{problems:?}");
 }
@@ -79,7 +82,8 @@ fn check_reports_a_missing_record() {
 
     fs::remove_file(root.path().join(RECORD_FILE)).expect("remove the record");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, RECORD_FILE), "{problems:?}");
 }
@@ -90,7 +94,8 @@ fn check_reports_a_malformed_record() {
 
     write_file(root.path(), RECORD_FILE, "not toml\n");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, RECORD_FILE), "{problems:?}");
 }
@@ -101,7 +106,8 @@ fn check_reports_a_record_version_that_differs() {
 
     rewrite_record(root.path(), |record| record.version = "9.9.9".to_string());
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
     let problem = problems
         .iter()
         .find(|problem| problem.path == RECORD_FILE)
@@ -123,7 +129,8 @@ fn check_reports_a_record_hash_that_differs() {
         record.files.insert(path.to_string(), "0".repeat(64));
     });
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, path), "{problems:?}");
 }
@@ -137,7 +144,8 @@ fn check_reports_a_recorded_file_that_is_not_owned() {
         record.files.insert(path.to_string(), "0".repeat(64));
     });
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, path), "{problems:?}");
 }
@@ -150,7 +158,8 @@ fn check_reports_a_directory_where_a_synced_file_belongs() {
     fs::remove_file(root.path().join(path)).expect("remove the synced file");
     fs::create_dir(root.path().join(path)).expect("create a directory in its place");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, path), "{problems:?}");
 }
@@ -167,7 +176,8 @@ fn check_reports_a_symlinked_docs_folder() {
         .expect("move docs outside the project");
     symlink(outside.path().join("docs"), root.path().join("docs")).expect("create the symlink");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, "docs"), "{problems:?}");
 }
@@ -191,7 +201,8 @@ fn check_reports_a_symlinked_docs_stomme_folder() {
     )
     .expect("create the symlink");
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, "docs/stomme"), "{problems:?}");
 }
@@ -214,7 +225,8 @@ fn check_reports_an_edited_agents_block() {
 
     write_file(root.path(), path, &edited);
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(
         problems
@@ -233,7 +245,8 @@ fn check_reports_a_missing_agents_marker() {
 
     write_file(root.path(), path, &without_end);
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(
         problems
@@ -252,7 +265,8 @@ fn check_reports_an_agents_block_missing_from_the_record() {
         record.files.remove(path);
     });
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
     let problem = problems
         .iter()
         .find(|problem| problem.path == path && problem.rule == Rule::AgentsBlock)
@@ -273,7 +287,8 @@ fn check_reports_an_agents_block_record_hash_that_differs() {
         record.files.insert(path.to_string(), "0".repeat(64));
     });
 
-    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
     let problem = problems
         .iter()
         .find(|problem| problem.path == path && problem.rule == Rule::AgentsBlock)

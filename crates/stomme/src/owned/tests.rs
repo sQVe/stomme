@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -207,4 +207,24 @@ fn a_closing_fence_needs_at_least_the_opening_length() {
     let text = "````\n[inside](./inside.md)\n```\n[after](./after.md)\n````\n";
 
     assert_eq!(link_targets(text), Vec::<String>::new());
+}
+
+#[test]
+fn owned_set_reads_the_given_catalog() {
+    let catalog = crate::layer::test_catalog(&[("one", "language = \"rust\"\n")]);
+    let selection = Selection {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        language: crate::layer::Language::Rust,
+        layers: BTreeSet::from(["one".to_string()]),
+        roles: BTreeMap::new(),
+        extra_docs: Vec::new(),
+    };
+
+    let files = owned_set(&selection, &catalog);
+
+    assert!(
+        files
+            .iter()
+            .any(|file| file.path == "docs/stomme/layers/one/guide.md")
+    );
 }

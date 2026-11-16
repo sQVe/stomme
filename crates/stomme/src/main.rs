@@ -11,6 +11,7 @@ mod layer;
 mod owned;
 mod rule;
 mod sync;
+mod synced_tree;
 #[cfg(test)]
 mod test_support;
 
