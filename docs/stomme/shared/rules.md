@@ -6,7 +6,7 @@ paths are relative to the stomme crate.
 | ID | Rule | Owner | Applies | `stomme.toml` fields | Checker | Fixtures | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `no-stomme` | The project has a `stomme.toml`. | common | always | none | src/check.rs | tests/fixtures/rules/no-stomme | enforced |
-| `broken-installation` | `stomme.toml` is valid TOML that matches the schema and selects a valid layer set. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles`, `violations` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
+| `broken-installation` | `stomme.toml` is valid TOML that matches the schema, selects a valid layer set, and has a closed module table. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles`, `violations`, `modules` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
 | `role-name` | Every role name in `[roles]` is one of the shared roles. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-name | enforced |
 | `role-path` | Every role path is a relative folder inside the project. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-path | enforced |
 | `role-folder` | A role folder is named after the role or ends with `-<role>`. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-folder | enforced |
@@ -35,7 +35,6 @@ paths are relative to the stomme crate.
 | `gpui-required-ban` | `clippy.toml` holds each GPUI `disallowed-methods` ban with its reason. | layer `gpui` | always | none | none | none | guidance only |
 | `module-imports` | Imports follow the module table: a module imports only the modules its row allows. | common | the project has a module table | none | none | none | project-local |
 | `module-listed` | Every source file belongs to a module in the module table. | common | the project has a module table | none | none | none | project-local |
-| `module-table-closed` | Every module the module table allows as an import has its own row. | common | the project has a module table | none | none | none | project-local |
 | `module-table-order` | Module registries and their lists are sorted and free of duplicates. | typescript | the project has a module table | none | none | none | project-local |
 | `module-table-documented` | The import table in the module ADR equals the enforced module table. | typescript | the project has a module table | none | none | none | project-local |
 | `module-private-file` | Other modules import a folder module through its entry or public files only. | typescript | the project has a module table | none | none | none | project-local |
