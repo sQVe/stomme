@@ -146,7 +146,7 @@ fn broken_link(file: &OwnedFile, target: String) -> LinkError {
     }
 }
 
-fn relative_target(target: &str) -> Option<&str> {
+pub(crate) fn relative_target(target: &str) -> Option<&str> {
     let target = target.split_whitespace().next()?;
 
     if target.is_empty() || is_external(target) {
@@ -176,7 +176,7 @@ fn is_external(target: &str) -> bool {
         })
 }
 
-fn resolve(base: &str, target: &str) -> Option<String> {
+pub(crate) fn resolve(base: &str, target: &str) -> Option<String> {
     let mut parts: Vec<&str> = base.split('/').filter(|part| !part.is_empty()).collect();
 
     for part in target.split('/') {
@@ -200,7 +200,7 @@ enum State {
     Comment,
 }
 
-fn link_targets(text: &str) -> Vec<String> {
+pub(crate) fn link_targets(text: &str) -> Vec<String> {
     let bytes = text.as_bytes();
     let mut targets = Vec::new();
     let mut index = 0;
