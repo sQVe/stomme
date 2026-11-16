@@ -49,6 +49,9 @@ enum PathError {
 }
 
 const OUTPUT_DIRECTORY: &str = "target/mutants";
+// cargo-mutants builds each job's copy of the workspace under TMPDIR. `/tmp` is often a tmpfs held
+// in memory, so the copies go to this folder on disk instead.
+const SCRATCH_DIRECTORY: &str = "target/mutants/scratch";
 const MAX_JOBS: usize = 4;
 
 impl Scope {
@@ -195,8 +198,24 @@ fn job_count() -> usize {
     available.min(MAX_JOBS)
 }
 
+fn empty_scratch(root: &Path) -> anyhow::Result<PathBuf> {
+    let scratch = root.join(SCRATCH_DIRECTORY);
+
+    if scratch.exists() {
+        fs::remove_dir_all(&scratch)
+            .with_context(|| format!("Could not empty {}", scratch.display()))?;
+    }
+
+    fs::create_dir_all(&scratch)
+        .with_context(|| format!("Could not create {}", scratch.display()))?;
+
+    Ok(scratch)
+}
+
 fn run_mutants(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> anyhow::Result<()> {
+    let scratch = empty_scratch(root)?;
     let status = Command::new(cargo)
+        .env("TMPDIR", &scratch)
         .args(["mutants", "--workspace", "--no-shuffle", "--jobs"])
         .arg(job_count().to_string())
         .arg("--output")

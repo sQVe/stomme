@@ -147,6 +147,30 @@ fn report_reads_the_exit_code_of_the_mutants_run() {
 }
 
 #[test]
+fn report_builds_mutants_in_an_empty_scratch_folder_on_disk() {
+    let fixture = Fixture::new();
+    let scratch = fixture.folder.path().join(SCRATCH_DIRECTORY);
+    let leftover = scratch.join("cargo-mutants-leftover");
+
+    fs::create_dir_all(&leftover).expect("create a leftover build folder");
+
+    let cargo = fixture.cargo(
+        LISTING,
+        0,
+        "printf '%s' \"$TMPDIR\" > \"$(dirname \"$0\")/tmpdir.log\"\nls -A \"$TMPDIR\" > \"$(dirname \"$0\")/scratch.log\"",
+    );
+
+    assert_eq!(status(&fixture.audit(&cargo)), (Some("pass"), 0));
+
+    let tmpdir = fs::read_to_string(fixture.folder.path().join("tmpdir.log")).expect("read TMPDIR");
+    let contents = fs::read_to_string(fixture.folder.path().join("scratch.log"))
+        .expect("read the scratch listing");
+
+    assert_eq!(tmpdir, scratch.display().to_string());
+    assert_eq!(contents, "");
+}
+
+#[test]
 fn report_fails_when_git_diff_fails() {
     let fixture = Fixture::new();
     let cargo = fixture.cargo(LISTING, 0, "exit 0");
