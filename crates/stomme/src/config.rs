@@ -127,19 +127,21 @@ fn validate_extra_doc(root: &Path, path: &str) -> Result<(), String> {
         ));
     }
 
-    if !path.starts_with("docs/") {
+    let normalized = normalize(path);
+
+    if !normalized.starts_with("docs/") {
         return Err(format!(
             "has an `extra_docs` path `{path}` outside `docs/`; use a path under `docs/`"
         ));
     }
 
-    if path == "docs/stomme" || path.starts_with("docs/stomme/") {
+    if normalized == "docs/stomme" || normalized.starts_with("docs/stomme/") {
         return Err(format!(
             "has an `extra_docs` path `{path}` inside `docs/stomme/`; synced files are not exceptions"
         ));
     }
 
-    let target = root.join(path);
+    let target = root.join(&normalized);
 
     if !target.is_file() {
         return Err(format!(
@@ -158,7 +160,22 @@ fn validate_extra_doc(root: &Path, path: &str) -> Result<(), String> {
         ));
     }
 
+    if let Ok(synced) = fs::canonicalize(root.join("docs/stomme"))
+        && resolved.starts_with(&synced)
+    {
+        return Err(format!(
+            "has an `extra_docs` path `{path}` that resolves inside `docs/stomme/`; synced files are not exceptions"
+        ));
+    }
+
     Ok(())
+}
+
+fn normalize(path: &str) -> String {
+    path.split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]

@@ -154,3 +154,44 @@ fn check_reports_a_directory_where_a_synced_file_belongs() {
 
     assert!(reported(&problems, path), "{problems:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_symlinked_docs_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::rename(root.path().join("docs"), outside.path().join("docs"))
+        .expect("move docs outside the project");
+    symlink(outside.path().join("docs"), root.path().join("docs")).expect("create the symlink");
+
+    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+
+    assert!(reported(&problems, "docs"), "{problems:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_symlinked_docs_stomme_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::rename(
+        root.path().join("docs/stomme"),
+        outside.path().join("stomme"),
+    )
+    .expect("move docs/stomme outside the project");
+    symlink(
+        outside.path().join("stomme"),
+        root.path().join("docs/stomme"),
+    )
+    .expect("create the symlink");
+
+    let problems = check(root.path(), &selection(root.path())).expect("check the project");
+
+    assert!(reported(&problems, "docs/stomme"), "{problems:?}");
+}

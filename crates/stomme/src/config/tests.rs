@@ -322,6 +322,39 @@ fn read_reports_an_extra_doc_that_resolves_outside_docs() {
 }
 
 #[test]
+fn read_reports_an_extra_doc_that_aliases_docs_stomme_with_a_dot() {
+    let root = project_with(&[("docs/stomme/shared/coding.md", "# Coding\n")]);
+    let path = "docs/./stomme/shared/coding.md";
+    let installation = installation_in(root.path(), &exceptions(&[path]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains(path), "{reason}");
+}
+
+#[cfg(unix)]
+#[test]
+fn read_reports_an_extra_doc_symlinked_into_docs_stomme() {
+    use std::os::unix::fs::symlink;
+
+    let root = project_with(&[("docs/stomme/shared/coding.md", "# Coding\n")]);
+
+    symlink(
+        root.path().join("docs/stomme/shared/coding.md"),
+        root.path().join("docs/link.md"),
+    )
+    .expect("create the symlink");
+
+    let installation = installation_in(root.path(), &exceptions(&["docs/link.md"]));
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("docs/link.md"), "{reason}");
+}
+
+#[test]
 fn read_reports_an_unknown_exception_field() {
     let root = project_with(&[]);
     let text = with_version("language = \"rust\"\n\n[exceptions]\nother = []\n");
