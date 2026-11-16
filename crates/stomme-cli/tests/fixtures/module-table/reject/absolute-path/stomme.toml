@@ -1,0 +1,6 @@
+schema = 1
+version = "0.0.0"
+language = "typescript"
+
+[modules.a]
+entry = "/src/a.ts"

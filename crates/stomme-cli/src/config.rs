@@ -46,6 +46,8 @@ struct Config {
     roles: BTreeMap<String, String>,
     #[serde(default)]
     exceptions: Exceptions,
+    #[serde(default)]
+    modules: BTreeMap<String, ModuleRow>,
 }
 
 #[derive(Default, Deserialize)]
@@ -53,6 +55,16 @@ struct Config {
 struct Exceptions {
     #[serde(default)]
     extra_docs: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModuleRow {
+    entry: String,
+    #[serde(default)]
+    public: Vec<String>,
+    #[serde(default)]
+    imports: Vec<String>,
 }
 
 pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
@@ -103,6 +115,8 @@ fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
             env!("CARGO_PKG_VERSION")
         ));
     }
+
+    validate_modules(&config.modules)?;
 
     let layers = layer::select(catalog, config.language, config.layers)
         .map_err(|error| error.to_string())?;
@@ -185,6 +199,34 @@ fn violation_field(table: &mut toml::Table, field: &str, label: &str) -> Result<
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| format!("has a {label} whose `{field}` is not a string"))
+}
+
+fn validate_modules(modules: &BTreeMap<String, ModuleRow>) -> Result<(), String> {
+    for (name, row) in modules {
+        for path in std::iter::once(&row.entry).chain(&row.public) {
+            if Path::new(path).is_absolute() {
+                return Err(format!(
+                    "has a module `{name}` path `{path}` that is absolute; use a path relative to the project root"
+                ));
+            }
+
+            if path.split('/').any(|part| part == "..") {
+                return Err(format!(
+                    "has a module `{name}` path `{path}` with a `..` part; use a path inside the project"
+                ));
+            }
+        }
+
+        for target in &row.imports {
+            if !modules.contains_key(target) {
+                return Err(format!(
+                    "has a module `{name}` that imports `{target}`, which has no `[modules.{target}]` row"
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_exceptions(root: &Path, selection: Selection) -> Result<Selection, String> {
