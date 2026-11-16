@@ -3,6 +3,8 @@ use std::path::Path;
 
 use tempfile::TempDir;
 
+use super::sync_project;
+
 const ADR_INDEX: &str = "\
 # Architecture decision records
 
@@ -64,6 +66,14 @@ const FILES: &[(&str, &str)] = &[
 ];
 
 pub(crate) fn complete_project() -> TempDir {
+    let root = write_project();
+
+    sync_project(root.path());
+
+    root
+}
+
+fn write_project() -> TempDir {
     let root = tempfile::Builder::new()
         .prefix("stomme-test-")
         .tempdir()

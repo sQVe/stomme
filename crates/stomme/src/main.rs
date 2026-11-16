@@ -12,6 +12,11 @@ mod sync;
 #[cfg(test)]
 mod test_support;
 
+#[cfg(test)]
+fn sync_project(root: &std::path::Path) {
+    sync::run(root, layer::catalog()).expect("sync the fixture project");
+}
+
 const USAGE: &str =
     "Usage: stomme <check|sync>\n\nCheck or sync the project in the current directory.";
 

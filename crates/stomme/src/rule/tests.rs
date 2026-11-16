@@ -147,16 +147,17 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
         };
 
         for (case, reports_the_rule) in [("fail", true), ("pass", false)] {
-            let root = crate_path(check.fixtures).join(case);
+            let source = crate_path(check.fixtures).join(case);
 
             assert!(
-                root.is_dir(),
+                source.is_dir(),
                 "{} has no {case} fixture at {}",
                 metadata.id,
-                root.display()
+                source.display()
             );
 
-            let problems = check::run(&root, layer::catalog()).expect("check the fixture");
+            let root = prepare_fixture(&source);
+            let problems = check::run(root.path(), layer::catalog()).expect("check the fixture");
             let reported = problems.iter().any(|problem| problem.rule == rule);
             let unenforced_reported: Vec<&str> = problems
                 .iter()
@@ -205,5 +206,41 @@ fn each_rule_fixture_folder_belongs_to_a_rule() {
         let path = entry.expect("read a rule fixture entry").path();
 
         assert!(named.contains(&path), "{} names no rule", path.display());
+    }
+}
+
+fn prepare_fixture(source: &Path) -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    copy_tree(source, root.path());
+
+    if root.path().join(".sync").is_file() {
+        crate::sync::run(root.path(), layer::catalog()).expect("sync the fixture");
+        apply_after_sync(root.path());
+    }
+
+    root
+}
+
+fn copy_tree(source: &Path, target: &Path) {
+    for entry in fs::read_dir(source).expect("read the fixture folder") {
+        let entry = entry.expect("read a fixture entry");
+        let path = entry.path();
+        let destination = target.join(entry.file_name());
+
+        if entry.file_type().expect("read the file type").is_dir() {
+            fs::create_dir_all(&destination).expect("create the fixture folder");
+            copy_tree(&path, &destination);
+        } else {
+            fs::copy(&path, &destination).expect("copy the fixture file");
+        }
+    }
+}
+
+fn apply_after_sync(root: &Path) {
+    let changes = root.join("after-sync");
+
+    if changes.is_dir() {
+        copy_tree(&changes, root);
     }
 }

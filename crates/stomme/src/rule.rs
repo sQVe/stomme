@@ -117,6 +117,17 @@ rules! {
             fixtures: "tests/fixtures/rules/required-part",
         }),
     },
+    SyncedFiles => Metadata {
+        id: "synced-files",
+        summary: "`docs/stomme/` equals the owned set, and its record matches the files and the version.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &["version", "language", "layers"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/synced_files.rs",
+            fixtures: "tests/fixtures/rules/synced-files",
+        }),
+    },
     TauFullCheck => Metadata {
         id: "tau-full-check",
         summary: "`.pi/tau.json` names the full check as a non-empty `fullCheck.argv` of strings.",

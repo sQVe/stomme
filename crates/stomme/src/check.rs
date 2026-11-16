@@ -12,6 +12,7 @@ mod clippy_bans;
 mod required_parts;
 mod rust_lints;
 mod rust_members;
+mod synced_files;
 
 const ADR_FOLDER: &str = "docs/adr";
 
@@ -37,6 +38,10 @@ impl fmt::Display for Problem {
 pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>> {
     let installation = config::read(root, catalog);
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
+
+    if let Installation::Valid(selection) = &installation {
+        problems.extend(synced_files::check(root, selection)?);
+    }
 
     problems.extend(required_parts::check(root)?);
     problems.extend(adr_index::check(root, ADR_FOLDER)?);
