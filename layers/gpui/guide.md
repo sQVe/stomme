@@ -54,3 +54,8 @@ them to paths in the `[roles]` table of `stomme.toml`.
   once, and `let _task = ...` keeps it only to the end of the scope.
 - `gpui-stale-result`: When background work finishes, check that the state it started from is still
   current, such as the same selected item. Drop the result when it is not.
+
+## Clippy bans
+
+- `gpui-required-ban`: Keep each GPUI `disallowed-methods` ban that stomme requires in
+  `clippy.toml`, with its reason. Add your own bans next to them.
