@@ -1,0 +1,6 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+
+[roles]
+cli = "crates/cli"

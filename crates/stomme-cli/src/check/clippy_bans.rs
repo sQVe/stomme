@@ -47,6 +47,7 @@ pub(super) fn check(
                 path: CLIPPY_FILE.to_string(),
                 rule,
                 message,
+                key: None,
             })
         })
         .collect();

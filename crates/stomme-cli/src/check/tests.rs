@@ -141,6 +141,63 @@ fn run_checks_rust_files_only_for_a_valid_rust_installation() {
 }
 
 #[test]
+fn check_reports_a_role_folder_in_each_language() {
+    for language in ["rust", "typescript"] {
+        let root = complete_project();
+
+        write_file(
+            root.path(),
+            CONFIG_FILE,
+            &format!(
+                "schema = 1\nversion = \"{}\"\nlanguage = \"{language}\"\n\n[roles]\ncore = \"src/domain\"\n",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+        fs::create_dir_all(root.path().join("src/domain")).expect("create the role folder");
+        crate::sync_project(root.path());
+
+        let problems = check_project(root.path());
+        let folder_problems: Vec<&Problem> = problems
+            .iter()
+            .filter(|problem| problem.rule == Rule::RoleFolder)
+            .collect();
+
+        assert_eq!(folder_problems.len(), 1, "{language}: {problems:?}");
+        assert_eq!(folder_problems[0].path, "src/domain", "{language}");
+        assert_eq!(
+            folder_problems[0].key.as_deref(),
+            Some("domain"),
+            "{language}"
+        );
+    }
+}
+
+#[test]
+fn problem_display_names_the_key() {
+    let keyless = Problem {
+        path: "stomme.toml".to_string(),
+        rule: Rule::RoleName,
+        message: "names an unknown role".to_string(),
+        key: None,
+    };
+    let keyed = Problem {
+        path: "src/domain".to_string(),
+        rule: Rule::RoleFolder,
+        message: "names the wrong folder".to_string(),
+        key: Some("domain".to_string()),
+    };
+
+    assert_eq!(
+        keyless.to_string(),
+        "stomme.toml: names an unknown role [role-name]"
+    );
+    assert_eq!(
+        keyed.to_string(),
+        "src/domain: names the wrong folder (key `domain`) [role-folder]"
+    );
+}
+
+#[test]
 fn describe_toml_error_names_the_line_of_the_error() {
     let text = "[workspace]\nmembers = []\nresolver = \n";
     let error = toml::from_str::<toml::Table>(text).expect_err("the text is invalid TOML");

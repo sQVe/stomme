@@ -19,6 +19,7 @@ fn level_problems(policy: &LintPolicy, project: &BTreeMap<String, Lint>) -> Vec<
             path: ROOT_MANIFEST.to_string(),
             rule: Rule::RustLintLevel,
             message,
+            key: None,
         })
         .collect()
 }

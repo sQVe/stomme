@@ -11,6 +11,7 @@ mod cargo_manifest;
 mod clippy_bans;
 mod package_pins;
 mod required_parts;
+mod roles;
 mod rust_lints;
 mod rust_members;
 mod synced_files;
@@ -25,15 +26,22 @@ pub(crate) struct Problem {
     pub(crate) path: String,
     pub(crate) rule: Rule,
     pub(crate) message: String,
+    pub(crate) key: Option<String>,
 }
 
 impl fmt::Display for Problem {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let key = match &self.key {
+            Some(key) => format!(" (key `{key}`)"),
+            None => String::new(),
+        };
+
         write!(
             formatter,
-            "{}: {} [{}]",
+            "{}: {}{} [{}]",
             self.path,
             self.message,
+            key,
             self.rule.id()
         )
     }
@@ -55,6 +63,10 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
         && selection.language == Language::Rust
     {
         problems.extend(rust_problems(root, catalog, &selection.layers)?);
+    }
+
+    if let Installation::Valid(selection) = &installation {
+        problems.extend(roles::check(root, &selection.roles));
     }
 
     Ok(problems)
@@ -105,6 +117,7 @@ fn installation_problem(installation: &Installation) -> Option<Problem> {
         path: CONFIG_FILE.to_string(),
         rule,
         message,
+        key: None,
     })
 }
 

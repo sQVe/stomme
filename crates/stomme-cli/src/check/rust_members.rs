@@ -178,6 +178,7 @@ fn inheritance_problem(member: String, manifest: MemberRead) -> Option<Problem> 
         message:
             "lacks `[lints] workspace = true`; every workspace member inherits the shared lints"
                 .to_string(),
+        key: None,
     })
 }
 

@@ -28,12 +28,12 @@
 
 ## Workspace
 
-- `crates/stomme` is the `stomme` binary. `stomme check` checks the project in the current
+- `crates/stomme-cli` is the `stomme` binary. `stomme check` checks the project in the current
   directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
   on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 - `typescript/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
-- `shared/rules.md` is generated from the rule catalog in `crates/stomme/src/rule.rs`. A test
+- `shared/rules.md` is generated from the rule catalog in `crates/stomme-cli/src/rule.rs`. A test
   fails when the two differ.
 
 ## Check your work
