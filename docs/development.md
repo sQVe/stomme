@@ -32,6 +32,9 @@
   directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
   on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
+- `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
+  candidate `stomme` binary against one project as its update would, and exits 1 only when an
+  adopted project fails.
 - `packages/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
 - `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
   `stomme.toml`.

@@ -1,5 +1,6 @@
 mod check;
 mod mutation;
+mod release_gate;
 #[cfg(test)]
 mod test_support;
 
@@ -10,7 +11,8 @@ const USAGE: &str = "\
 Usage:
   cargo xtask check [tidy|build]
   cargo xtask mutation changed <base> [--max-mutants N]
-  cargo xtask mutation audit <file>... [--max-mutants N]";
+  cargo xtask mutation audit <file>... [--max-mutants N]
+  cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>";
 
 fn workspace_root() -> PathBuf {
     let manifest_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -32,6 +34,7 @@ fn main() -> ExitCode {
     match arguments.split_first() {
         Some((task, rest)) if task == "check" => check::run(&root, rest),
         Some((task, rest)) if task == "mutation" => mutation::run(&root, rest),
+        Some((task, rest)) if task == "release-gate" => release_gate::run(&root, rest),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::FAILURE
