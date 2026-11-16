@@ -1,0 +1,93 @@
+name: Release gate
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  project:
+    name: Gate ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [tau, koja, plugga, tikk, greppa, ruta, mutation]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: stomme
+          persist-credentials: false
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: token
+        with:
+          app-id: ${{ secrets.STOMME_APP_ID }}
+          private-key: ${{ secrets.STOMME_APP_PRIVATE_KEY }}
+          owner: sQVe
+          repositories: ${{ matrix.project }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: sQVe/${{ matrix.project }}
+          ref: main
+          path: project
+          token: ${{ steps.token.outputs.token }}
+          persist-credentials: false
+      - name: Install the candidate
+        working-directory: stomme
+        run: |
+          cargo install --path crates/stomme-cli --locked --root "$RUNNER_TEMP/candidate"
+          version=$(cargo metadata --no-deps --format-version 1 | jq --raw-output '.packages[] | select(.name == "stomme") | .version')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Run the gate
+        working-directory: stomme
+        run: |
+          cargo xtask release-gate \
+            --stomme "$RUNNER_TEMP/candidate/bin/stomme" \
+            --version "$VERSION" \
+            "$GITHUB_WORKSPACE/project" >> "$GITHUB_STEP_SUMMARY"
+
+  consumer:
+    name: Gate consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: stomme
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install the candidate
+        working-directory: stomme
+        run: |
+          cargo install --path crates/stomme-cli --locked --root "$RUNNER_TEMP/candidate"
+          version=$(cargo metadata --no-deps --format-version 1 | jq --raw-output '.packages[] | select(.name == "stomme") | .version')
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Prepare the consumer
+        run: |
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cp -R stomme/release/consumer/. "$RUNNER_TEMP/consumer"
+          git init --quiet "$RUNNER_TEMP/consumer"
+          git -C "$RUNNER_TEMP/consumer" add --all
+          git -C "$RUNNER_TEMP/consumer" \
+            -c user.name="Stomme Release" \
+            -c user.email="stomme@example.com" \
+            commit --quiet --message "Prepare the consumer"
+      - name: Run the gate
+        working-directory: stomme
+        run: |
+          cargo xtask release-gate \
+            --stomme "$RUNNER_TEMP/candidate/bin/stomme" \
+            --version "$VERSION" \
+            "$RUNNER_TEMP/consumer" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install the recorded packages
+        working-directory: ${{ runner.temp }}/consumer
+        run: pnpm install

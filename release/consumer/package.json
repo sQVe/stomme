@@ -1,0 +1,9 @@
+{
+  "name": "stomme-consumer",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "devDependencies": {
+    "@sqve/mutation": "0.0.0",
+    "@sqve/stomme-ts-style": "0.0.0"
+  }
+}
