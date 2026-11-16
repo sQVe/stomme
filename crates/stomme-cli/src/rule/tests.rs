@@ -257,12 +257,7 @@ fn rewrite_fixture_version(root: &Path) {
     }
 
     let text = fs::read_to_string(&config).expect("read the fixture config");
-    let version = env!("CARGO_PKG_VERSION");
-    let rewritten = text.replacen(
-        "version = \"0.0.0\"",
-        &format!("version = \"{version}\""),
-        1,
-    );
+    let rewritten = crate::with_crate_version(&text);
 
     if rewritten != text {
         fs::write(&config, rewritten).expect("write the fixture config");

@@ -21,6 +21,18 @@ fn sync_project(root: &std::path::Path) {
     sync::run(root, layer::catalog()).expect("sync the fixture project");
 }
 
+// Shared fixtures name version 0.0.0 so that a release bump changes no fixture.
+#[cfg(test)]
+fn with_crate_version(config: &str) -> String {
+    let version = env!("CARGO_PKG_VERSION");
+
+    config.replacen(
+        "version = \"0.0.0\"",
+        &format!("version = \"{version}\""),
+        1,
+    )
+}
+
 const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync>\n\nCheck or sync the project in the current directory.";
 
 #[expect(

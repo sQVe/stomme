@@ -5,8 +5,9 @@ import type { PackageTests } from '../../style/tests/packageHarness.ts';
 import { describePackage as describeSharedPackage } from '../../style/tests/packageHarness.ts';
 import type { Consumer } from './consumer.ts';
 import { installConsumer } from './consumer.ts';
+import { packageVersion } from './packageVersion.ts';
 
-const configHeader = 'schema = 1\nversion = "0.0.0"\nlanguage = "typescript"\n';
+const configHeader = `schema = 1\nversion = "${packageVersion}"\nlanguage = "typescript"\n`;
 
 const projectFiles = (config: string, files: Record<string, string>) => ({
   'package.json': JSON.stringify({ name: 'case', private: true, type: 'module' }),

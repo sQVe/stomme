@@ -526,8 +526,10 @@ fn shared_module_table_fixtures_accept_and_reject_by_folder() {
         for case in cases {
             let root = tempfile::tempdir().expect("create a temporary directory");
 
-            fs::copy(case.join(CONFIG_FILE), root.path().join(CONFIG_FILE))
-                .expect("copy stomme.toml");
+            let config = fs::read_to_string(case.join(CONFIG_FILE)).expect("read stomme.toml");
+            let config = crate::with_crate_version(&config);
+
+            fs::write(root.path().join(CONFIG_FILE), config).expect("write stomme.toml");
 
             let installation = read(root.path(), layer::catalog());
             let case = case.display();

@@ -13,32 +13,15 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, it } from 'vitest';
 
+import { packageVersion, withPackageVersion } from '../tests/packageVersion.ts';
 import { findConfig, parseConfig } from './config.ts';
 
 const fixtures = fileURLToPath(
   new URL('../../../crates/stomme-cli/tests/fixtures/module-table', import.meta.url),
 );
 
-const packageVersion = (): string => {
-  const manifest: unknown = JSON.parse(
-    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-  );
-
-  if (typeof manifest !== 'object' || manifest === null || !('version' in manifest)) {
-    throw new TypeError('package.json has no version');
-  }
-
-  const { version } = manifest;
-
-  if (typeof version !== 'string') {
-    throw new TypeError('package.json has no string version');
-  }
-
-  return version;
-};
-
 const validConfig = (extra = '') =>
-  `schema = 1\nversion = "${packageVersion()}"\nlanguage = "typescript"\n${extra}`;
+  `schema = 1\nversion = "${packageVersion}"\nlanguage = "typescript"\n${extra}`;
 
 const refusal = (text: string): string => {
   const result = parseConfig(text, '/project');
@@ -73,7 +56,7 @@ it('accepts and refuses the shared stomme.toml fixtures like the binary', () => 
 
     for (const name of cases) {
       const folder = join(fixtures, kind, name);
-      const text = readFileSync(join(folder, 'stomme.toml'), 'utf8');
+      const text = withPackageVersion(readFileSync(join(folder, 'stomme.toml'), 'utf8'));
       const result = parseConfig(text, folder);
       const detail = result.ok ? 'accepted' : result.reason;
 
@@ -91,11 +74,11 @@ it('refuses a rust project', () => {
 });
 
 it('refuses a version other than the package version', () => {
-  const config = validConfig().replace(`version = "${packageVersion()}"`, 'version = "9.9.9"');
+  const config = validConfig().replace(`version = "${packageVersion}"`, 'version = "9.9.9"');
   const reason = refusal(config);
 
   expect(reason).toContain('9.9.9');
-  expect(reason).toContain(packageVersion());
+  expect(reason).toContain(packageVersion);
 });
 
 it('refuses invalid TOML', () => {
@@ -106,7 +89,7 @@ it('refuses invalid TOML', () => {
 });
 
 it('refuses a missing schema', () => {
-  const text = `version = "${packageVersion()}"\nlanguage = "typescript"`;
+  const text = `version = "${packageVersion}"\nlanguage = "typescript"`;
 
   expect(refusal(text)).toContain('is missing `schema`');
 });
@@ -165,19 +148,19 @@ it('refuses a list version without throwing', () => {
 });
 
 it('refuses a missing language', () => {
-  const text = `schema = 1\nversion = "${packageVersion()}"`;
+  const text = `schema = 1\nversion = "${packageVersion}"`;
 
   expect(refusal(text)).toContain('is missing `language`');
 });
 
 it('refuses a non-string language', () => {
-  const text = `schema = 1\nversion = "${packageVersion()}"\nlanguage = 1`;
+  const text = `schema = 1\nversion = "${packageVersion}"\nlanguage = 1`;
 
   expect(refusal(text)).toContain('`language` that is not a string');
 });
 
 it('refuses a list language without throwing', () => {
-  const text = `schema = 1\nversion = "${packageVersion()}"\nlanguage = [1]`;
+  const text = `schema = 1\nversion = "${packageVersion}"\nlanguage = [1]`;
 
   expect(() => parseConfig(text, '/project')).not.toThrow();
   expect(refusal(text)).toContain('`language` that is not a string');
@@ -345,7 +328,7 @@ it('sees an edit after the file changes', () => {
     expect(findConfig(folder)?.ok).toBe(true);
 
     const otherVersion = validConfig().replace(
-      `version = "${packageVersion()}"`,
+      `version = "${packageVersion}"`,
       'version = "9.9.9"',
     );
 

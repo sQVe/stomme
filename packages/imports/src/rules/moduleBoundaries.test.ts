@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterAll } from 'vitest';
 
+import { packageVersion } from '../../tests/packageVersion.ts';
 import { ruleTester } from '../../tests/ruleTester.ts';
 import { tauModuleConfig } from '../../tests/tauModuleConfig.ts';
 import { moduleBoundariesRule } from './moduleBoundaries.ts';
@@ -23,7 +24,7 @@ const projectRoot = (config: string | undefined): string => {
   return root;
 };
 
-const configHeader = 'schema = 1\nversion = "0.0.0"\nlanguage = "typescript"\n';
+const configHeader = `schema = 1\nversion = "${packageVersion}"\nlanguage = "typescript"\n`;
 
 afterAll(() => {
   for (const root of temporaryRoots) {
