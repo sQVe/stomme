@@ -2,7 +2,7 @@ import type { ESTree, Rule, SourceCode, Variable } from '@oxlint/plugins';
 
 import { staticPropertyName } from '../shared/memberExpressions.ts';
 import { constBinding, isGlobalName, isReassigned, resolveVariable } from '../shared/variables.ts';
-import { isWrappedExpression } from '../shared/wrappedExpression.ts';
+import { unwrapExpressionAndChain } from '../shared/wrappedExpression.ts';
 
 type Callback = ESTree.ArrowFunctionExpression | ESTree.Function;
 
@@ -42,24 +42,14 @@ const arrayCopyMethods = new Set([
 
 const freshTargetKinds = new Set(['ArrayExpression', 'ObjectExpression']);
 
-const unwrap = (node: ESTree.Node): ESTree.Node => {
-  let current = node;
-
-  while (isWrappedExpression(current) || current.type === 'ChainExpression') {
-    current = current.expression;
-  }
-
-  return current;
-};
-
 const resolveBinding = (sourceCode: SourceCode, node: ESTree.Node): Variable | undefined => {
-  const unwrapped = unwrap(node);
+  const unwrapped = unwrapExpressionAndChain(node);
 
   return unwrapped.type === 'Identifier' ? resolveVariable(sourceCode, unwrapped) : undefined;
 };
 
 const methodTarget = (node: ESTree.Node): MethodTarget | undefined => {
-  const unwrapped = unwrap(node);
+  const unwrapped = unwrapExpressionAndChain(node);
 
   if (unwrapped.type !== 'MemberExpression') {
     return undefined;
@@ -119,7 +109,7 @@ const isKnownArrayExpression = (sourceCode: SourceCode, node: ESTree.Node): bool
   const visited = new Set<Variable>();
 
   const isKnownArray = (current: ESTree.Node): boolean => {
-    const unwrapped = unwrap(current);
+    const unwrapped = unwrapExpressionAndChain(current);
 
     if (unwrapped.type === 'ArrayExpression') {
       return true;
@@ -147,7 +137,7 @@ const isKnownArrayExpression = (sourceCode: SourceCode, node: ESTree.Node): bool
 const callerOf = (callback: Callback): ESTree.CallExpression | undefined => {
   let owner: ESTree.Node | null = callback.parent;
 
-  while (owner !== null && unwrap(owner) === callback) {
+  while (owner !== null && unwrapExpressionAndChain(owner) === callback) {
     owner = owner.parent;
   }
 
@@ -158,7 +148,7 @@ const isReduceCall = (call: ESTree.CallExpression, callback: Callback): boolean 
   const name = methodTarget(call.callee)?.name;
   const [first] = call.arguments;
   const isReduce = name === 'reduce' || name === 'reduceRight';
-  const passesCallback = first !== undefined && unwrap(first) === callback;
+  const passesCallback = first !== undefined && unwrapExpressionAndChain(first) === callback;
 
   return isReduce && call.arguments.length <= 2 && passesCallback;
 };
@@ -229,7 +219,7 @@ const referencesAccumulator = (
 };
 
 const isGlobalObject = (sourceCode: SourceCode, node: ESTree.Node, name: string): boolean => {
-  const unwrapped = unwrap(node);
+  const unwrapped = unwrapExpressionAndChain(node);
 
   if (unwrapped.type !== 'Identifier' || unwrapped.name !== name) {
     return false;
@@ -244,7 +234,9 @@ const assignsIntoFreshValue = (
   isAccumulator: (node: ESTree.Node) => boolean,
 ): boolean => {
   const [target, ...sources] = call.arguments;
-  const intoFreshValue = target !== undefined && freshTargetKinds.has(unwrap(target).type);
+
+  const intoFreshValue =
+    target !== undefined && freshTargetKinds.has(unwrapExpressionAndChain(target).type);
 
   return intoFreshValue && sources.some(isAccumulator);
 };

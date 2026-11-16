@@ -20,3 +20,11 @@ export const isWrappedExpression = (node: ESTree.Node): node is WrappedExpressio
 
 export const unwrapExpression = (node: ESTree.Node): ESTree.Node =>
   isWrappedExpression(node) ? unwrapExpression(node.expression) : node;
+
+export const unwrapExpressionAndChain = (node: ESTree.Node): ESTree.Node => {
+  const unwrapped = unwrapExpression(node);
+
+  return unwrapped.type === 'ChainExpression'
+    ? unwrapExpressionAndChain(unwrapped.expression)
+    : unwrapped;
+};
