@@ -98,11 +98,6 @@ const publicLocationsOf = (config: ProjectConfig, module: LocatedModule): string
 const isPublicPath = (config: ProjectConfig, module: LocatedModule, path: string): boolean =>
   publicLocationsOf(config, module).includes(path);
 
-const containingFoldersOf = (modules: readonly LocatedModule[], path: string): string[] =>
-  modules
-    .filter((module) => module.isFolder && containsPath(module, path))
-    .map((module) => module.location);
-
 const allowedTargetsOf = (
   config: ProjectConfig,
   ownModule: LocatedModule | undefined,
@@ -136,6 +131,22 @@ const allowedTargetsOf = (
   }
 
   return allowedTargets;
+};
+
+const permittedTargetsOf = (
+  config: ProjectConfig,
+  ownModule: LocatedModule | undefined,
+  support: boolean,
+): Set<string> | undefined => {
+  if (support) {
+    return allowedTargetsOf(config, ownModule);
+  }
+
+  if (ownModule === undefined) {
+    return undefined;
+  }
+
+  return new Set(ownModule.row.imports);
 };
 
 const literalSourceOf = (source: ESTree.Expression): string | undefined => {
@@ -204,9 +215,8 @@ export const moduleBoundariesRule: Rule = {
     const ownPath = stripExtension(filename);
     const ownModule = moduleOf(modules, ownPath);
     const support = isSupportFile(sourceRoot, filename);
-    const sourceFolders = containingFoldersOf(modules, ownPath);
     const sourceName = ownModule?.row.name ?? ownPath.slice(sourceRoot.length + 1);
-    const allowedTargets = allowedTargetsOf(config, ownModule);
+    const allowedTargets = permittedTargetsOf(config, ownModule, support);
 
     const checkPrivateFile = (node: ESTree.Node, target: LocatedModule, targetPath: string) => {
       if (!target.isFolder || targetPath === target.location) {
@@ -217,11 +227,7 @@ export const moduleBoundariesRule: Rule = {
         return;
       }
 
-      const isContained = sourceFolders.some(
-        (folder) => folder === target.location || folder.startsWith(`${target.location}/`),
-      );
-
-      if (!isContained) {
+      if (!containsPath(target, ownPath)) {
         context.report({
           node,
           messageId: 'private',
@@ -248,27 +254,15 @@ export const moduleBoundariesRule: Rule = {
         checkPrivateFile(node, target, targetPath);
       }
 
-      if (ownModule === undefined || target === undefined || target === ownModule) {
+      if (allowedTargets === undefined || target === undefined || target === ownModule) {
         return;
       }
 
-      if (support) {
-        if (!allowedTargets.has(target.row.name)) {
-          context.report({
-            node,
-            messageId: 'notAllowed',
-            data: { source: sourceName, target: target.row.name },
-          });
-        }
-
-        return;
-      }
-
-      if (!ownModule.row.imports.includes(target.row.name)) {
+      if (!allowedTargets.has(target.row.name)) {
         context.report({
           node,
           messageId: 'notAllowed',
-          data: { source: ownModule.row.name, target: target.row.name },
+          data: { source: sourceName, target: target.row.name },
         });
       }
     };

@@ -170,6 +170,11 @@ ruleTester.run('module-boundaries', moduleBoundariesRule, {
       filename: tauFile('src/skillTools.test.ts'),
     },
     {
+      name: 'allows a flat support file outside any module to import a shared module',
+      code: "import { schema } from './schema.js';\n\nexport const value = schema;",
+      filename: tauFile('src/alpha.test.ts'),
+    },
+    {
       code: 'export const value = 1;',
       filename: tauFile('src/skills/tdd/helper.ts'),
     },
@@ -226,6 +231,12 @@ ruleTester.run('module-boundaries', moduleBoundariesRule, {
       code: 'export const load = () => import(`./beta.js`);',
       filename: join(crossingRoot, 'src/alpha.ts'),
       errors: [{ messageId: 'notAllowed', data: { source: 'alpha', target: 'beta' } }],
+    },
+    {
+      name: 'reports a flat support file outside any module that imports the root',
+      code: "import tau from './tau.js';\n\nexport default tau;",
+      filename: tauFile('src/alpha.test.ts'),
+      errors: [{ messageId: 'notAllowed', data: { source: 'alpha.test', target: 'tau' } }],
     },
     {
       name: 'reports a reach into an owner folder past its entry file',
