@@ -9,6 +9,18 @@ will fail the project's full check.
 stomme is in early development. `stomme check` checks the project in the current directory: its
 `stomme.toml`, its required files, and its ADR index.
 
+Install a released binary with mise:
+
+```sh
+mise use -g github:sQVe/stomme
+```
+
+Or install through cargo-binstall:
+
+```sh
+cargo binstall --git https://github.com/sQVe/stomme stomme
+```
+
 The TypeScript style package in [packages/style](packages/style/README.md) is published as
 `@sqve/stomme-ts-style` with its own version.
 
