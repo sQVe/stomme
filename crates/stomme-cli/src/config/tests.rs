@@ -89,6 +89,7 @@ fn read_accepts_a_schema_one_file() {
             language: Language::Rust,
             layers: BTreeSet::from(["gpui".to_string()]),
             roles: BTreeMap::from([("cli".to_string(), "crates/cli".to_string())]),
+            violations: Vec::new(),
             extra_docs: Vec::new(),
         })
     );
@@ -103,6 +104,7 @@ fn read_defaults_to_no_layers_and_no_roles() {
             language: Language::TypeScript,
             layers: BTreeSet::new(),
             roles: BTreeMap::new(),
+            violations: Vec::new(),
             extra_docs: Vec::new(),
         })
     );
@@ -241,6 +243,7 @@ fn read_accepts_extra_docs_under_docs() {
             language: Language::Rust,
             layers: BTreeSet::new(),
             roles: BTreeMap::new(),
+            violations: Vec::new(),
             extra_docs: vec!["docs/development.md".to_string()],
         })
     );
@@ -364,4 +367,54 @@ fn read_reports_an_unknown_exception_field() {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("other"), "{reason}");
+}
+
+#[test]
+fn read_accepts_recorded_violations() {
+    let text = with_version(
+        "language = \"rust\"\n\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n",
+    );
+
+    let Installation::Valid(selection) = installation(&text) else {
+        panic!("expected a valid installation");
+    };
+    assert_eq!(
+        selection.violations,
+        vec![Violation {
+            path: "src/domain".to_string(),
+            rule: Rule::RoleFolder,
+            key: "domain".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn read_rejects_bad_violation_entries() {
+    let cases = [
+        (
+            "unknown rule",
+            "path = \"src/domain\"\nrule = \"unknown-rule\"\nkey = \"domain\"\n",
+            "unknown-rule",
+        ),
+        (
+            "missing key",
+            "path = \"src/domain\"\nrule = \"role-folder\"\n",
+            "src/domain",
+        ),
+        (
+            "duplicate entry",
+            "path = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n",
+            "src/domain",
+        ),
+    ];
+
+    for (case, entry, named) in cases {
+        let text = with_version(&format!("language = \"rust\"\n\n[[violations]]\n{entry}"));
+        let installation = installation(&text);
+
+        let Installation::Broken(reason) = installation else {
+            panic!("{case}: expected a broken installation, got {installation:?}");
+        };
+        assert!(reason.contains(named), "{case}: {reason}");
+    }
 }

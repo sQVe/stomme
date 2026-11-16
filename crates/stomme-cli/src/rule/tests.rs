@@ -157,7 +157,12 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
             );
 
             let root = prepare_fixture(&source);
-            let problems = check::run(root.path(), layer::catalog()).expect("check the fixture");
+            let problems = check::run(
+                root.path(),
+                layer::catalog(),
+                &check::TargetBranch::git("origin/main".to_string()),
+            )
+            .expect("check the fixture");
             let reported = problems.iter().any(|problem| problem.rule == rule);
             let unenforced_reported: Vec<&str> = problems
                 .iter()

@@ -46,6 +46,7 @@ the stomme repository with the commit in its row.
 - [0005: Typed results, panics for bugs, and parsing once](./0005-results-and-parse-once.md)
 - [0006: Side effects as records of functions](./0006-side-effect-records.md)
 - [0008: Drop backwards compatibility by default](./0008-backwards-compatibility.md)
+- [0010: Recorded violations with a stale check and a growth gate](./0010-recorded-violations.md)
 
 ### Tests and review
 

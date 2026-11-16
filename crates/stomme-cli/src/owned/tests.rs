@@ -217,6 +217,7 @@ fn owned_set_reads_the_given_catalog() {
         language: crate::layer::Language::Rust,
         layers: BTreeSet::from(["one".to_string()]),
         roles: BTreeMap::new(),
+        violations: Vec::new(),
         extra_docs: Vec::new(),
     };
 

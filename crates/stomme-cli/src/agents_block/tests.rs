@@ -138,6 +138,7 @@ fn render_quotes_arguments_with_whitespace_or_a_backtick() {
         language: Language::Rust,
         layers: Default::default(),
         roles: Default::default(),
+        violations: Vec::new(),
         extra_docs: Vec::new(),
     };
     let argv = vec![
@@ -299,6 +300,7 @@ fn render_states_the_rust_format_rule_and_guide() {
         language: Language::Rust,
         layers: Default::default(),
         roles: Default::default(),
+        violations: Vec::new(),
         extra_docs: Vec::new(),
     };
 
@@ -318,6 +320,7 @@ fn render_states_the_typescript_format_rule_and_guide() {
         language: Language::TypeScript,
         layers: Default::default(),
         roles: Default::default(),
+        violations: Vec::new(),
         extra_docs: Vec::new(),
     };
 

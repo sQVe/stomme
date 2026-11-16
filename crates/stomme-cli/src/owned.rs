@@ -45,6 +45,10 @@ const SHARED: &[(&str, &str)] = &[
         include_str!("../../../shared/adr/0009-advisory-review-signals.md"),
     ),
     (
+        "shared/adr/0010-recorded-violations.md",
+        include_str!("../../../shared/adr/0010-recorded-violations.md"),
+    ),
+    (
         "shared/adr/README.md",
         include_str!("../../../shared/adr/README.md"),
     ),

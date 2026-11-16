@@ -16,8 +16,12 @@ fn assert_single_problem(problems: &[Problem], path: &str, rule: Rule, named: &s
     );
 }
 
+fn target() -> TargetBranch {
+    TargetBranch::git("origin/main".to_string())
+}
+
 fn check_project(root: &Path) -> Vec<Problem> {
-    run(root, layer::catalog()).expect("check the project")
+    run(root, layer::catalog(), &target()).expect("check the project")
 }
 
 #[test]
@@ -39,7 +43,7 @@ fn run_reports_a_conflicting_pair_in_either_order() {
             ),
         );
 
-        let problems = run(root.path(), &catalog).expect("check the project");
+        let problems = run(root.path(), &catalog, &target()).expect("check the project");
 
         assert_eq!(problems.len(), 1, "{listed}: {problems:?}");
         assert_eq!(problems[0].path, CONFIG_FILE, "{listed}");
@@ -91,7 +95,7 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
         );
         crate::sync_project(root.path());
 
-        let problems = run(root.path(), &catalog).expect("check the project");
+        let problems = run(root.path(), &catalog, &target()).expect("check the project");
         let rules: Vec<Rule> = problems.iter().map(|problem| problem.rule).collect();
 
         assert_eq!(rules, expected, "{case}: {problems:?}");
@@ -133,7 +137,7 @@ fn run_checks_rust_files_only_for_a_valid_rust_installation() {
 
         fs::remove_file(root.path().join("Cargo.toml")).expect("remove Cargo.toml");
 
-        let problems = run(root.path(), layer::catalog()).expect("check the project");
+        let problems = run(root.path(), layer::catalog(), &target()).expect("check the project");
         let rules: Vec<Rule> = problems.iter().map(|problem| problem.rule).collect();
 
         assert_eq!(rules, expected, "{case}: {problems:?}");

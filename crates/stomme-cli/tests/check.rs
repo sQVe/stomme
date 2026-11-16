@@ -405,17 +405,86 @@ fn check_reports_an_adr_it_cannot_read() {
 #[test]
 fn stomme_prints_usage_without_the_check_command() {
     let root = complete_project();
-    let cases: [&[&str]; 3] = [&[], &["lint"], &["check", "extra"]];
+    let cases: [&[&str]; 4] = [&[], &["lint"], &["check", "extra"], &["check", "--base"]];
 
     for arguments in cases {
         let output = stomme(root.path(), arguments);
 
         assert_eq!(output.status.code(), Some(1), "{arguments:?}");
         assert!(
-            String::from_utf8_lossy(&output.stderr).starts_with("Usage: stomme <check|sync>"),
+            String::from_utf8_lossy(&output.stderr)
+                .starts_with("Usage: stomme <check [--base <ref>]|sync>"),
             "{arguments:?}"
         );
     }
+}
+
+fn git(root: &Path, arguments: &[&str]) {
+    let output = Command::new("git")
+        .args(arguments)
+        .current_dir(root)
+        .output()
+        .expect("run git");
+
+    assert!(output.status.success(), "{arguments:?}: {output:?}");
+}
+
+#[test]
+fn check_base_reads_the_named_ref() {
+    let root = complete_project();
+    let version = env!("CARGO_PKG_VERSION");
+    let without_entry = format!(
+        "schema = 1\nversion = \"{version}\"\nlanguage = \"rust\"\n\n[roles]\ncli = \"src/domain\"\n"
+    );
+    let with_entry = format!(
+        "{without_entry}\n[[violations]]\npath = \"src/domain\"\nrule = \"role-folder\"\nkey = \"domain\"\n"
+    );
+
+    fs::create_dir_all(root.path().join("src/domain")).expect("create the role folder");
+    write_file(root.path(), "stomme.toml", &without_entry);
+    git(root.path(), &["init", "-q"]);
+    git(root.path(), &["add", "-A"]);
+    git(
+        root.path(),
+        &[
+            "-c",
+            "user.name=Stomme Test",
+            "-c",
+            "user.email=stomme@example.com",
+            "commit",
+            "-qm",
+            "without the entry",
+        ],
+    );
+    write_file(root.path(), "stomme.toml", &with_entry);
+    git(root.path(), &["add", "-A"]);
+    git(
+        root.path(),
+        &[
+            "-c",
+            "user.name=Stomme Test",
+            "-c",
+            "user.email=stomme@example.com",
+            "commit",
+            "-qm",
+            "with the entry",
+        ],
+    );
+    git(
+        root.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    git(root.path(), &["reset", "--soft", "HEAD^"]);
+
+    let default = stomme(root.path(), &["check"]);
+    let named = stomme(root.path(), &["check", "--base", "HEAD"]);
+
+    assert_eq!(default.status.code(), Some(0), "{default:?}");
+    assert_eq!(named.status.code(), Some(1), "{named:?}");
+    assert!(
+        String::from_utf8_lossy(&named.stderr).contains("[violation-growth]"),
+        "{named:?}"
+    );
 }
 
 #[test]
