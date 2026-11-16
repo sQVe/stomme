@@ -139,6 +139,17 @@ rules! {
             fixtures: "tests/fixtures/rules/agents-block",
         }),
     },
+    PackagePin => Metadata {
+        id: "package-pin",
+        summary: "A shared package in the root `package.json` matches the pinned version.",
+        owner: Owner::Common,
+        applies: "the root `package.json` exists",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/package_pins.rs",
+            fixtures: "tests/fixtures/rules/package-pin",
+        }),
+    },
     TauFullCheck => Metadata {
         id: "tau-full-check",
         summary: "`.pi/tau.json` names the full check as a non-empty `fullCheck.argv` of strings.",

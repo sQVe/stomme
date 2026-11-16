@@ -9,10 +9,14 @@ use crate::rule::Rule;
 mod adr_index;
 mod cargo_manifest;
 mod clippy_bans;
+mod package_pins;
 mod required_parts;
 mod rust_lints;
 mod rust_members;
 mod synced_files;
+
+#[cfg(test)]
+pub(crate) use package_pins::write_pinned_fixture;
 
 const ADR_FOLDER: &str = "docs/adr";
 
@@ -44,6 +48,7 @@ pub(crate) fn run(root: &Path, catalog: &Catalog) -> anyhow::Result<Vec<Problem>
     }
 
     problems.extend(required_parts::check(root)?);
+    problems.extend(package_pins::check(root)?);
     problems.extend(adr_index::check(root, ADR_FOLDER)?);
 
     if let Installation::Valid(selection) = &installation
