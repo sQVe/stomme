@@ -291,3 +291,44 @@ fn replace_keeps_the_text_outside_the_block_byte_for_byte() {
 
     assert_eq!(updated, format!("{before}{new_block}{after}"));
 }
+
+#[test]
+fn render_states_the_rust_format_rule_and_guide() {
+    let selection = Selection {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        language: Language::Rust,
+        layers: Default::default(),
+        roles: Default::default(),
+        extra_docs: Vec::new(),
+    };
+
+    let block = render(&selection, None);
+
+    assert!(block.contains("- Format with `cargo fmt`."), "{block}");
+    assert!(
+        block.contains("- Read [the Rust guide](docs/stomme/languages/rust/guide.md)."),
+        "{block}"
+    );
+}
+
+#[test]
+fn render_states_the_typescript_format_rule_and_guide() {
+    let selection = Selection {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        language: Language::TypeScript,
+        layers: Default::default(),
+        roles: Default::default(),
+        extra_docs: Vec::new(),
+    };
+
+    let block = render(&selection, None);
+
+    assert!(
+        block.contains("- Format with the `format` script in `package.json`."),
+        "{block}"
+    );
+    assert!(
+        block.contains("- Read [the TypeScript guide](docs/stomme/languages/typescript/guide.md)."),
+        "{block}"
+    );
+}
