@@ -3,9 +3,10 @@ use std::path::Path;
 
 use anyhow::Context as _;
 
-use super::{join_member_path, segments};
+use super::segments;
 use crate::check::Problem;
 use crate::check::cargo_manifest::{ROOT_MANIFEST, config_problem};
+use crate::check::source_files::join;
 
 pub(super) fn expand(root: &Path, pattern: &str) -> anyhow::Result<Result<Vec<String>, Problem>> {
     let segments = segments(pattern);
@@ -31,10 +32,7 @@ pub(super) fn expand(root: &Path, pattern: &str) -> anyhow::Result<Result<Vec<St
 
             paths = matched;
         } else {
-            paths = paths
-                .iter()
-                .map(|parent| join_member_path(parent, segment))
-                .collect();
+            paths = paths.iter().map(|parent| join(parent, segment)).collect();
         }
     }
 
@@ -64,7 +62,7 @@ fn matching_folders(root: &Path, parent: &str, pattern: &str) -> anyhow::Result<
         };
 
         if entry.path().is_dir() && matches_segment(pattern, name) {
-            matched.push(join_member_path(parent, name));
+            matched.push(join(parent, name));
         }
     }
 
