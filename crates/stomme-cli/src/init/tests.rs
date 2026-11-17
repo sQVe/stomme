@@ -773,3 +773,129 @@ fn plan_copies_the_shared_lints_unchanged() {
 
     assert_eq!(manifest["workspace"]["lints"], shared["workspace"]["lints"]);
 }
+
+fn typescript_plan(layers: &[&str]) -> plan::InitPlan {
+    let request = request(Language::TypeScript, layers, &[]);
+    let sources = assets::sources(&request).unwrap();
+
+    planned(&request, &sources)
+}
+
+fn parsed_json(plan: &plan::InitPlan, path: &str) -> serde_json::Value {
+    serde_json::from_str(&plan.files[path])
+        .unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
+}
+
+#[test]
+fn plan_writes_the_typescript_base() {
+    let plan = typescript_plan(&[]);
+
+    for path in [
+        "package.json",
+        "tsconfig.json",
+        "vite.config.ts",
+        "mise.toml",
+        "src/main.ts",
+        "src/main.test.ts",
+        ".pi/tau.json",
+        ".github/workflows/ci.yml",
+        "docs/development.md",
+        ".gitignore",
+    ] {
+        assert!(plan.files.contains_key(path), "missing {path}");
+    }
+
+    let manifest = parsed_json(&plan, "package.json");
+
+    assert_eq!(manifest["name"], "demo");
+    assert!(plan.files["tsconfig.json"].contains("mods/**/*.ts"));
+    assert_eq!(manifest["scripts"]["style:check"], "stomme-ts-style");
+    assert_eq!(manifest["scripts"]["typecheck"], "tsc --noEmit");
+    assert!(
+        manifest["scripts"]["check"]
+            .as_str()
+            .unwrap()
+            .ends_with("&& stomme check")
+    );
+    assert!(plan.files["mise.toml"].contains(&format!("\"github:sQVe/stomme\" = \"{VERSION}\"")));
+}
+
+#[test]
+fn run_pins_the_style_package() {
+    let root = empty_folder();
+    let request = request(Language::TypeScript, &[], &[]);
+
+    run(root.path(), layer::catalog(), &request).expect("init succeeds");
+
+    let text = fs::read_to_string(root.path().join("package.json")).expect("read package.json");
+    let manifest: serde_json::Value = serde_json::from_str(&text).expect("package.json is JSON");
+    let package = "@sqve/stomme-ts-style";
+
+    assert_eq!(
+        manifest["devDependencies"][package].as_str(),
+        Some(crate::packages::pins()[package].as_str())
+    );
+}
+
+#[test]
+fn plan_merges_the_layer_package_fields() {
+    let plan = typescript_plan(&["react", "pi", "herdr"]);
+    let manifest = parsed_json(&plan, "package.json");
+
+    for package in ["react", "react-dom", "@types/react", "@types/react-dom"] {
+        assert!(
+            manifest["devDependencies"][package].is_string(),
+            "missing {package}"
+        );
+    }
+
+    assert_eq!(manifest["pi"]["extensions"][0], "./src/piExtension.ts");
+    assert_eq!(manifest["main"], "main.js");
+    assert_eq!(
+        manifest["scripts"]["build"],
+        "bun build mods/demo/main.ts --outfile mods/demo/main.js"
+    );
+    assert!(manifest["scripts"]["check"].is_string());
+
+    let tools = &parsed(&plan, "mise.toml")["tools"];
+
+    assert!(tools["bun"].is_str());
+    assert!(tools["node"].is_str());
+}
+
+#[test]
+fn plan_rejects_a_typescript_role() {
+    let root = empty_folder();
+    let request = request(Language::TypeScript, &[], &["core"]);
+
+    let error = run(root.path(), layer::catalog(), &request).expect_err("the role is unknown");
+
+    assert!(
+        matches!(
+            &error,
+            InitError::UnknownRole { role, language }
+                if role == "core" && *language == Language::TypeScript
+        ),
+        "{error:?}"
+    );
+    assert_eq!(entries(root.path()), Vec::<String>::new());
+}
+
+#[test]
+fn plan_keeps_the_layer_files_apart() {
+    let plan = typescript_plan(&["react", "pi", "herdr"]);
+
+    for path in [
+        "src/App.tsx",
+        "src/piExtension.ts",
+        "src/piExtension.test.ts",
+        "mods/demo/main.ts",
+        "mods/demo/main.test.ts",
+        "mods/demo/mod.json",
+    ] {
+        assert!(plan.files.contains_key(path), "missing {path}");
+    }
+
+    assert!(plan.files["src/App.tsx"].contains("Hello from demo."));
+    assert!(plan.files["src/main.ts"].contains("greet"));
+}

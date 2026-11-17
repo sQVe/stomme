@@ -1,0 +1,4 @@
+[tools]
+"github:sQVe/stomme" = "{{version}}"
+node = "24"
+pnpm = "12.3.4"

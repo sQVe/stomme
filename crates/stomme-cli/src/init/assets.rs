@@ -120,8 +120,60 @@ static RUST: Source = Source {
 
 static TYPESCRIPT: Source = Source {
     owner: "typescript",
-    files: &[],
-    merges: &[],
+    files: &[
+        (
+            ".github/workflows/ci.yml",
+            include_str!(
+                "../../../../foundation/languages/typescript/skeleton/files/.github/workflows/ci.yml"
+            ),
+        ),
+        (
+            ".gitignore",
+            include_str!("../../../../foundation/languages/typescript/skeleton/files/.gitignore"),
+        ),
+        (
+            ".pi/tau.json",
+            include_str!("../../../../foundation/languages/typescript/skeleton/files/.pi/tau.json"),
+        ),
+        (
+            "docs/development.md",
+            include_str!(
+                "../../../../foundation/languages/typescript/skeleton/files/docs/development.md"
+            ),
+        ),
+        (
+            "src/main.test.ts",
+            include_str!(
+                "../../../../foundation/languages/typescript/skeleton/files/src/main.test.ts"
+            ),
+        ),
+        (
+            "src/main.ts",
+            include_str!("../../../../foundation/languages/typescript/skeleton/files/src/main.ts"),
+        ),
+        (
+            "tsconfig.json",
+            include_str!(
+                "../../../../foundation/languages/typescript/skeleton/files/tsconfig.json"
+            ),
+        ),
+        (
+            "vite.config.ts",
+            include_str!(
+                "../../../../foundation/languages/typescript/skeleton/files/vite.config.ts"
+            ),
+        ),
+    ],
+    merges: &[
+        (
+            "mise.toml",
+            include_str!("../../../../foundation/languages/typescript/skeleton/merge/mise.toml"),
+        ),
+        (
+            "package.json",
+            include_str!("../../../../foundation/languages/typescript/skeleton/merge/package.json"),
+        ),
+    ],
 };
 
 static GPUI: Source = Source {
@@ -141,20 +193,66 @@ static GPUI_COMPONENT: Source = Source {
 
 static HERDR: Source = Source {
     owner: "herdr",
-    files: &[],
-    merges: &[],
+    files: &[
+        (
+            "mods/{{name}}/main.test.ts",
+            include_str!(
+                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/main.test.ts"
+            ),
+        ),
+        (
+            "mods/{{name}}/main.ts",
+            include_str!(
+                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/main.ts"
+            ),
+        ),
+        (
+            "mods/{{name}}/mod.json",
+            include_str!(
+                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/mod.json"
+            ),
+        ),
+    ],
+    merges: &[
+        (
+            "mise.toml",
+            include_str!("../../../../foundation/layers/herdr/skeleton/merge/mise.toml"),
+        ),
+        (
+            "package.json",
+            include_str!("../../../../foundation/layers/herdr/skeleton/merge/package.json"),
+        ),
+    ],
 };
 
 static PI: Source = Source {
     owner: "pi",
-    files: &[],
-    merges: &[],
+    files: &[
+        (
+            "src/piExtension.test.ts",
+            include_str!("../../../../foundation/layers/pi/skeleton/files/src/piExtension.test.ts"),
+        ),
+        (
+            "src/piExtension.ts",
+            include_str!("../../../../foundation/layers/pi/skeleton/files/src/piExtension.ts"),
+        ),
+    ],
+    merges: &[(
+        "package.json",
+        include_str!("../../../../foundation/layers/pi/skeleton/merge/package.json"),
+    )],
 };
 
 static REACT: Source = Source {
     owner: "react",
-    files: &[],
-    merges: &[],
+    files: &[(
+        "src/App.tsx",
+        include_str!("../../../../foundation/layers/react/skeleton/files/src/App.tsx"),
+    )],
+    merges: &[(
+        "package.json",
+        include_str!("../../../../foundation/layers/react/skeleton/merge/package.json"),
+    )],
 };
 
 static RUST_CORE: Source = Source {
