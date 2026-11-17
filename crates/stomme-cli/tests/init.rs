@@ -51,6 +51,23 @@ const SELECTIONS: [Selection; 6] = [
     },
 ];
 
+fn project_root() -> TempDir {
+    let base = env::temp_dir();
+    let inside_workspace = base
+        .ancestors()
+        .any(|folder| folder.join("pnpm-workspace.yaml").is_file());
+    let root = if inside_workspace {
+        PathBuf::from("/tmp")
+    } else {
+        base
+    };
+
+    tempfile::Builder::new()
+        .prefix("stomme-init-")
+        .tempdir_in(root)
+        .expect("create a project folder outside any pnpm workspace")
+}
+
 fn stomme_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_stomme"))
 }
@@ -96,7 +113,7 @@ fn selection_named(name: &str) -> &'static Selection {
 }
 
 fn initialized(name: &str) -> TempDir {
-    let root = tempfile::tempdir().expect("create a project folder");
+    let root = project_root();
 
     init_selection(root.path(), selection_named(name));
 
@@ -191,7 +208,7 @@ fn package_json(root: &Path) -> serde_json::Value {
 }
 
 fn assert_init_refuses_with_an_empty_folder(arguments: &[&str], named: &[&str]) {
-    let root = tempfile::tempdir().expect("create a project folder");
+    let root = project_root();
 
     let output = init(root.path(), arguments);
     let message = stderr_text(&output);
@@ -206,7 +223,7 @@ fn assert_init_refuses_with_an_empty_folder(arguments: &[&str], named: &[&str]) 
 #[test]
 fn init_runs_the_full_check_for_every_selection() {
     for selection in &SELECTIONS {
-        let root = tempfile::tempdir().expect("create a project folder");
+        let root = project_root();
 
         init_selection(root.path(), selection);
 
@@ -268,7 +285,7 @@ fn init_fails_before_writing_for_an_unknown_role() {
 
 #[test]
 fn init_refuses_a_folder_that_is_not_empty() {
-    let root = tempfile::tempdir().expect("create a project folder");
+    let root = project_root();
 
     fs::write(root.path().join("notes.txt"), "keep\n").expect("write a file");
 
@@ -280,7 +297,7 @@ fn init_refuses_a_folder_that_is_not_empty() {
 
 #[test]
 fn init_accepts_a_folder_with_only_git() {
-    let root = tempfile::tempdir().expect("create a project folder");
+    let root = project_root();
 
     fs::create_dir(root.path().join(".git")).expect("create .git");
 
