@@ -43,10 +43,10 @@ resolve without a rewrite.
 ### Record
 
 `.sync-record.toml` is public API, and a consumer may read it. It holds `schema`, the record
-format's version; `version`, the stomme release; an optional `agents` hash for the managed block;
-and `[files]`, a SHA-256 for each bundled file. A file's key is its path from the synced root, so a
-project and a bundle use one shape. A consumer record holds only the files it bundles, so it may
-omit `agents`.
+format's version, whose current value is `1`; `version`, the stomme release; an optional `agents`
+hash for the managed block; and `[files]`, a SHA-256 for each bundled file. A file's key is its path
+from the synced root, so a project and a bundle use one shape. A consumer record holds only the
+files it bundles, so it may omit `agents`.
 
 ### Fallback
 
