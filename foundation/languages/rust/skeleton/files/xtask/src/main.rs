@@ -7,7 +7,6 @@ struct Step {
     arguments: &'static [&'static str],
 }
 
-// Clippy runs before stomme so that `Cargo.lock` exists when `stomme check` reads it.
 const STEPS: &[Step] = &[
     Step {
         name: "rustfmt",
