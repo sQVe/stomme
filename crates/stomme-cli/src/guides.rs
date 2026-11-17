@@ -54,7 +54,20 @@ pub(crate) fn run(directory: &Path, catalog: &Catalog) -> Result<(), GuidesError
     };
     let text = toml::to_string(&record).expect("the bundle record serializes");
 
-    sync::write_file(directory, BUNDLE_RECORD, &text)?;
+    write_record(directory, &text)?;
+
+    Ok(())
+}
+
+fn write_record(directory: &Path, text: &str) -> Result<(), GuidesError> {
+    let path = directory.join(BUNDLE_RECORD);
+    let unchanged = fs::read(&path).is_ok_and(|bytes| bytes == text.as_bytes());
+
+    if unchanged {
+        return Ok(());
+    }
+
+    sync::write_file(directory, BUNDLE_RECORD, text)?;
 
     Ok(())
 }
@@ -87,13 +100,14 @@ fn plan(
         sync::check_parent_folders(directory, key)?;
 
         match existing(directory, key)? {
-            Some(bytes) if bytes == file.content.as_bytes() => {}
             Some(bytes) => {
                 let actual = sync::hash(&bytes);
 
                 match record.and_then(|record| record.files.get(key)) {
                     Some(recorded) if recorded == &actual => {
-                        writes.push((key.to_string(), file.content.to_string()));
+                        if bytes != file.content.as_bytes() {
+                            writes.push((key.to_string(), file.content.to_string()));
+                        }
                     }
                     Some(_) => {
                         return Err(GuidesError::Edited {
@@ -124,22 +138,32 @@ fn plan_deletes(
     let Some(record) = record else {
         return Ok(Vec::new());
     };
-    let mut deletes = Vec::new();
+    let mut candidates = Vec::new();
 
-    for (key, recorded) in &record.files {
+    for key in record.files.keys() {
         if hashes.contains_key(key) {
             continue;
         }
 
+        sync::check_parent_folders(directory, key)?;
+        candidates.push(key);
+    }
+
+    let mut deletes = Vec::new();
+
+    for key in candidates {
         let Some(bytes) = existing(directory, key)? else {
             continue;
         };
+        let recorded = &record.files[key];
 
         if sync::hash(&bytes) != *recorded {
-            return Err(GuidesError::Edited { path: key.clone() });
+            return Err(GuidesError::Edited {
+                path: key.to_string(),
+            });
         }
 
-        deletes.push(key.clone());
+        deletes.push(key.to_string());
     }
 
     Ok(deletes)
