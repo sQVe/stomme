@@ -594,3 +594,77 @@ fn every_catalog_layer_has_a_starter_table() {
         assert!(assets::layer(name).is_some(), "{name}");
     }
 }
+
+fn common_plan() -> plan::InitPlan {
+    let request = request(Language::Rust, &[], &[]);
+
+    planned(&request, &[assets::sources(&request).unwrap()[0]])
+}
+
+#[test]
+fn plan_writes_the_common_files() {
+    let plan = common_plan();
+
+    for path in [
+        "LICENSE",
+        "AGENTS.md",
+        "docs/README.md",
+        "docs/adr/README.md",
+        "docs/adr/TEMPLATE.md",
+        "renovate.json",
+        ".github/workflows/sync-update.yml",
+    ] {
+        assert!(plan.files.contains_key(path), "missing {path}");
+    }
+}
+
+#[test]
+fn plan_pins_the_sync_workflow_to_the_crate_version() {
+    let plan = common_plan();
+    let workflow = &plan.files[".github/workflows/sync-update.yml"];
+
+    assert!(workflow.contains(&format!("sync-update.yml@v{VERSION}")));
+    assert!(!workflow.contains("{{version}}"));
+}
+
+#[test]
+fn plan_substitutes_the_project_name() {
+    let plan = common_plan();
+
+    for path in ["LICENSE", "AGENTS.md"] {
+        assert!(plan.files[path].contains("demo"), "{path} lacks the name");
+        assert!(
+            !plan.files[path].contains("{{name}}"),
+            "{path} keeps a placeholder"
+        );
+    }
+
+    for (path, text) in &plan.files {
+        let without_expressions = text.replace("${{", "");
+
+        assert!(
+            !without_expressions.contains("{{"),
+            "{path} keeps a placeholder"
+        );
+    }
+}
+
+#[test]
+fn plan_writes_every_common_required_part() {
+    let plan = common_plan();
+
+    for path in [
+        "docs/README.md",
+        "docs/adr/README.md",
+        "docs/adr/TEMPLATE.md",
+        "AGENTS.md",
+        "renovate.json",
+        "LICENSE",
+    ] {
+        assert!(plan.files.contains_key(path), "missing {path}");
+    }
+
+    for path in ["docs/development.md", ".pi/tau.json"] {
+        assert!(!plan.files.contains_key(path), "common owns {path}");
+    }
+}

@@ -9,7 +9,38 @@ pub(crate) struct Source {
 
 static COMMON: Source = Source {
     owner: "common",
-    files: &[],
+    files: &[
+        (
+            "LICENSE",
+            include_str!("../../../../foundation/common/skeleton/files/LICENSE"),
+        ),
+        (
+            "AGENTS.md",
+            include_str!("../../../../foundation/common/skeleton/files/AGENTS.md"),
+        ),
+        (
+            "docs/README.md",
+            include_str!("../../../../foundation/common/skeleton/files/docs/README.md"),
+        ),
+        (
+            "docs/adr/README.md",
+            include_str!("../../../../foundation/common/skeleton/files/docs/adr/README.md"),
+        ),
+        (
+            "docs/adr/TEMPLATE.md",
+            include_str!("../../../../foundation/common/skeleton/files/docs/adr/TEMPLATE.md"),
+        ),
+        (
+            "renovate.json",
+            include_str!("../../../../foundation/common/skeleton/files/renovate.json"),
+        ),
+        (
+            ".github/workflows/sync-update.yml",
+            include_str!(
+                "../../../../foundation/common/skeleton/files/.github/workflows/sync-update.yml"
+            ),
+        ),
+    ],
     merges: &[],
 };
 
