@@ -269,3 +269,15 @@ fn plan_includes_the_catalogue_starter_for_a_selected_layer() {
     let manifest = parsed_json(&plan, "package.json");
     assert!(manifest["devDependencies"]["react"].is_string());
 }
+
+#[test]
+fn selected_layer_source_keeps_the_catalogue_name_as_owner() {
+    let request = request(Language::TypeScript, &["react"], &[]);
+
+    let sources = super::sources(&request, layer::catalog()).expect("the sources resolve");
+
+    assert_eq!(
+        sources.last().expect("the layer adds a source").owner,
+        "react"
+    );
+}
