@@ -32,6 +32,9 @@
   directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
   on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
+- `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
+  candidate `stomme` binary against one project as its update would, and exits 1 only when an
+  adopted project fails.
 - `packages/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
 - `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
   `stomme.toml`.
@@ -136,9 +139,35 @@ is upgraded.
 
 For changes under `packages/style/src`, add a Changeset from the repository root with
 `pnpm changeset`. Select `@sqve/stomme-ts-style`, choose the version bump, and describe the change.
-Commit the generated file with the code. The Changeset workflow checks that source changes have
-one with `pnpm changeset:check`.
+Commit the generated file with the code. The Changeset workflow checks that source changes have one
+with `pnpm changeset:check`.
 
-The release workflow uses Changesets on `main`. It opens a version pull request with
+The Package release workflow uses Changesets on `main`. It opens a version pull request with
 `pnpm changeset:version`. Merging that pull request runs `pnpm run release`, which checks the
 package before publishing. Do not publish from your local checkout.
+
+## Binary releases
+
+A `v<version>` tag builds `stomme` with cargo-dist and publishes a GitHub Release. `CHANGELOG.md`
+holds the release notes, and `packages.toml` records the npm package versions compatible with that
+binary.
+
+The release runs the gate jobs in `.github/workflows/release-gate.yml` before hosting. They run the
+candidate binary against every adopted project's `main` and against `release/consumer/`. An adopted
+project that fails stops the host job, so the GitHub Release is created only when every gate job
+passes. A project without `stomme.toml` is reported without blocking the release.
+
+Install a published binary with mise:
+
+```sh
+mise use -g github:sQVe/stomme
+```
+
+Or install through cargo-binstall:
+
+```sh
+cargo binstall --git https://github.com/sQVe/stomme stomme
+```
+
+Do not create a tag, publish a release, or publish a package from your local checkout without
+approval.

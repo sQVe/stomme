@@ -229,6 +229,7 @@ fn prepare_fixture(source: &Path) -> tempfile::TempDir {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
     copy_tree(source, root.path());
+    rewrite_fixture_version(root.path());
 
     if root.path().join(".sync").is_file() {
         crate::sync::run(root.path(), layer::catalog()).expect("sync the fixture");
@@ -240,6 +241,66 @@ fn prepare_fixture(source: &Path) -> tempfile::TempDir {
     }
 
     root
+}
+
+fn rewrite_fixture_version(root: &Path) {
+    let config = root.join("stomme.toml");
+
+    if !config.is_file() {
+        return;
+    }
+
+    let text = fs::read_to_string(&config).expect("read the fixture config");
+    let rewritten = crate::test_support::with_crate_version(&text);
+
+    if rewritten != text {
+        fs::write(&config, rewritten).expect("write the fixture config");
+    }
+}
+
+#[test]
+fn prepare_fixture_rewrites_the_root_config_version_once() {
+    let source = tempfile::tempdir().expect("create a fixture folder");
+    let nested = source.path().join("nested");
+
+    fs::create_dir(&nested).expect("create the nested fixture folder");
+    fs::write(
+        source.path().join("stomme.toml"),
+        "version = \"0.0.0\"\n\n[table]\nversion = \"0.0.0\"\n",
+    )
+    .expect("write the fixture config");
+    fs::write(nested.join("stomme.toml"), "version = \"0.0.0\"\n")
+        .expect("write the nested fixture config");
+
+    let root = prepare_fixture(source.path());
+    let config =
+        fs::read_to_string(root.path().join("stomme.toml")).expect("read the fixture config");
+    let nested_config = fs::read_to_string(root.path().join("nested/stomme.toml"))
+        .expect("read the nested fixture config");
+
+    assert_eq!(
+        config,
+        format!(
+            "version = \"{}\"\n\n[table]\nversion = \"0.0.0\"\n",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+    assert_eq!(nested_config, "version = \"0.0.0\"\n");
+}
+
+#[test]
+fn prepare_fixture_leaves_a_fixture_without_a_root_config_alone() {
+    let source = tempfile::tempdir().expect("create a fixture folder");
+
+    fs::write(source.path().join("README.md"), "fixture\n").expect("write the fixture file");
+
+    let root = prepare_fixture(source.path());
+
+    assert_eq!(
+        fs::read_to_string(root.path().join("README.md")).expect("read the fixture file"),
+        "fixture\n"
+    );
+    assert!(!root.path().join("stomme.toml").exists());
 }
 
 fn apply_after_sync(root: &Path) {

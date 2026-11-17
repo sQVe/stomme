@@ -1,5 +1,7 @@
+import { packageVersion } from './packageVersion.ts';
+
 export const tauModuleConfig = `schema = 1
-version = "0.0.0"
+version = "${packageVersion}"
 language = "typescript"
 
 [modules.checkRecord]

@@ -50,9 +50,10 @@ the two versions equal. Tau loads coding guides from
 the project's synced text and uses its bundled guides only when stomme is absent, not broken.
 
 `sync` writes only the owned set for the project's version, language, and layers. It also writes the
-managed `AGENTS.md` block and leaves the text outside its markers alone. It validates every relative
-link in that set before writing, refuses a file whose bytes match neither the record nor the new
-content, and writes the record last.
+managed `AGENTS.md` block and leaves the text outside its markers alone. It sets every stomme npm
+package the project already declares in `package.json` to the version recorded for the release, and
+never adds a package. It validates every relative link in that set before writing, refuses a file
+whose bytes match neither the record nor the new content, and writes the record last.
 
 Checks reject changed synced text, missing required files, invalid ADR indexes, broken layout or
 imports, and dependency version drift. Existing projects may record violations by path and rule,
@@ -63,8 +64,9 @@ checks. Each row names the rule's ID, owner, and status. Each enforced rule has 
 failing fixture. A local check is removed only after stomme passes its fixtures; rules not enforced
 remain explicitly identified as such.
 
-Renovate groups version pins into one update. A workflow syncs shared files on that branch and
-runs CI on the final commit. Sync must be idempotent and stop on a push conflict.
+Renovate updates the `stomme.toml` version, the binary pin, and the sync workflow reference in one
+update, and leaves the stomme npm packages alone. The sync workflow then writes synced files and
+package pins, and runs CI on the final commit. Sync must be idempotent and stop on a push conflict.
 
 stomme follows its own rules. Project adoption and enforcement are separate work from the initial
 repository setup.

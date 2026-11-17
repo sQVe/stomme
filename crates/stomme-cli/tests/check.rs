@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 #[path = "../src/test_support.rs"]
 mod test_support;
 
-use test_support::{commit, complete_project, copy_tree, git, write_file};
+use test_support::{commit, complete_project, copy_tree, git, with_crate_version, write_file};
 
 fn sync_project(root: &Path) {
     let output = stomme(root, &["sync"]);
@@ -421,6 +421,11 @@ fn adoption_project(name: &str) -> tempfile::TempDir {
         .join(name);
 
     copy_tree(&source, root.path());
+
+    let config = root.path().join("stomme.toml");
+    let text = fs::read_to_string(&config).expect("read the fixture config");
+
+    fs::write(&config, with_crate_version(&text)).expect("write the fixture config");
     sync_project(root.path());
 
     root

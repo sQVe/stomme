@@ -52,6 +52,10 @@ the commit in its row.
 - [0010: Ship built JavaScript](./0010-built-javascript.md)
 - [0011: Exact tool pins and dependency kinds](./0011-exact-pins.md)
 
+### Releases
+
+- [0012: Release the binary through GitHub Releases](./0012-release-train.md)
+
 ## Retired
 
 | ADR | Title | Replaced by | Last commit |

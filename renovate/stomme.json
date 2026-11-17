@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^stomme\\.toml$/"],
+      "matchStrings": [
+        "^(?:[^\\[\\n]*\\n)*?[ \\t]*version[ \\t]*=[ \\t]*\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "sQVe/stomme",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github\\/workflows\\/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "sQVe/stomme/\\.github/workflows/sync-update\\.yml@v(?<currentValue>[0-9][^\\s\"']*)"
+      ],
+      "depNameTemplate": "sQVe/stomme",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "autoReplaceStringTemplate": "sQVe/stomme/.github/workflows/sync-update.yml@v{{newValue}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["sQVe/stomme"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["sQVe/stomme"],
+      "groupName": "stomme",
+      "groupSlug": "stomme",
+      "groupSingleUpdates": true,
+      "separateMajorMinor": false
+    },
+    {
+      "matchPackageNames": [
+        "@sqve/stomme-ts-style",
+        "@sqve/stomme-ts-imports",
+        "@sqve/mutation"
+      ],
+      "enabled": false
+    }
+  ]
+}

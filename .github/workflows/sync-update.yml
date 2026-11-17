@@ -1,0 +1,113 @@
+name: Sync stomme update
+
+on:
+  workflow_call:
+    secrets:
+      app-id:
+        required: true
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: token
+        with:
+          app-id: ${{ secrets['app-id'] }}
+          private-key: ${{ secrets['app-private-key'] }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          token: ${{ steps.token.outputs.token }}
+      - name: Check the update branch
+        id: check
+        env:
+          BRANCH: ${{ github.ref_name }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          if [ "$BRANCH" != "renovate/stomme" ]; then
+            echo "::notice::Not the renovate/stomme branch; nothing to sync."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tip=$(git rev-parse HEAD)
+          if [ "$tip" != "$EXPECTED_SHA" ]; then
+            echo "::notice::The branch moved past the triggering commit; nothing to sync."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          author=$(git log -1 --format=%ae)
+          if [ "$author" != "29139614+renovate[bot]@users.noreply.github.com" ]; then
+            echo "::notice::The tip was not authored by Renovate; nothing to sync."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+        if: steps.check.outputs.run == 'true'
+      - name: Sync stomme files
+        if: steps.check.outputs.run == 'true'
+        run: stomme sync
+      - name: Detect the lockfile
+        id: lockfile
+        if: steps.check.outputs.run == 'true'
+        run: |
+          if git diff --quiet -- package.json; then
+            echo "kind=none" >> "$GITHUB_OUTPUT"
+          elif [ -f pnpm-lock.yaml ] && [ -f bun.lock ]; then
+            echo "found both pnpm-lock.yaml and bun.lock; keep one" >&2
+            exit 1
+          elif [ -f pnpm-lock.yaml ]; then
+            echo "kind=pnpm" >> "$GITHUB_OUTPUT"
+          elif [ -f bun.lock ]; then
+            echo "kind=bun" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=none" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.lockfile.outputs.kind == 'pnpm'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.lockfile.outputs.kind == 'pnpm'
+        with:
+          node-version: 24
+      - name: Refresh the pnpm lockfile
+        if: steps.lockfile.outputs.kind == 'pnpm'
+        run: pnpm install --lockfile-only
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.lockfile.outputs.kind == 'bun'
+        with:
+          bun-version: 1.4.2
+      - name: Refresh the Bun lockfile
+        if: steps.lockfile.outputs.kind == 'bun'
+        run: bun install --lockfile-only
+      - name: Commit and push
+        if: steps.check.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          APP_SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          user_id=$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "chore: sync stomme files"
+          if output=$(git push origin HEAD:renovate/stomme 2>&1); then
+            exit 0
+          fi
+          if printf '%s' "$output" | grep -qE 'non-fast-forward|fetch first'; then
+            echo "push conflict on renovate/stomme; the branch moved, so nothing was pushed" >&2
+          else
+            printf '%s\n' "$output" >&2
+          fi
+          exit 1
