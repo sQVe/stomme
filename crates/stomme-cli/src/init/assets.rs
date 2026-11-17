@@ -46,8 +46,76 @@ static COMMON: Source = Source {
 
 static RUST: Source = Source {
     owner: "rust",
-    files: &[],
-    merges: &[],
+    files: &[
+        (
+            ".cargo/config.toml",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/.cargo/config.toml"),
+        ),
+        (
+            ".github/workflows/ci.yml",
+            include_str!(
+                "../../../../foundation/languages/rust/skeleton/files/.github/workflows/ci.yml"
+            ),
+        ),
+        (
+            ".gitignore",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/.gitignore"),
+        ),
+        (
+            ".pi/tau.json",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/.pi/tau.json"),
+        ),
+        (
+            "crates/{{name}}/Cargo.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/skeleton/files/crates/{{name}}/Cargo.toml"
+            ),
+        ),
+        (
+            "crates/{{name}}/src/lib.rs",
+            include_str!(
+                "../../../../foundation/languages/rust/skeleton/files/crates/{{name}}/src/lib.rs"
+            ),
+        ),
+        (
+            "docs/development.md",
+            include_str!(
+                "../../../../foundation/languages/rust/skeleton/files/docs/development.md"
+            ),
+        ),
+        (
+            "mise.toml",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/mise.toml"),
+        ),
+        (
+            "rust-toolchain.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/skeleton/files/rust-toolchain.toml"
+            ),
+        ),
+        (
+            "rustfmt.toml",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/rustfmt.toml"),
+        ),
+        (
+            "xtask/Cargo.toml",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/xtask/Cargo.toml"),
+        ),
+        (
+            "xtask/src/main.rs",
+            include_str!("../../../../foundation/languages/rust/skeleton/files/xtask/src/main.rs"),
+        ),
+    ],
+    merges: &[
+        (
+            "Cargo.toml",
+            include_str!("../../../../foundation/languages/rust/skeleton/merge/Cargo.toml"),
+        ),
+        (
+            "clippy.toml",
+            include_str!("../../../../foundation/languages/rust/skeleton/merge/clippy.toml"),
+        ),
+    ],
 };
 
 static TYPESCRIPT: Source = Source {
@@ -59,7 +127,10 @@ static TYPESCRIPT: Source = Source {
 static GPUI: Source = Source {
     owner: "gpui",
     files: &[],
-    merges: &[],
+    merges: &[(
+        "clippy.toml",
+        include_str!("../../../../foundation/layers/gpui/skeleton/merge/clippy.toml"),
+    )],
 };
 
 static GPUI_COMPONENT: Source = Source {
@@ -88,31 +159,96 @@ static REACT: Source = Source {
 
 static RUST_CORE: Source = Source {
     owner: "role core",
-    files: &[],
+    files: &[
+        (
+            "crates/{{name}}-core/Cargo.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/core/skeleton/files/crates/{{name}}-core/Cargo.toml"
+            ),
+        ),
+        (
+            "crates/{{name}}-core/src/lib.rs",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/core/skeleton/files/crates/{{name}}-core/src/lib.rs"
+            ),
+        ),
+    ],
     merges: &[],
 };
 
 static RUST_UI: Source = Source {
     owner: "role ui",
-    files: &[],
+    files: &[
+        (
+            "crates/{{name}}-ui/Cargo.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/ui/skeleton/files/crates/{{name}}-ui/Cargo.toml"
+            ),
+        ),
+        (
+            "crates/{{name}}-ui/src/lib.rs",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/ui/skeleton/files/crates/{{name}}-ui/src/lib.rs"
+            ),
+        ),
+    ],
     merges: &[],
 };
 
 static RUST_KIT: Source = Source {
     owner: "role kit",
-    files: &[],
+    files: &[
+        (
+            "crates/{{name}}-kit/Cargo.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/kit/skeleton/files/crates/{{name}}-kit/Cargo.toml"
+            ),
+        ),
+        (
+            "crates/{{name}}-kit/src/lib.rs",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/kit/skeleton/files/crates/{{name}}-kit/src/lib.rs"
+            ),
+        ),
+    ],
     merges: &[],
 };
 
 static RUST_APP: Source = Source {
     owner: "role app",
-    files: &[],
+    files: &[
+        (
+            "crates/{{name}}-app/Cargo.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/app/skeleton/files/crates/{{name}}-app/Cargo.toml"
+            ),
+        ),
+        (
+            "crates/{{name}}-app/src/lib.rs",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/app/skeleton/files/crates/{{name}}-app/src/lib.rs"
+            ),
+        ),
+    ],
     merges: &[],
 };
 
 static RUST_CLI: Source = Source {
     owner: "role cli",
-    files: &[],
+    files: &[
+        (
+            "crates/{{name}}-cli/Cargo.toml",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/cli/skeleton/files/crates/{{name}}-cli/Cargo.toml"
+            ),
+        ),
+        (
+            "crates/{{name}}-cli/src/lib.rs",
+            include_str!(
+                "../../../../foundation/languages/rust/roles/cli/skeleton/files/crates/{{name}}-cli/src/lib.rs"
+            ),
+        ),
+    ],
     merges: &[],
 };
 

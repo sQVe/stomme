@@ -668,3 +668,108 @@ fn plan_writes_every_common_required_part() {
         assert!(!plan.files.contains_key(path), "common owns {path}");
     }
 }
+
+fn full_plan(layers: &[&str], roles: &[&str]) -> plan::InitPlan {
+    let request = request(Language::Rust, layers, roles);
+    let sources = assets::sources(&request).unwrap();
+
+    planned(&request, &sources)
+}
+
+fn parsed(plan: &plan::InitPlan, path: &str) -> toml::Table {
+    plan.files[path]
+        .parse::<toml::Table>()
+        .unwrap_or_else(|error| panic!("{path} is not TOML: {error}"))
+}
+
+#[test]
+fn plan_writes_the_rust_base() {
+    let plan = full_plan(&[], &[]);
+
+    for path in [
+        "Cargo.toml",
+        "xtask/Cargo.toml",
+        "xtask/src/main.rs",
+        "crates/demo/Cargo.toml",
+        "crates/demo/src/lib.rs",
+        "rust-toolchain.toml",
+        "rustfmt.toml",
+        "clippy.toml",
+        ".pi/tau.json",
+        ".github/workflows/ci.yml",
+        "mise.toml",
+        "docs/development.md",
+        ".gitignore",
+    ] {
+        assert!(plan.files.contains_key(path), "missing {path}");
+    }
+
+    let manifest = parsed(&plan, "Cargo.toml");
+    let members = manifest["workspace"]["members"].as_array().unwrap();
+
+    assert_eq!(members, &["crates/*", "xtask"].map(toml::Value::from));
+    assert_eq!(manifest["workspace"]["resolver"].as_str(), Some("3"));
+    assert!(plan.files["mise.toml"].contains(&format!("\"github:sQVe/stomme\" = \"{VERSION}\"")));
+}
+
+#[test]
+fn plan_writes_one_crate_per_role() {
+    let roles = ["core", "ui", "kit", "app", "cli"];
+    let plan = full_plan(&[], &roles);
+    let configuration = parsed(&plan, config::CONFIG_FILE);
+
+    for role in roles {
+        let path = format!("crates/demo-{role}/Cargo.toml");
+        let manifest = parsed(&plan, &path);
+
+        assert_eq!(
+            manifest["lints"]["workspace"].as_bool(),
+            Some(true),
+            "{path}"
+        );
+        assert_eq!(
+            manifest["package"]["name"].as_str(),
+            Some(format!("demo-{role}").as_str())
+        );
+        assert!(
+            plan.files
+                .contains_key(&format!("crates/demo-{role}/src/lib.rs"))
+        );
+        assert_eq!(
+            configuration["roles"][role].as_str(),
+            Some(format!("crates/demo-{role}").as_str())
+        );
+    }
+
+    assert_eq!(configuration["roles"].as_table().unwrap().len(), 5);
+}
+
+#[test]
+fn plan_merges_the_layer_bans() {
+    let base = full_plan(&[], &[]);
+    let with_gpui = full_plan(&["gpui"], &[]);
+    let with_component = full_plan(&["gpui", "gpui-component"], &[]);
+    let bans = parsed(&with_gpui, "clippy.toml");
+
+    assert_eq!(bans["disallowed-methods"].as_array().unwrap().len(), 0);
+    assert_eq!(bans, parsed(&base, "clippy.toml"));
+    assert_eq!(
+        with_gpui.files.keys().collect::<Vec<_>>(),
+        with_component.files.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        with_gpui.files["clippy.toml"],
+        with_component.files["clippy.toml"]
+    );
+}
+
+#[test]
+fn plan_copies_the_shared_lints_unchanged() {
+    let plan = full_plan(&[], &[]);
+    let manifest = parsed(&plan, "Cargo.toml");
+    let shared: toml::Table = include_str!("../../../../foundation/languages/rust/lints.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(manifest["workspace"]["lints"], shared["workspace"]["lints"]);
+}
