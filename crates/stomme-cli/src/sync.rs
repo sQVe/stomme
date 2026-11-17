@@ -22,13 +22,25 @@ mod record_state;
 pub(crate) use record_state::{RecordState, record_state};
 
 pub(crate) const RECORD_FILE: &str = "docs/stomme/.sync-record.toml";
+pub(crate) const RECORD_SCHEMA: i64 = 1;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Record {
+    pub(crate) schema: i64,
     pub(crate) version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) agents: Option<String>,
     #[serde(default)]
     pub(crate) files: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreviousRecord {
+    version: String,
+    #[serde(default)]
+    files: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Error)]
@@ -107,37 +119,133 @@ pub(crate) fn hash(bytes: &[u8]) -> String {
 
 impl Record {
     pub(crate) fn read(root: &Path) -> Result<Option<Self>, SyncError> {
-        let path = root.join(RECORD_FILE);
+        Self::read_file(&root.join(RECORD_FILE), RECORD_FILE)
+    }
 
-        match fs::symlink_metadata(&path) {
+    pub(crate) fn read_file(path: &Path, label: &str) -> Result<Option<Self>, SyncError> {
+        match fs::symlink_metadata(path) {
             Ok(metadata) if !metadata.is_file() => {
-                return Err(SyncError::MalformedRecord {
-                    path: RECORD_FILE.to_string(),
-                    reason: "is not a regular file".to_string(),
-                });
+                return Err(malformed(label, "is not a regular file".to_string()));
             }
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(source) => {
                 return Err(SyncError::Read {
-                    path: RECORD_FILE.to_string(),
+                    path: label.to_string(),
                     source,
                 });
             }
         }
 
-        let text = fs::read_to_string(&path).map_err(|source| SyncError::Read {
-            path: RECORD_FILE.to_string(),
+        let text = fs::read_to_string(path).map_err(|source| SyncError::Read {
+            path: label.to_string(),
             source,
         })?;
-        let record =
-            toml::from_str(&text).map_err(|error: toml::de::Error| SyncError::MalformedRecord {
-                path: RECORD_FILE.to_string(),
-                reason: error.message().to_string(),
-            })?;
+        let value: toml::Value = toml::from_str(&text)
+            .map_err(|error: toml::de::Error| malformed(label, error.message().to_string()))?;
+        let record = if value.get("schema").is_some() {
+            let record: Record = toml::from_str(&text)
+                .map_err(|error: toml::de::Error| malformed(label, error.message().to_string()))?;
+
+            if record.schema != RECORD_SCHEMA {
+                return Err(malformed(
+                    label,
+                    format!(
+                        "records schema {}; this stomme reads schema {RECORD_SCHEMA}",
+                        record.schema
+                    ),
+                ));
+            }
+
+            record
+        } else {
+            let previous: PreviousRecord = toml::from_str(&text)
+                .map_err(|error: toml::de::Error| malformed(label, error.message().to_string()))?;
+
+            previous.into_current(label)?
+        };
+
+        record.validate(label)?;
 
         Ok(Some(record))
     }
+
+    pub(crate) fn validate(&self, label: &str) -> Result<(), SyncError> {
+        for path in self.files.keys() {
+            if !valid_key(path) {
+                return Err(malformed(
+                    label,
+                    format!("names `{path}`, which is not a synced file"),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl PreviousRecord {
+    fn into_current(self, label: &str) -> Result<Record, SyncError> {
+        let mut files = BTreeMap::new();
+        let mut agents = None;
+
+        for (path, digest) in self.files {
+            if path == agents_block::PATH {
+                agents = Some(digest);
+                continue;
+            }
+
+            let Some(key) = record_key(&path) else {
+                return Err(malformed(
+                    label,
+                    format!("names `{path}`, which is not a synced file"),
+                ));
+            };
+
+            if !valid_key(key) {
+                return Err(malformed(
+                    label,
+                    format!("names `{path}`, which is not a synced file"),
+                ));
+            }
+
+            files.insert(key.to_string(), digest);
+        }
+
+        Ok(Record {
+            schema: RECORD_SCHEMA,
+            version: self.version,
+            agents,
+            files,
+        })
+    }
+}
+
+fn malformed(path: &str, reason: String) -> SyncError {
+    SyncError::MalformedRecord {
+        path: path.to_string(),
+        reason,
+    }
+}
+
+pub(crate) fn record_key(project_path: &str) -> Option<&str> {
+    let rest = project_path.strip_prefix(DOCS_FOLDER)?;
+
+    rest.strip_prefix('/')
+}
+
+pub(crate) fn project_path(key: &str) -> String {
+    format!("{DOCS_FOLDER}/{key}")
+}
+
+fn valid_key(key: &str) -> bool {
+    let reserved = key == ".sync-record.toml" || key == agents_block::PATH;
+    let clean = !key.starts_with('/')
+        && !key
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..");
+
+    !reserved && clean
 }
 
 fn sync(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<(), SyncError> {
@@ -153,17 +261,23 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
 
     let record = Record::read(root)?;
 
-    if let Some(record) = &record {
-        validate_record(record)?;
-    }
-
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
-    let recorded_paths: BTreeSet<&str> = record
+    let owned_keys: BTreeSet<&str> = owned
+        .iter()
+        .filter_map(|file| record_key(&file.path))
+        .collect();
+    let recorded_keys: BTreeSet<&str> = record
         .as_ref()
         .map(|record| record.files.keys().map(String::as_str).collect())
         .unwrap_or_default();
+    let recorded_paths: BTreeSet<String> =
+        recorded_keys.iter().map(|key| project_path(key)).collect();
 
-    for path in owned_paths.iter().chain(&recorded_paths) {
+    for path in owned_paths
+        .iter()
+        .copied()
+        .chain(recorded_paths.iter().map(String::as_str))
+    {
         check_parent_folders(root, path)?;
         check_regular_file(root, path)?;
     }
@@ -172,24 +286,18 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
     check_regular_file(root, agents_block::PATH)?;
     check_extra_files(root, &owned_paths, &recorded_paths)?;
 
-    let (mut writes, mut files) = plan_writes(root, owned, record.as_ref())?;
-
-    plan_block(
-        root,
-        selection,
-        owned,
-        record.as_ref(),
-        &mut writes,
-        &mut files,
-    )?;
+    let (mut writes, files) = plan_writes(root, owned, record.as_ref())?;
+    let agents = plan_block(root, selection, owned, record.as_ref(), &mut writes)?;
 
     if let Some(write) = package_pins::plan(root)? {
         writes.push(write);
     }
 
-    let deletes = plan_deletes(root, record.as_ref(), &owned_paths)?;
+    let deletes = plan_deletes(root, record.as_ref(), &owned_keys)?;
     let record = Record {
+        schema: RECORD_SCHEMA,
         version: selection.version.clone(),
+        agents,
         files,
     };
 
@@ -206,10 +314,9 @@ fn plan_block(
     owned: &[OwnedFile],
     record: Option<&Record>,
     writes: &mut Vec<(String, String)>,
-    files: &mut BTreeMap<String, String>,
-) -> Result<(), SyncError> {
+) -> Result<Option<String>, SyncError> {
     let Some(existing) = read_existing(root, agents_block::PATH)? else {
-        return Ok(());
+        return Ok(None);
     };
     let existing = String::from_utf8(existing).map_err(|_| SyncError::NotText {
         path: agents_block::PATH.to_string(),
@@ -219,7 +326,7 @@ fn plan_block(
 
     validate_block_links(root, &block, owned)?;
 
-    files.insert(agents_block::PATH.to_string(), hash(block.as_bytes()));
+    let digest = hash(block.as_bytes());
 
     let Some(range) = agents_block::find(&existing)? else {
         writes.push((
@@ -227,18 +334,18 @@ fn plan_block(
             agents_block::replace(&existing, &block)?,
         ));
 
-        return Ok(());
+        return Ok(Some(digest));
     };
 
     let current = &existing[range];
 
     if current == block {
-        return Ok(());
+        return Ok(Some(digest));
     }
 
     let actual = hash(current.as_bytes());
 
-    if record_state(record, agents_block::PATH, &actual) != RecordState::Matches {
+    if record.and_then(|record| record.agents.as_deref()) != Some(actual.as_str()) {
         return Err(SyncError::Edited {
             path: agents_block::PATH.to_string(),
         });
@@ -249,7 +356,7 @@ fn plan_block(
         agents_block::replace(&existing, &block)?,
     ));
 
-    Ok(())
+    Ok(Some(digest))
 }
 
 fn validate_block_links(root: &Path, block: &str, owned: &[OwnedFile]) -> Result<(), SyncError> {
@@ -284,7 +391,9 @@ fn plan_writes(
     let mut files = BTreeMap::new();
 
     for file in owned {
-        files.insert(file.path.clone(), hash(file.content.as_bytes()));
+        let key = record_key(&file.path).expect("an owned path is under docs/stomme");
+
+        files.insert(key.to_string(), hash(file.content.as_bytes()));
 
         let Some(existing) = read_existing(root, &file.path)? else {
             writes.push((file.path.clone(), file.content.to_string()));
@@ -297,7 +406,7 @@ fn plan_writes(
 
         let actual = hash(&existing);
 
-        if record_state(record, &file.path, &actual) != RecordState::Matches {
+        if record_state(record, key, &actual) != RecordState::Matches {
             return Err(SyncError::Edited {
                 path: file.path.clone(),
             });
@@ -312,29 +421,30 @@ fn plan_writes(
 fn plan_deletes(
     root: &Path,
     record: Option<&Record>,
-    owned_paths: &BTreeSet<&str>,
+    owned_keys: &BTreeSet<&str>,
 ) -> Result<Vec<String>, SyncError> {
     let Some(record) = record else {
         return Ok(Vec::new());
     };
     let mut deletes = Vec::new();
 
-    for path in record.files.keys() {
-        if owned_paths.contains(path.as_str()) || path == agents_block::PATH {
+    for key in record.files.keys() {
+        if owned_keys.contains(key.as_str()) {
             continue;
         }
 
-        let Some(existing) = read_existing(root, path)? else {
+        let path = project_path(key);
+        let Some(existing) = read_existing(root, &path)? else {
             continue;
         };
 
         let actual = hash(&existing);
 
-        if record_state(Some(record), path, &actual) != RecordState::Matches {
-            return Err(SyncError::Edited { path: path.clone() });
+        if record_state(Some(record), key, &actual) != RecordState::Matches {
+            return Err(SyncError::Edited { path });
         }
 
-        deletes.push(path.clone());
+        deletes.push(path);
     }
 
     Ok(deletes)
@@ -350,25 +460,6 @@ fn execute(root: &Path, plan: Plan) -> Result<(), SyncError> {
     }
 
     write_record(root, &plan.record)
-}
-
-fn validate_record(record: &Record) -> Result<(), SyncError> {
-    for path in record.files.keys() {
-        let inside = path.starts_with(&format!("{DOCS_FOLDER}/"));
-        let allowed = inside || path == agents_block::PATH;
-        let clean = !path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..");
-
-        if path == RECORD_FILE || !allowed || !clean {
-            return Err(SyncError::MalformedRecord {
-                path: RECORD_FILE.to_string(),
-                reason: format!("names `{path}`, which is not an owned file"),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 pub(crate) fn check_parent_folders(root: &Path, path: &str) -> Result<(), SyncError> {
@@ -413,7 +504,7 @@ fn check_regular_file(root: &Path, path: &str) -> Result<(), SyncError> {
 fn check_extra_files(
     root: &Path,
     owned: &BTreeSet<&str>,
-    recorded: &BTreeSet<&str>,
+    recorded: &BTreeSet<String>,
 ) -> Result<(), SyncError> {
     for item in synced_tree::files(root, RECORD_FILE) {
         let path = match item {
@@ -423,7 +514,7 @@ fn check_extra_files(
             Err(WalkError::NotUtf8 { path }) => return Err(SyncError::NotText { path }),
         };
 
-        if !owned.contains(path.as_str()) && !recorded.contains(path.as_str()) {
+        if !owned.contains(path.as_str()) && !recorded.contains(&path) {
             return Err(SyncError::Extra { path });
         }
     }
@@ -461,7 +552,7 @@ fn read_existing(root: &Path, path: &str) -> Result<Option<Vec<u8>>, SyncError> 
     Ok(Some(bytes))
 }
 
-fn write_file(root: &Path, path: &str, content: &str) -> Result<(), SyncError> {
+pub(crate) fn write_file(root: &Path, path: &str, content: &str) -> Result<(), SyncError> {
     let target = root.join(path);
 
     if let Some(parent) = target.parent() {
@@ -477,7 +568,7 @@ fn write_file(root: &Path, path: &str, content: &str) -> Result<(), SyncError> {
     })
 }
 
-fn remove_file(root: &Path, path: &str) -> Result<(), SyncError> {
+pub(crate) fn remove_file(root: &Path, path: &str) -> Result<(), SyncError> {
     match fs::remove_file(root.join(path)) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),

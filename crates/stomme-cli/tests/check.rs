@@ -352,7 +352,7 @@ fn stomme_prints_usage_without_the_check_command() {
         assert_eq!(output.status.code(), Some(1), "{arguments:?}");
         assert!(
             String::from_utf8_lossy(&output.stderr)
-                .starts_with("Usage: stomme <check [--base <ref>]|sync>"),
+                .starts_with("Usage: stomme <check [--base <ref>]|sync|guides <dir>>"),
             "{arguments:?}"
         );
     }
@@ -478,4 +478,28 @@ fn check_reports_a_greppa_core_gpui_dependency_naming_the_edge() {
     assert!(lines[0].contains("greppa-core"), "{lines:?}");
     assert!(lines[0].contains("gpui-kit"), "{lines:?}");
     assert!(lines[0].contains("layer `gpui`"), "{lines:?}");
+}
+
+#[test]
+fn guides_writes_a_bundle_without_stomme_toml() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let bundle = root.path().join("bundle");
+
+    let output = stomme(root.path(), &["guides", "bundle"]);
+
+    assert_eq!(output.status.code(), Some(0), "guides: {output:?}");
+    assert!(bundle.join("shared/coding.md").is_file());
+    assert!(bundle.join("languages/typescript/guide.md").is_file());
+    assert!(bundle.join("layers/herdr/guide.md").is_file());
+    assert!(bundle.join(".sync-record.toml").is_file());
+    assert!(!root.path().join("stomme.toml").exists());
+
+    let first = fs::read(bundle.join("shared/coding.md")).expect("read the guide");
+    let output = stomme(root.path(), &["guides", "bundle"]);
+
+    assert_eq!(output.status.code(), Some(0), "guides: {output:?}");
+    assert_eq!(
+        fs::read(bundle.join("shared/coding.md")).expect("read the guide"),
+        first
+    );
 }

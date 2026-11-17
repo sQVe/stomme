@@ -440,7 +440,7 @@ fn sync_refuses_a_record_that_names_the_record_file() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme/.sync-record.toml`, which is not an owned file"
+                if reason == "names `docs/stomme/.sync-record.toml`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -457,7 +457,7 @@ fn sync_refuses_a_record_that_names_a_path_outside_docs_stomme() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `README.md`, which is not an owned file"
+                if reason == "names `README.md`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -474,7 +474,7 @@ fn sync_refuses_a_record_path_with_an_empty_part() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme//coding.md`, which is not an owned file"
+                if reason == "names `docs/stomme//coding.md`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -491,7 +491,7 @@ fn sync_refuses_a_record_path_with_a_current_folder_part() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme/./coding.md`, which is not an owned file"
+                if reason == "names `docs/stomme/./coding.md`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -508,7 +508,98 @@ fn sync_refuses_a_record_path_with_a_parent_folder_part() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme/../coding.md`, which is not an owned file"
+                if reason == "names `docs/stomme/../coding.md`, which is not a synced file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_writes_the_current_record_shape() {
+    let root = rust_project(&[]);
+
+    fs::write(root.path().join("AGENTS.md"), "# Project\n").expect("write AGENTS.md");
+    fs::create_dir_all(root.path().join("docs/adr")).expect("create docs/adr");
+    fs::write(root.path().join("docs/adr/README.md"), "# ADR\n").expect("write the ADR index");
+
+    sync_project(root.path()).expect("sync succeeds");
+
+    let record = Record::read(root.path())
+        .expect("read the record")
+        .expect("the record exists");
+
+    assert_eq!(record.schema, RECORD_SCHEMA);
+    assert!(record.agents.is_some());
+    assert!(record.files.contains_key("shared/coding.md"));
+    assert!(!record.files.contains_key("docs/stomme/shared/coding.md"));
+    assert!(!record.files.contains_key("AGENTS.md"));
+}
+
+#[test]
+fn sync_reads_a_previous_format_record() {
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join("docs/stomme")).expect("create docs/stomme");
+    fs::write(
+        root.path().join(RECORD_FILE),
+        format!(
+            "version = \"{}\"\n[files]\n\"docs/stomme/shared/coding.md\" = \"{}\"\n",
+            env!("CARGO_PKG_VERSION"),
+            "0".repeat(64),
+        ),
+    )
+    .expect("write the previous record");
+
+    sync_project(root.path()).expect("sync succeeds");
+
+    let record = Record::read(root.path())
+        .expect("read the record")
+        .expect("the record exists");
+
+    assert_eq!(record.schema, RECORD_SCHEMA);
+    assert!(record.files.contains_key("shared/coding.md"));
+    assert!(!record.files.contains_key("docs/stomme/shared/coding.md"));
+}
+
+#[test]
+fn sync_refuses_a_directory_as_the_record() {
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join(RECORD_FILE)).expect("create a directory as the record");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. } if reason == "is not a regular file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_refuses_a_current_record_with_an_unsafe_key() {
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join("docs/stomme")).expect("create docs/stomme");
+    fs::write(
+        root.path().join(RECORD_FILE),
+        format!(
+            "schema = 1\nversion = \"{}\"\n[files]\n\"../coding.md\" = \"{}\"\n",
+            env!("CARGO_PKG_VERSION"),
+            "0".repeat(64),
+        ),
+    )
+    .expect("write the record");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `../coding.md`, which is not a synced file"
         ),
         "{error:?}"
     );

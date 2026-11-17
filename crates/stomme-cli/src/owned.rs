@@ -116,6 +116,22 @@ pub(crate) fn owned_set(selection: &Selection, catalog: &Catalog) -> Vec<OwnedFi
     files
 }
 
+pub(crate) fn bundle_set(catalog: &Catalog) -> Vec<OwnedFile> {
+    let mut files: Vec<OwnedFile> = SHARED
+        .iter()
+        .chain(LANGUAGE_GUIDES)
+        .map(|&(path, content)| owned(path, content))
+        .collect();
+
+    for (name, guide) in catalog.guides() {
+        files.push(owned(&format!("layers/{name}/guide.md"), guide));
+    }
+
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+
+    files
+}
+
 pub(crate) fn validate_links(files: &[OwnedFile]) -> Result<(), LinkError> {
     let paths: BTreeSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
 
