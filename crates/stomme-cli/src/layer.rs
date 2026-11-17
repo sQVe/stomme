@@ -6,8 +6,10 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::rule::{Owner, Rule};
+use detection::Detection;
 use policy::{LintPolicy, RequiredBan};
 
+pub(crate) mod detection;
 mod gpui;
 mod gpui_component;
 mod herdr;
@@ -71,6 +73,7 @@ pub(crate) struct Source {
     guide: &'static str,
     bans: Option<LayerBans>,
     refinements: &'static [Refinement],
+    detection: Detection,
 }
 
 pub(crate) struct LayerBans {
@@ -102,6 +105,7 @@ struct Layer {
     manifest: Manifest,
     guide: &'static str,
     refinements: &'static [Refinement],
+    detection: Detection,
 }
 
 #[derive(Debug, Deserialize)]
@@ -257,6 +261,7 @@ impl Catalog {
                     manifest,
                     guide: source.guide,
                     refinements: source.refinements,
+                    detection: source.detection,
                 },
             );
 
@@ -301,6 +306,16 @@ impl Catalog {
             .filter_map(|layer| self.layers.get(layer.as_str()))
             .flat_map(|layer| layer.refinements.iter().copied())
             .collect()
+    }
+
+    pub(crate) fn detections(
+        &self,
+        language: Language,
+    ) -> impl Iterator<Item = (&'static str, Detection)> + '_ {
+        self.layers
+            .iter()
+            .filter(move |(_, layer)| layer.manifest.language == language)
+            .map(|(name, layer)| (*name, layer.detection))
     }
 
     #[cfg(test)]
@@ -418,6 +433,7 @@ pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalo
             bans: None,
             guide: "",
             refinements: &[],
+            detection: Detection::PackageField(name),
         })
         .collect();
 
@@ -446,6 +462,7 @@ pub(crate) fn test_policy_catalog(
                 rule: bans.rule,
             }),
             refinements: source.refinements,
+            detection: source.detection,
         })
         .collect();
 

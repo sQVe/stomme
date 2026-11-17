@@ -6,6 +6,7 @@ use serde::Deserialize;
 use super::cargo_manifest::{
     Dependencies, Dependency, ROOT_MANIFEST, RootManifest, Workspace, read_manifest,
 };
+use super::source_files::join;
 use super::{Problem, Rule};
 
 const MEMBER_MISSING: &str = "is missing; the workspace makes this folder a member";
@@ -146,14 +147,6 @@ fn segments(path: &str) -> Vec<&str> {
     path.split('/')
         .filter(|segment| !segment.is_empty() && *segment != ".")
         .collect()
-}
-
-fn join(parent: &str, name: &str) -> String {
-    if parent.is_empty() {
-        name.to_string()
-    } else {
-        format!("{parent}/{name}")
-    }
 }
 
 fn is_excluded(member: &str, excluded: &[String]) -> bool {

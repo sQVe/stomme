@@ -258,3 +258,94 @@ fn check_reports_a_missing_root_manifest() {
 
     assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", "missing");
 }
+
+#[test]
+fn invalid_lock_is_reported_once() {
+    let cases = [
+        (
+            "missing name",
+            "version = 4\n\n[[package]]\nversion = \"0.0.0\"\n",
+            "missing field `name`",
+        ),
+        (
+            "missing version",
+            "version = 4\n\n[[package]]\nname = \"core\"\n",
+            "missing field `version`",
+        ),
+        (
+            "ambiguous dependency",
+            "version = 4\n\n[[package]]\nname = \"core\"\nversion = \"0.0.0\"\ndependencies = [\"foo\"]\n\n[[package]]\nname = \"foo\"\nversion = \"1.0.0\"\n\n[[package]]\nname = \"foo\"\nversion = \"2.0.0\"\n",
+            "matches more than one lock package",
+        ),
+    ];
+
+    for (case, lock, expected) in cases {
+        let root = complete_project();
+
+        write_file(
+            root.path(),
+            CONFIG_FILE,
+            &format!(
+                "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\nlayers = [\"gpui\"]\n\n[roles]\ncore = \"crates/core\"\n",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+        write_file(
+            root.path(),
+            "crates/core/Cargo.toml",
+            "[package]\nname = \"core\"\nversion = \"0.0.0\"\n\n[lints]\nworkspace = true\n",
+        );
+        write_file(root.path(), "Cargo.lock", lock);
+        crate::sync_project(root.path());
+
+        let problems = check_project(root.path());
+
+        assert_eq!(problems.len(), 1, "{case}: {problems:?}");
+        assert_eq!(problems[0].rule, Rule::RustConfigFile, "{case}");
+        assert_eq!(problems[0].path, "Cargo.lock", "{case}");
+        assert!(
+            problems[0].message.contains(expected),
+            "{case}: {problems:?}"
+        );
+    }
+}
+
+#[test]
+fn typescript_project_does_not_read_cargo_lock() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        CONFIG_FILE,
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"typescript\"\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+    write_file(
+        root.path(),
+        "Cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"gpui\"\nversion = \"0.0.0\"\n",
+    );
+    crate::sync_project(root.path());
+
+    let problems = check_project(root.path());
+    let layer_problems: Vec<&Problem> = problems
+        .iter()
+        .filter(|problem| problem.rule == Rule::LayerDeclared)
+        .collect();
+
+    assert_eq!(layer_problems, Vec::<&Problem>::new(), "{problems:?}");
+}
+
+#[test]
+fn unreadable_package_json_is_an_error() {
+    let root = complete_project();
+
+    fs::create_dir(root.path().join("package.json")).expect("make package.json a folder");
+
+    let error = run(root.path(), layer::catalog(), &target())
+        .expect_err("a folder named package.json cannot be read");
+
+    assert_eq!(error.to_string(), "Could not read package.json");
+}

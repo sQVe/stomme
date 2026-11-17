@@ -89,6 +89,14 @@ fn rules_table_equals_the_committed_shared_rules() {
 }
 
 #[test]
+fn partial_rule_status_names_what_it_cannot_detect() {
+    let row = table_row(Rule::LayerDeclared.metadata());
+    let status = "partial; not enforced: framework use without a `gpui` or `gpui-component` package in `Cargo.lock`, a `react` dependency or `pi` field in the root `package.json`, or a Herdr `mod.json` beside `main.ts`";
+
+    assert!(row.trim_end().ends_with(&format!("{status} |")), "{row}");
+}
+
+#[test]
 fn compare_or_rewrite_table_rejects_a_stale_table_and_leaves_it_unchanged() {
     let folder = tempfile::tempdir().expect("create a temporary directory");
     let path = folder.path().join("rules.md");

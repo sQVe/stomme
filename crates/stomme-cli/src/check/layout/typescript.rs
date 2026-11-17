@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{
-    Problem, catch_all_folders, is_camel_case, is_catch_all, is_pascal_case, join, problem,
-};
-use crate::check::source_files::{SourceFile, Tree};
+use super::{Problem, catch_all_folders, is_camel_case, is_catch_all, is_pascal_case, problem};
+use crate::check::source_files::{SourceFile, Tree, join};
 use crate::layer::Refinement;
 use crate::rule::Rule;
 

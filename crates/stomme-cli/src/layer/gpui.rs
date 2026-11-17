@@ -1,4 +1,4 @@
-use super::{LayerBans, Source};
+use super::{Detection, LayerBans, Source};
 use crate::rule::Rule;
 
 pub(super) const LAYER: Source = Source {
@@ -9,5 +9,6 @@ pub(super) const LAYER: Source = Source {
         rule: Rule::GpuiRequiredBan,
     }),
     refinements: &[],
+    detection: Detection::CargoPackage("gpui"),
     guide: include_str!("../../../../foundation/layers/gpui/guide.md"),
 };

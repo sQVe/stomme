@@ -1,0 +1,7 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+
+[roles]
+core = "crates/core"
+ui = "crates/ui"

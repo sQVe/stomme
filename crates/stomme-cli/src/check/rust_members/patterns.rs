@@ -3,9 +3,10 @@ use std::path::Path;
 
 use anyhow::Context as _;
 
-use super::{join, segments};
+use super::segments;
 use crate::check::Problem;
 use crate::check::cargo_manifest::{ROOT_MANIFEST, config_problem};
+use crate::check::source_files::join;
 
 pub(super) fn expand(root: &Path, pattern: &str) -> anyhow::Result<Result<Vec<String>, Problem>> {
     let segments = segments(pattern);

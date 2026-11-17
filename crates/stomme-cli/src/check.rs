@@ -7,11 +7,14 @@ use crate::layer::{Catalog, Language};
 use crate::rule::Rule;
 
 mod adr_index;
+mod cargo_lock;
 mod cargo_manifest;
 mod clippy_bans;
+mod layer_use;
 mod layout;
 mod modules;
 mod package_boundaries;
+mod package_json;
 mod package_pins;
 mod required_parts;
 mod roles;
@@ -73,14 +76,37 @@ pub(crate) fn run(
     }
 
     problems.extend(required_parts::check(root)?);
-    problems.extend(package_pins::check(root)?);
+    let package = package_json::read(root)?;
+    problems.extend(package_pins::check(package.as_ref()));
     problems.extend(adr_index::check(root, ADR_FOLDER)?);
+    let package_value = package.as_ref().and_then(|result| result.as_ref().ok());
 
     if let Some(selection) = selection {
         if selection.language == Language::Rust {
             problems.extend(rust_problems(root, catalog, &selection.layers)?);
             problems.extend(modules::check(root, &selection.modules)?);
-            problems.extend(package_boundaries::check(root, selection)?);
+
+            match cargo_lock::read(root)? {
+                Ok(lock) => {
+                    problems.extend(layer_use::check(
+                        root,
+                        selection,
+                        catalog,
+                        lock.as_ref(),
+                        package_value,
+                    )?);
+                    problems.extend(package_boundaries::check(root, selection, lock.as_ref())?);
+                }
+                Err(problem) => problems.push(problem),
+            }
+        } else {
+            problems.extend(layer_use::check(
+                root,
+                selection,
+                catalog,
+                None,
+                package_value,
+            )?);
         }
 
         problems.extend(roles::check(root, &selection.roles));

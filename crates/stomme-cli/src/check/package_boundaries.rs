@@ -1,15 +1,13 @@
-mod cargo_lock;
-
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
 
 use super::Problem;
+use super::cargo_lock::{Lock, Package};
 use super::cargo_manifest::{self, config_problem};
 use crate::config::Selection;
 use crate::rule::Rule;
-use cargo_lock::{Lock, Package};
 
 const LOCK_FILE: &str = "Cargo.lock";
 const GPUI_LAYER: &str = "gpui";
@@ -41,7 +39,11 @@ struct ResolvedRole {
     package: Package,
 }
 
-pub(super) fn check(root: &Path, selection: &Selection) -> anyhow::Result<Vec<Problem>> {
+pub(super) fn check(
+    root: &Path,
+    selection: &Selection,
+    lock: Option<&Lock>,
+) -> anyhow::Result<Vec<Problem>> {
     let role_packages = match read_role_packages(root, selection)? {
         Ok(role_packages) => role_packages,
         Err(problem) => return Ok(vec![problem]),
@@ -57,22 +59,24 @@ pub(super) fn check(root: &Path, selection: &Selection) -> anyhow::Result<Vec<Pr
         return Ok(Vec::new());
     }
 
-    let lock = match cargo_lock::read(root)? {
-        Ok(lock) => lock,
-        Err(problem) => return Ok(vec![problem]),
+    let Some(lock) = lock else {
+        return Ok(vec![config_problem(
+            LOCK_FILE.to_string(),
+            "is missing; a package boundary check needs the resolved dependency graph".to_string(),
+        )]);
     };
-    let roles = match resolve_role_packages(&lock, &role_packages) {
+    let roles = match resolve_role_packages(lock, &role_packages) {
         Ok(roles) => roles,
         Err(problem) => return Ok(vec![problem]),
     };
     let mut problems = Vec::new();
 
     if plain_core {
-        problems.extend(plain_core_problems(&lock, &roles));
+        problems.extend(plain_core_problems(lock, &roles));
     }
 
     if component_kit {
-        problems.extend(component_kit_problems(&lock, &roles));
+        problems.extend(component_kit_problems(lock, &roles));
     }
 
     Ok(problems)

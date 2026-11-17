@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde_json::json;
 
 use super::*;
@@ -10,6 +12,12 @@ fn project_with(manifest: &str) -> tempfile::TempDir {
     write_file(root.path(), PACKAGE_JSON, manifest);
 
     root
+}
+
+fn check_project(root: &Path) -> Vec<Problem> {
+    let package = crate::check::package_json::read(root).expect("read package.json");
+
+    check(package.as_ref())
 }
 
 fn found(problems: &[Problem]) -> Vec<(&str, Rule)> {
@@ -34,7 +42,7 @@ fn check_reports_a_pinned_package_at_another_version() {
         .to_string(),
     );
 
-    let problems = check(root.path()).expect("check the project");
+    let problems = check_project(root.path());
 
     assert_eq!(found(&problems), [(PACKAGE_JSON, Rule::PackagePin)]);
     let message = &problems[0].message;
@@ -56,7 +64,7 @@ fn check_reports_a_version_range_for_a_pinned_package() {
         .to_string(),
     );
 
-    let problems = check(root.path()).expect("check the project");
+    let problems = check_project(root.path());
 
     assert_eq!(found(&problems), [(PACKAGE_JSON, Rule::PackagePin)]);
     assert!(
@@ -86,21 +94,21 @@ fn check_passes_the_pinned_versions_in_dependencies_and_dev_dependencies() {
         .to_string(),
     );
 
-    assert_eq!(check(root.path()).expect("check the project"), []);
+    assert_eq!(check_project(root.path()), []);
 }
 
 #[test]
 fn check_passes_when_a_pinned_package_is_absent() {
     let root = project_with(&json!({ "dependencies": { "left-pad": "1.3.0" } }).to_string());
 
-    assert_eq!(check(root.path()).expect("check the project"), []);
+    assert_eq!(check_project(root.path()), []);
 }
 
 #[test]
 fn check_reports_a_manifest_that_is_not_valid_json() {
     let root = project_with("{ not json");
 
-    let problems = check(root.path()).expect("check the project");
+    let problems = check_project(root.path());
 
     assert_eq!(found(&problems), [(PACKAGE_JSON, Rule::PackagePin)]);
     assert!(
@@ -113,7 +121,7 @@ fn check_reports_a_manifest_that_is_not_valid_json() {
 fn check_reports_dependencies_that_are_not_an_object() {
     let root = project_with(&json!({ "dependencies": "not an object" }).to_string());
 
-    let problems = check(root.path()).expect("check the project");
+    let problems = check_project(root.path());
 
     assert_eq!(found(&problems), [(PACKAGE_JSON, Rule::PackagePin)]);
     assert!(
@@ -126,5 +134,5 @@ fn check_reports_dependencies_that_are_not_an_object() {
 fn check_passes_without_a_package_json() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
-    assert_eq!(check(root.path()).expect("check the project"), []);
+    assert_eq!(check_project(root.path()), []);
 }

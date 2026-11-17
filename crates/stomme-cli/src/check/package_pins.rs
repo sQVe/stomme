@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
+#[cfg(test)]
 use std::fs;
-use std::io;
+#[cfg(test)]
 use std::path::Path;
 use std::sync::LazyLock;
 
-use anyhow::Context as _;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -25,28 +25,26 @@ struct Manifest {
     dev_dependencies: BTreeMap<String, Value>,
 }
 
-pub(super) fn check(root: &Path) -> anyhow::Result<Vec<Problem>> {
-    let path = root.join(PACKAGE_JSON);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("Could not read {PACKAGE_JSON}"));
-        }
+pub(super) fn check(package: Option<&Result<Value, serde_json::Error>>) -> Vec<Problem> {
+    let Some(package) = package else {
+        return Vec::new();
     };
-    let manifest: Manifest = match serde_json::from_str(&text) {
+    let value = match package {
+        Ok(value) => value,
+        Err(error) => return vec![problem(format!("is not valid JSON: {error}"))],
+    };
+    let manifest: Manifest = match serde_json::from_value(value.clone()) {
         Ok(manifest) => manifest,
-        Err(error) => return Ok(vec![problem(format!("is not valid JSON: {error}"))]),
+        Err(error) => return vec![problem(format!("is not valid JSON: {error}"))],
     };
     let declared = manifest
         .dependencies
         .iter()
         .chain(manifest.dev_dependencies.iter());
-    let problems = declared
-        .filter_map(|(package, version)| version_problem(package, version))
-        .collect();
 
-    Ok(problems)
+    declared
+        .filter_map(|(package, version)| version_problem(package, version))
+        .collect()
 }
 
 fn pins() -> &'static BTreeMap<String, String> {

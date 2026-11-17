@@ -32,6 +32,14 @@ impl SourceFile {
     }
 }
 
+pub(super) fn join(folder: &str, name: &str) -> String {
+    if folder.is_empty() {
+        name.to_string()
+    } else {
+        format!("{folder}/{name}")
+    }
+}
+
 impl Tree {
     pub(super) fn read(&self, file: &SourceFile) -> anyhow::Result<String> {
         fs::read_to_string(self.root.join(&file.path))

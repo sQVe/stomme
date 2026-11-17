@@ -18,9 +18,15 @@ pub(crate) enum Owner {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Enforcement {
     Enforced(Check),
-    Partial(Check),
+    Partial {
+        check: Check,
+        unenforced: &'static str,
+    },
     TypeScriptImports(Check),
-    RustAndTypeScript { rust: Check, typescript: Check },
+    RustAndTypeScript {
+        rust: Check,
+        typescript: Check,
+    },
     GuidanceOnly,
     ProjectLocal,
 }
@@ -205,6 +211,20 @@ rules! {
             checker: "src/check/package_pins.rs",
             fixtures: "tests/fixtures/rules/package-pin",
         }),
+    },
+    LayerDeclared => Metadata {
+        id: "layer-declared",
+        summary: "A project lists the layer of each framework it uses, so removing a layer cannot switch its rules off.",
+        owner: Owner::Common,
+        applies: "the project uses a framework that has a layer",
+        fields: &["layers"],
+        enforcement: Enforcement::Partial {
+            check: Check {
+                checker: "src/check/layer_use.rs",
+                fixtures: "tests/fixtures/rules/layer-declared",
+            },
+            unenforced: "framework use without a `gpui` or `gpui-component` package in `Cargo.lock`, a `react` dependency or `pi` field in the root `package.json`, or a Herdr `mod.json` beside `main.ts`",
+        },
     },
     TauFullCheck => Metadata {
         id: "tau-full-check",
@@ -756,10 +776,13 @@ rules! {
         owner: Owner::Layer("gpui-component"),
         applies: "always",
         fields: &["roles"],
-        enforcement: Enforcement::Partial(Check {
-            checker: "src/check/package_boundaries.rs",
-            fixtures: "tests/fixtures/rules/gpui-component-kit",
-        }),
+        enforcement: Enforcement::Partial {
+            check: Check {
+                checker: "src/check/package_boundaries.rs",
+                fixtures: "tests/fixtures/rules/gpui-component-kit",
+            },
+            unenforced: "components that a package other than `kit` uses through a bundle crate that re-exports them",
+        },
     },
     ReactJsxExtension => Metadata {
         id: "react-jsx-extension",
@@ -843,7 +866,7 @@ impl Rule {
 impl Enforcement {
     pub(crate) fn check(self) -> Option<Check> {
         match self {
-            Self::Enforced(check) | Self::Partial(check) => Some(check),
+            Self::Enforced(check) | Self::Partial { check, .. } => Some(check),
             Self::RustAndTypeScript { rust, .. } => Some(rust),
             Self::TypeScriptImports(_) | Self::GuidanceOnly | Self::ProjectLocal => None,
         }
@@ -851,22 +874,26 @@ impl Enforcement {
 
     fn files(self) -> Vec<Check> {
         match self {
-            Self::Enforced(check) | Self::Partial(check) | Self::TypeScriptImports(check) => {
-                vec![check]
-            }
+            Self::Enforced(check)
+            | Self::Partial { check, .. }
+            | Self::TypeScriptImports(check) => vec![check],
             Self::RustAndTypeScript { rust, typescript } => vec![rust, typescript],
             Self::GuidanceOnly | Self::ProjectLocal => Vec::new(),
         }
     }
 
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Self::Enforced(_) => "enforced",
-            Self::Partial(_) => "partial",
-            Self::TypeScriptImports(_) => "enforced by `@sqve/stomme-ts-imports`",
-            Self::RustAndTypeScript { .. } => "enforced; TypeScript by `@sqve/stomme-ts-imports`",
-            Self::GuidanceOnly => "guidance only",
-            Self::ProjectLocal => "project-local",
+            Self::Enforced(_) => "enforced".to_string(),
+            Self::Partial { unenforced, .. } => {
+                format!("partial; not enforced: {unenforced}")
+            }
+            Self::TypeScriptImports(_) => "enforced by `@sqve/stomme-ts-imports`".to_string(),
+            Self::RustAndTypeScript { .. } => {
+                "enforced; TypeScript by `@sqve/stomme-ts-imports`".to_string()
+            }
+            Self::GuidanceOnly => "guidance only".to_string(),
+            Self::ProjectLocal => "project-local".to_string(),
         }
     }
 }
