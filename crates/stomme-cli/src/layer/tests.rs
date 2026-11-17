@@ -15,6 +15,7 @@ fn source(name: &'static str, manifest: &'static str) -> Source {
         guide: "",
         refinements: &[],
         detection: Detection::PackageField(name),
+        starter: None,
     }
 }
 
@@ -303,6 +304,7 @@ fn catalog_reports_invalid_layer_bans() {
         guide: "",
         refinements: &[],
         detection: Detection::PackageField("one"),
+        starter: None,
         bans: Some(LayerBans {
             text: "disallowed-methods = [{ path = \"gpui::App::run\" }]\n",
             rule: Rule::GpuiRequiredBan,

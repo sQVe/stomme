@@ -1,6 +1,7 @@
 use super::{InitError, Request};
-use crate::layer::Language;
+use crate::layer::{Catalog, Language};
 
+#[derive(Clone, Copy)]
 pub(crate) struct Source {
     pub(super) owner: &'static str,
     pub(super) files: &'static [(&'static str, &'static str)],
@@ -176,85 +177,6 @@ static TYPESCRIPT: Source = Source {
     ],
 };
 
-static GPUI: Source = Source {
-    owner: "gpui",
-    files: &[],
-    merges: &[(
-        "clippy.toml",
-        include_str!("../../../../foundation/layers/gpui/skeleton/merge/clippy.toml"),
-    )],
-};
-
-static GPUI_COMPONENT: Source = Source {
-    owner: "gpui-component",
-    files: &[],
-    merges: &[],
-};
-
-static HERDR: Source = Source {
-    owner: "herdr",
-    files: &[
-        (
-            "mods/{{name}}/main.test.ts",
-            include_str!(
-                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/main.test.ts"
-            ),
-        ),
-        (
-            "mods/{{name}}/main.ts",
-            include_str!(
-                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/main.ts"
-            ),
-        ),
-        (
-            "mods/{{name}}/mod.json",
-            include_str!(
-                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/mod.json"
-            ),
-        ),
-    ],
-    merges: &[
-        (
-            "mise.toml",
-            include_str!("../../../../foundation/layers/herdr/skeleton/merge/mise.toml"),
-        ),
-        (
-            "package.json",
-            include_str!("../../../../foundation/layers/herdr/skeleton/merge/package.json"),
-        ),
-    ],
-};
-
-static PI: Source = Source {
-    owner: "pi",
-    files: &[
-        (
-            "src/piExtension.test.ts",
-            include_str!("../../../../foundation/layers/pi/skeleton/files/src/piExtension.test.ts"),
-        ),
-        (
-            "src/piExtension.ts",
-            include_str!("../../../../foundation/layers/pi/skeleton/files/src/piExtension.ts"),
-        ),
-    ],
-    merges: &[(
-        "package.json",
-        include_str!("../../../../foundation/layers/pi/skeleton/merge/package.json"),
-    )],
-};
-
-static REACT: Source = Source {
-    owner: "react",
-    files: &[(
-        "src/App.tsx",
-        include_str!("../../../../foundation/layers/react/skeleton/files/src/App.tsx"),
-    )],
-    merges: &[(
-        "package.json",
-        include_str!("../../../../foundation/layers/react/skeleton/merge/package.json"),
-    )],
-};
-
 static RUST_CORE: Source = Source {
     owner: "role core",
     files: &[
@@ -350,14 +272,28 @@ static RUST_CLI: Source = Source {
     merges: &[],
 };
 
-pub(crate) fn sources(request: &Request) -> Result<Vec<&'static Source>, InitError> {
-    let mut sources = vec![&COMMON, language(request.language)];
+pub(crate) fn sources(request: &Request, catalog: &Catalog) -> Result<Vec<Source>, InitError> {
+    let mut sources = vec![COMMON, *language(request.language)];
     let mut layers: Vec<&str> = request.layers.iter().map(String::as_str).collect();
     let mut roles: Vec<&str> = request.roles.iter().map(String::as_str).collect();
 
     layers.sort_unstable();
     roles.sort_unstable();
-    sources.extend(layers.into_iter().filter_map(layer));
+
+    for name in layers {
+        let Some(starter) = catalog.starter(name) else {
+            continue;
+        };
+        let owner = catalog
+            .layer_name(name)
+            .expect("a starter belongs to a catalogued layer");
+
+        sources.push(Source {
+            owner,
+            files: starter.files,
+            merges: starter.merges,
+        });
+    }
 
     for name in roles {
         let source = role(request.language, name).ok_or_else(|| InitError::UnknownRole {
@@ -365,7 +301,7 @@ pub(crate) fn sources(request: &Request) -> Result<Vec<&'static Source>, InitErr
             language: request.language,
         })?;
 
-        sources.push(source);
+        sources.push(*source);
     }
 
     Ok(sources)
@@ -375,17 +311,6 @@ pub(crate) fn language(language: Language) -> &'static Source {
     match language {
         Language::Rust => &RUST,
         Language::TypeScript => &TYPESCRIPT,
-    }
-}
-
-pub(crate) fn layer(name: &str) -> Option<&'static Source> {
-    match name {
-        "gpui" => Some(&GPUI),
-        "gpui-component" => Some(&GPUI_COMPONENT),
-        "herdr" => Some(&HERDR),
-        "pi" => Some(&PI),
-        "react" => Some(&REACT),
-        _ => None,
     }
 }
 
@@ -399,3 +324,6 @@ pub(crate) fn role(language: Language, name: &str) -> Option<&'static Source> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests;

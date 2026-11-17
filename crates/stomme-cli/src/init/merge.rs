@@ -177,3 +177,6 @@ fn sorted(value: Json) -> Json {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests;

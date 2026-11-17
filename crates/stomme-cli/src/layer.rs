@@ -84,6 +84,13 @@ pub(crate) struct Source {
     bans: Option<LayerBans>,
     refinements: &'static [Refinement],
     detection: Detection,
+    starter: Option<&'static Starter>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Starter {
+    pub(crate) files: &'static [(&'static str, &'static str)],
+    pub(crate) merges: &'static [(&'static str, &'static str)],
 }
 
 pub(crate) struct LayerBans {
@@ -116,6 +123,7 @@ struct Layer {
     guide: &'static str,
     refinements: &'static [Refinement],
     detection: Detection,
+    starter: Option<&'static Starter>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -272,6 +280,7 @@ impl Catalog {
                     guide: source.guide,
                     refinements: source.refinements,
                     detection: source.detection,
+                    starter: source.starter,
                 },
             );
 
@@ -308,6 +317,14 @@ impl Catalog {
 
     pub(crate) fn guide(&self, name: &str) -> Option<&'static str> {
         self.layers.get(name).map(|layer| layer.guide)
+    }
+
+    pub(crate) fn starter(&self, name: &str) -> Option<&'static Starter> {
+        self.layers.get(name).and_then(|layer| layer.starter)
+    }
+
+    pub(crate) fn layer_name(&self, name: &str) -> Option<&'static str> {
+        self.layers.get_key_value(name).map(|(name, _)| *name)
     }
 
     pub(crate) fn refinements(&self, layers: &BTreeSet<String>) -> BTreeSet<Refinement> {
@@ -443,6 +460,7 @@ pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalo
             guide: "",
             refinements: &[],
             detection: Detection::PackageField(name),
+            starter: None,
         })
         .collect();
 
@@ -472,6 +490,7 @@ pub(crate) fn test_policy_catalog(
             }),
             refinements: source.refinements,
             detection: source.detection,
+            starter: source.starter,
         })
         .collect();
 

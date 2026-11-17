@@ -116,7 +116,8 @@ pub(crate) fn parse_arguments(arguments: &[String]) -> Result<Request, InitError
 }
 
 pub(crate) fn run(root: &Path, catalog: &Catalog, request: &Request) -> Result<(), InitError> {
-    let sources = assets::sources(request)?;
+    let sources = assets::sources(request, catalog)?;
+    let sources: Vec<&Source> = sources.iter().collect();
 
     run_with_sources(root, catalog, request, &sources)
 }
@@ -164,6 +165,45 @@ fn list(value: Option<&&str>) -> Vec<String> {
         None | Some(&"") => Vec::new(),
         Some(value) => value.split(',').map(str::to_string).collect(),
     }
+}
+
+#[cfg(test)]
+pub(crate) fn request(language: Language, layers: &[&str], roles: &[&str]) -> Request {
+    Request {
+        name: "demo".to_string(),
+        language,
+        layers: layers.iter().map(ToString::to_string).collect(),
+        roles: roles.iter().map(ToString::to_string).collect(),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn planned(request: &Request, sources: &[&Source]) -> plan::InitPlan {
+    plan::plan(request, sources).expect("the plan succeeds")
+}
+
+#[cfg(test)]
+pub(crate) fn empty_folder() -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix("stomme-init-")
+        .tempdir()
+        .expect("create a temporary directory")
+}
+
+#[cfg(test)]
+pub(crate) fn entries(root: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(root)
+        .expect("read the target folder")
+        .map(|entry| {
+            let entry = entry.expect("read a folder entry");
+
+            entry.file_name().to_string_lossy().into_owned()
+        })
+        .collect();
+
+    names.sort();
+
+    names
 }
 
 #[cfg(test)]

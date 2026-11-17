@@ -175,3 +175,6 @@ fn owner_clash(path: String, first: &str, second: &str) -> InitError {
         second: second.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests;
