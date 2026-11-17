@@ -481,6 +481,25 @@ fn check_reports_a_greppa_core_gpui_dependency_naming_the_edge() {
 }
 
 #[test]
+fn guides_rejects_an_empty_directory() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    let output = stomme(root.path(), &["guides", ""]);
+
+    assert_eq!(output.status.code(), Some(1), "guides: {output:?}");
+    assert_eq!(
+        stderr_lines(&output),
+        vec!["stomme: the guides directory is empty"]
+    );
+    assert_eq!(
+        fs::read_dir(root.path())
+            .expect("read the temporary directory")
+            .count(),
+        0
+    );
+}
+
+#[test]
 fn guides_writes_a_bundle_without_stomme_toml() {
     let root = tempfile::tempdir().expect("create a temporary directory");
     let bundle = root.path().join("bundle");

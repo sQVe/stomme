@@ -97,6 +97,11 @@ fn run_sync() -> ExitCode {
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
 fn run_guides(directory: &str) -> ExitCode {
+    if directory.is_empty() {
+        eprintln!("stomme: the guides directory is empty");
+        return ExitCode::FAILURE;
+    }
+
     let root = match env::current_dir().context("Could not read the current directory") {
         Ok(root) => root,
         Err(error) => {
