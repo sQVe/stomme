@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::test_support::copy_tree;
 use crate::{check, layer};
 
 const RULES_FILE: &str = "../../foundation/shared/rules.md";
@@ -190,7 +191,7 @@ fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
 
-        if let Some(check) = metadata.enforcement.files() {
+        for check in metadata.enforcement.files() {
             let checker = crate_path(check.checker);
             let fixtures = crate_path(check.fixtures);
 
@@ -231,21 +232,6 @@ fn prepare_fixture(source: &Path) -> tempfile::TempDir {
     }
 
     root
-}
-
-fn copy_tree(source: &Path, target: &Path) {
-    for entry in fs::read_dir(source).expect("read the fixture folder") {
-        let entry = entry.expect("read a fixture entry");
-        let path = entry.path();
-        let destination = target.join(entry.file_name());
-
-        if entry.file_type().expect("read the file type").is_dir() {
-            fs::create_dir_all(&destination).expect("create the fixture folder");
-            copy_tree(&path, &destination);
-        } else {
-            fs::copy(&path, &destination).expect("copy the fixture file");
-        }
-    }
 }
 
 fn apply_after_sync(root: &Path) {

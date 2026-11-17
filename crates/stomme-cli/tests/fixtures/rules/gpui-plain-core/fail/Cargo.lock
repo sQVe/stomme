@@ -1,0 +1,20 @@
+version = 4
+
+[[package]]
+name = "app-core"
+version = "0.0.0"
+dependencies = ["gpui-kit"]
+
+[[package]]
+name = "app-ui"
+version = "0.0.0"
+dependencies = ["gpui-kit"]
+
+[[package]]
+name = "gpui-kit"
+version = "0.0.0"
+dependencies = ["gpui"]
+
+[[package]]
+name = "gpui"
+version = "0.0.0"

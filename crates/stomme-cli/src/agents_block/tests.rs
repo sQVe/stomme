@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -140,6 +141,7 @@ fn render_quotes_arguments_with_whitespace_or_a_backtick() {
         roles: Default::default(),
         violations: Vec::new(),
         extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
     };
     let argv = vec![
         "cargo".to_string(),
@@ -302,6 +304,7 @@ fn render_states_the_rust_format_rule_and_guide() {
         roles: Default::default(),
         violations: Vec::new(),
         extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
     };
 
     let block = render(&selection, None);
@@ -322,6 +325,7 @@ fn render_states_the_typescript_format_rule_and_guide() {
         roles: Default::default(),
         violations: Vec::new(),
         extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
     };
 
     let block = render(&selection, None);

@@ -1,0 +1,11 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+
+[modules.config]
+entry = "src/config.rs"
+public = ["src/config/parse.rs"]
+
+[modules.ticket]
+entry = "src/ticket.rs"
+imports = ["config"]

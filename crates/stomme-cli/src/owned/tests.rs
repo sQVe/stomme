@@ -219,6 +219,7 @@ fn owned_set_reads_the_given_catalog() {
         roles: BTreeMap::new(),
         violations: Vec::new(),
         extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
     };
 
     let files = owned_set(&selection, &catalog);

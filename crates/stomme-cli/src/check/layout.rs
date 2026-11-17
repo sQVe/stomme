@@ -1,14 +1,13 @@
 use std::path::Path;
 
 use super::Problem;
+use super::source_files::{self, SourceFile, Tree};
 use crate::config::Selection;
 use crate::layer::{Catalog, Language, Refinement};
 use crate::rule::Rule;
-use source_files::{SourceFile, Tree};
 
 mod react;
 mod rust;
-mod source_files;
 mod typescript;
 
 #[cfg(test)]

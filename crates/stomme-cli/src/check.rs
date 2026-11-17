@@ -10,12 +10,17 @@ mod adr_index;
 mod cargo_manifest;
 mod clippy_bans;
 mod layout;
+mod modules;
+mod package_boundaries;
 mod package_pins;
 mod required_parts;
 mod roles;
 mod rust_lints;
 mod rust_members;
+mod source_files;
 mod synced_files;
+#[cfg(test)]
+mod test_support;
 mod violations;
 
 pub(crate) use violations::TargetBranch;
@@ -74,6 +79,8 @@ pub(crate) fn run(
     if let Some(selection) = selection {
         if selection.language == Language::Rust {
             problems.extend(rust_problems(root, catalog, &selection.layers)?);
+            problems.extend(modules::check(root, &selection.modules)?);
+            problems.extend(package_boundaries::check(root, selection)?);
         }
 
         problems.extend(roles::check(root, &selection.roles));

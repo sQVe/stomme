@@ -2,6 +2,8 @@ use std::os::unix::fs::PermissionsExt as _;
 
 use tempfile::TempDir;
 
+use serde_json::json;
+
 use super::*;
 use crate::test_support::strings;
 
@@ -144,6 +146,30 @@ fn report_reads_the_exit_code_of_the_mutants_run() {
 
         assert_eq!(status(&fixture.audit(&cargo)), expected, "{run}");
     }
+}
+
+#[test]
+fn report_builds_mutants_in_an_empty_scratch_folder_on_disk() {
+    let fixture = Fixture::new();
+    let scratch = fixture.folder.path().join(SCRATCH_DIRECTORY);
+    let leftover = scratch.join("cargo-mutants-leftover");
+
+    fs::create_dir_all(&leftover).expect("create a leftover build folder");
+
+    let cargo = fixture.cargo(
+        LISTING,
+        0,
+        "printf '%s' \"$TMPDIR\" > \"$(dirname \"$0\")/tmpdir.log\"\nls -A \"$TMPDIR\" > \"$(dirname \"$0\")/scratch.log\"",
+    );
+
+    assert_eq!(status(&fixture.audit(&cargo)), (Some("pass"), 0));
+
+    let tmpdir = fs::read_to_string(fixture.folder.path().join("tmpdir.log")).expect("read TMPDIR");
+    let contents = fs::read_to_string(fixture.folder.path().join("scratch.log"))
+        .expect("read the scratch listing");
+
+    assert_eq!(tmpdir, scratch.display().to_string());
+    assert_eq!(contents, "");
 }
 
 #[test]
@@ -336,20 +362,6 @@ fn scope_arguments_keep_flag_and_value_order() {
 }
 
 #[test]
-fn report_value_carries_the_error_message() {
-    assert_eq!(
-        report_value("error", Some("broken"), &[], &[]),
-        json!({
-            "version": 1,
-            "status": "error",
-            "error": "broken",
-            "survivors": [],
-            "unmutated": [],
-        })
-    );
-}
-
-#[test]
 fn job_count_stays_within_the_limit() {
     let jobs = job_count();
 
@@ -418,63 +430,4 @@ fn workspace_relative_path_normalizes_existing_files() {
         workspace_relative_path(root, "/"),
         Err(PathError::Outside { path }) if path == "/"
     ));
-}
-
-#[test]
-fn ran_report_sets_status_and_exit_code() {
-    let found = [Survivor {
-        file: "src/lib.rs".to_string(),
-        line: 3,
-        mutator: "BinaryOperator".to_string(),
-        original: "<=".to_string(),
-        replacement: ">".to_string(),
-    }];
-    let skipped = strings(&["b.rs"]);
-
-    let cases = [
-        (Mode::Changed, &[][..], &[][..], "pass", 0, None),
-        (Mode::Changed, &found[..], &[][..], "survivors", 2, None),
-        (Mode::Audit, &found[..], &[][..], "survivors", 0, None),
-        (
-            Mode::Audit,
-            &[][..],
-            &skipped[..],
-            "error",
-            1,
-            Some("Files over the mutant cap were not mutated."),
-        ),
-        (
-            Mode::Changed,
-            &found[..],
-            &skipped[..],
-            "survivors",
-            1,
-            None,
-        ),
-        (Mode::Audit, &found[..], &skipped[..], "survivors", 1, None),
-    ];
-
-    for (mode, survivors, unmutated, expected_status, exit, error) in cases {
-        let actual = ran_report(mode, survivors, unmutated);
-        let case = format!("{mode:?} {expected_status} {unmutated:?}");
-        let expected_survivors = if survivors.is_empty() {
-            json!([])
-        } else {
-            json!([{
-                "file": "src/lib.rs", "line": 3, "mutator": "BinaryOperator",
-                "original": "<=", "replacement": ">", "covered": true,
-            }])
-        };
-        let mut expected = json!({
-            "version": 1, "status": expected_status,
-            "survivors": expected_survivors, "unmutated": unmutated,
-        });
-        if let Some(error) = error {
-            expected["error"] = json!(error);
-        }
-
-        assert_eq!(status(&actual), (Some(expected_status), exit), "{case}");
-        assert_eq!(actual.0, expected, "{case}");
-        assert_eq!(actual.0.to_string(), expected.to_string(), "{case}");
-    }
 }

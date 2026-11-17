@@ -1,0 +1,10 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+
+[modules.config]
+entry = "src/config.rs"
+
+[modules.ticket]
+entry = "src/ticket.rs"
+imports = ["config"]

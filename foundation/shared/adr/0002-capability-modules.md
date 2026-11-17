@@ -70,8 +70,8 @@ field in `stomme.toml`. The list may only shrink.
 ### Negative
 
 - A new shared module or edge needs a table change, which adds a step for small helpers.
-- The check reads module paths. It cannot see I/O reached through a standard library call that is not
-  a module use.
+- The Rust check reads `crate::` and `super::` paths. It cannot see paths through another crate's
+  name or I/O reached through `std`.
 - A project with existing violations carries a list until it removes them.
 
 ## Alternatives considered

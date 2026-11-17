@@ -1,5 +1,5 @@
-use super::source_files::{SourceFile, Tree};
 use super::{Problem, is_pascal_case, problem};
+use crate::check::source_files::{SourceFile, Tree};
 use crate::rule::Rule;
 
 pub(super) fn check(tree: &Tree) -> Vec<Problem> {

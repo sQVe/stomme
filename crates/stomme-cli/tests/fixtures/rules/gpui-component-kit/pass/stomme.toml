@@ -1,0 +1,8 @@
+schema = 1
+version = "0.0.0"
+language = "rust"
+layers = ["gpui", "gpui-component"]
+
+[roles]
+ui = "crates/ui"
+kit = "crates/kit"

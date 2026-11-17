@@ -18,9 +18,9 @@ pub(crate) enum Owner {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Enforcement {
     Enforced(Check),
-    #[expect(dead_code, reason = "no rule is partly enforced yet")]
     Partial(Check),
     TypeScriptImports(Check),
+    RustAndTypeScript { rust: Check, typescript: Check },
     GuidanceOnly,
     ProjectLocal,
 }
@@ -393,10 +393,16 @@ rules! {
         owner: Owner::Common,
         applies: "the project has a module table",
         fields: &["modules"],
-        enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
-        }),
+        enforcement: Enforcement::RustAndTypeScript {
+            rust: Check {
+                checker: "src/check/modules.rs",
+                fixtures: "tests/fixtures/rules/module-imports",
+            },
+            typescript: Check {
+                checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+                fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
+            },
+        },
     },
     ModuleListed => Metadata {
         id: "module-listed",
@@ -404,10 +410,16 @@ rules! {
         owner: Owner::Common,
         applies: "the project has a module table",
         fields: &["modules"],
-        enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
-        }),
+        enforcement: Enforcement::RustAndTypeScript {
+            rust: Check {
+                checker: "src/check/modules.rs",
+                fixtures: "tests/fixtures/rules/module-listed",
+            },
+            typescript: Check {
+                checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+                fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
+            },
+        },
     },
     ModuleTableOrder => Metadata {
         id: "module-table-order",
@@ -427,14 +439,20 @@ rules! {
     },
     ModulePrivateFile => Metadata {
         id: "module-private-file",
-        summary: "Other modules import a folder module through its entry or public files only.",
-        owner: Owner::Language(Language::TypeScript),
+        summary: "Other modules use a folder module through its entry or public files only.",
+        owner: Owner::Common,
         applies: "the project has a module table",
         fields: &["modules"],
-        enforcement: Enforcement::TypeScriptImports(Check {
-            checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
-            fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
-        }),
+        enforcement: Enforcement::RustAndTypeScript {
+            rust: Check {
+                checker: "src/check/modules.rs",
+                fixtures: "tests/fixtures/rules/module-private-file",
+            },
+            typescript: Check {
+                checker: "../../packages/imports/src/rules/moduleBoundaries.ts",
+                fixtures: "../../packages/imports/src/rules/moduleBoundaries.test.ts",
+            },
+        },
     },
     CompositionRootImport => Metadata {
         id: "composition-root-import",
@@ -476,12 +494,23 @@ rules! {
         summary: "A module uses other modules through their module paths, not items at the crate root.",
         owner: Owner::Language(Language::Rust),
         applies: "the project has a module table",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
+        fields: &["modules"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/modules.rs",
+            fixtures: "tests/fixtures/rules/crate-root-path",
+        }),
     },
     PureDependencies => Metadata {
         id: "pure-dependencies",
         summary: "A module uses only pure modules; no module uses an I/O module.",
+        owner: Owner::Language(Language::Rust),
+        applies: "the project has a module table",
+        fields: &[],
+        enforcement: Enforcement::ProjectLocal,
+    },
+    PureStdIo => Metadata {
+        id: "pure-std-io",
+        summary: "A pure module reaches no I/O through `std`, such as `std::fs` or `std::time::SystemTime::now`.",
         owner: Owner::Language(Language::Rust),
         applies: "the project has a module table",
         fields: &[],
@@ -492,14 +521,6 @@ rules! {
         summary: "A registered pure module performs no reads or effects and imports only types and other pure modules.",
         owner: Owner::Language(Language::TypeScript),
         applies: "the project registers pure modules",
-        fields: &[],
-        enforcement: Enforcement::ProjectLocal,
-    },
-    UiDependency => Metadata {
-        id: "ui-dependency",
-        summary: "Core and CLI packages do not depend on UI packages, directly or through other packages.",
-        owner: Owner::Language(Language::Rust),
-        applies: "the workspace has UI packages",
         fields: &[],
         enforcement: Enforcement::ProjectLocal,
     },
@@ -608,11 +629,14 @@ rules! {
     },
     GpuiPlainCore => Metadata {
         id: "gpui-plain-core",
-        summary: "GPUI types stay out of the `core` and `cli` roles; they use plain project data.",
+        summary: "The `core` and `cli` role packages depend on no GPUI package and no `ui`, `kit`, or `app` role package, directly or through other packages.",
         owner: Owner::Layer("gpui"),
         applies: "the project has a `core` or `cli` role",
         fields: &["roles"],
-        enforcement: Enforcement::GuidanceOnly,
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/package_boundaries.rs",
+            fixtures: "tests/fixtures/rules/gpui-plain-core",
+        }),
     },
     GpuiAppLifetime => Metadata {
         id: "gpui-app-lifetime",
@@ -730,9 +754,12 @@ rules! {
         id: "gpui-component-kit",
         summary: "Only the `kit` role imports gpui-component; other code uses the project's own widget types.",
         owner: Owner::Layer("gpui-component"),
-        applies: "the project has a `kit` role",
+        applies: "always",
         fields: &["roles"],
-        enforcement: Enforcement::GuidanceOnly,
+        enforcement: Enforcement::Partial(Check {
+            checker: "src/check/package_boundaries.rs",
+            fixtures: "tests/fixtures/rules/gpui-component-kit",
+        }),
     },
     ReactJsxExtension => Metadata {
         id: "react-jsx-extension",
@@ -817,16 +844,18 @@ impl Enforcement {
     pub(crate) fn check(self) -> Option<Check> {
         match self {
             Self::Enforced(check) | Self::Partial(check) => Some(check),
+            Self::RustAndTypeScript { rust, .. } => Some(rust),
             Self::TypeScriptImports(_) | Self::GuidanceOnly | Self::ProjectLocal => None,
         }
     }
 
-    fn files(self) -> Option<Check> {
+    fn files(self) -> Vec<Check> {
         match self {
             Self::Enforced(check) | Self::Partial(check) | Self::TypeScriptImports(check) => {
-                Some(check)
+                vec![check]
             }
-            Self::GuidanceOnly | Self::ProjectLocal => None,
+            Self::RustAndTypeScript { rust, typescript } => vec![rust, typescript],
+            Self::GuidanceOnly | Self::ProjectLocal => Vec::new(),
         }
     }
 
@@ -835,6 +864,7 @@ impl Enforcement {
             Self::Enforced(_) => "enforced",
             Self::Partial(_) => "partial",
             Self::TypeScriptImports(_) => "enforced by `@sqve/stomme-ts-imports`",
+            Self::RustAndTypeScript { .. } => "enforced; TypeScript by `@sqve/stomme-ts-imports`",
             Self::GuidanceOnly => "guidance only",
             Self::ProjectLocal => "project-local",
         }
@@ -882,6 +912,15 @@ pub(crate) fn compare_or_rewrite_table(
 }
 
 #[cfg(test)]
+fn join_checks(checks: &[Check], field: impl Fn(&Check) -> &'static str) -> String {
+    if checks.is_empty() {
+        return "none".to_string();
+    }
+
+    checks.iter().map(field).collect::<Vec<_>>().join(", ")
+}
+
+#[cfg(test)]
 fn table_row(metadata: &Metadata) -> String {
     let owner = match metadata.owner {
         Owner::Common => "common".to_string(),
@@ -899,9 +938,9 @@ fn table_row(metadata: &Metadata) -> String {
 
         quoted.join(", ")
     };
-    let check = metadata.enforcement.files();
-    let checker = check.map_or("none", |check| check.checker);
-    let fixtures = check.map_or("none", |check| check.fixtures);
+    let checks = metadata.enforcement.files();
+    let checker = join_checks(&checks, |check| check.checker);
+    let fixtures = join_checks(&checks, |check| check.fixtures);
 
     format!(
         "| `{}` | {} | {owner} | {} | {fields} | {checker} | {fixtures} | {} |\n",
