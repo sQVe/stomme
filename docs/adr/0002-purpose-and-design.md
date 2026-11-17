@@ -43,11 +43,12 @@ its version.
 
 ### Distribution and enforcement
 
-A Rust binary provides `init`, `sync`, and `check`. The `@sqve/stomme-ts-imports` package supplies
-the import rule for TypeScript projects. Both read the same project configuration. The package
-version equals the binary's, so one release names a matching pair, and a test in the package keeps
-the two versions equal. Tau loads coding guides from
-the project's synced text and uses its bundled guides only when stomme is absent, not broken.
+A Rust binary provides `init`, `sync`, `guides`, and `check`. The `@sqve/stomme-ts-imports` package
+supplies the import rule for TypeScript projects. Both read the same project configuration. The
+package version equals the binary's, so one release names a matching pair, and a test in the package
+keeps the two versions equal. A consumer loads coding guides from the project's synced text and uses
+its bundled guides only when stomme is absent, not broken. [ADR 0013](./0013-consumer-guides.md)
+defines the bundle and its record.
 
 `sync` writes only the owned set for the project's version, language, and layers. It also writes the
 managed `AGENTS.md` block and leaves the text outside its markers alone. It sets every stomme npm
