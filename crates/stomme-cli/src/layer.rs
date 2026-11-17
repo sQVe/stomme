@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::rule::{Owner, Rule};
@@ -44,11 +44,21 @@ static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
         .expect("the layer tests check the compiled-in catalog")
 });
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Language {
     Rust,
     TypeScript,
+}
+
+impl Language {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        match name {
+            "rust" => Some(Self::Rust),
+            "typescript" => Some(Self::TypeScript),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Language {

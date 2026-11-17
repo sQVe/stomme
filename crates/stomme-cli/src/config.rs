@@ -9,7 +9,7 @@ use crate::layer::{self, Catalog, Language};
 use crate::rule::Rule;
 
 pub(crate) const CONFIG_FILE: &str = "stomme.toml";
-const SCHEMA: i64 = 1;
+pub(crate) const SCHEMA: i64 = 1;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Installation {

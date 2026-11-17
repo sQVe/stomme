@@ -352,7 +352,7 @@ fn stomme_prints_usage_without_the_check_command() {
         assert_eq!(output.status.code(), Some(1), "{arguments:?}");
         assert!(
             String::from_utf8_lossy(&output.stderr)
-                .starts_with("Usage: stomme <check [--base <ref>]|sync|guides <dir>>"),
+                .starts_with("Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]>"),
             "{arguments:?}"
         );
     }

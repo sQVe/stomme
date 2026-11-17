@@ -19,6 +19,15 @@ fn source(name: &'static str, manifest: &'static str) -> Source {
 }
 
 #[test]
+fn language_parse_reads_the_displayed_name() {
+    for language in [Language::Rust, Language::TypeScript] {
+        assert_eq!(Language::parse(&language.to_string()), Some(language));
+    }
+
+    assert_eq!(Language::parse("Rust"), None);
+}
+
+#[test]
 fn select_reports_each_bad_layer_set() {
     let cases = [
         (

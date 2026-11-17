@@ -33,6 +33,13 @@
   on any problem. `stomme guides <dir>` writes every shared file and guide, plus `.sync-record.toml`,
   to `<dir>` for a consumer without a project. Run it on this repository with
   `cargo run -q -p stomme -- check`.
+  `stomme init` creates a project in the current directory, which must be empty apart from `.git`:
+
+  ```sh
+  stomme init --name <name> --language <rust|typescript> [--layers <layers>] [--roles <roles>]
+  ```
+
+  `--layers` and `--roles` take comma-separated lists. An invalid request writes nothing.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 - `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
   candidate `stomme` binary against one project as its update would, and exits 1 only when an
