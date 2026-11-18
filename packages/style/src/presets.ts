@@ -5,6 +5,7 @@ import { testFiles } from './shared/testFiles.ts';
 export const react: OxlintConfig = {
   plugins: ['react'],
   rules: {
+    'react/react-in-jsx-scope': 'off',
     'react/rules-of-hooks': 'error',
     'react/exhaustive-deps': 'error',
   },

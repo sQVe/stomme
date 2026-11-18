@@ -177,6 +177,19 @@ const consumerFiles = (tarball: string) => ({
     extends: '../tsconfig.json',
     include: ['**/*.ts', '**/*.tsx'],
   }),
+  // A third project isolates the React preset from the Vitest preset.
+  'react/vite.config.ts': [
+    "import { lint, react } from '@sqve/stomme-ts-style';",
+    "import { defineConfig } from 'vite-plus';",
+    '',
+    'export default defineConfig({ lint: { extends: [lint, react] } });',
+    '',
+  ].join('\n'),
+  'react/package.json': JSON.stringify({ name: 'react', private: true, type: 'module' }),
+  'react/tsconfig.json': JSON.stringify({
+    extends: '../tsconfig.json',
+    include: ['**/*.ts', '**/*.tsx'],
+  }),
 });
 
 export const installPackage = async (
