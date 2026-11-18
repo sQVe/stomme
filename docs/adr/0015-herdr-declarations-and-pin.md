@@ -30,8 +30,8 @@ The herdr layer pins one `herdr-app` version and generates Herdr's type declarat
   version or URL.
 - The pin covers Linux only. Herdr's macOS release is a signed `Herdr.app` bundle whose binary is
   `Herdr.app/Contents/MacOS/Herdr`, not a `herdr-app` executable. On macOS the person installs the
-  app with Herdr's installer. Herdr's own guide says the app then creates `~/.local/bin/herdr-app`
-  on launch, and says to keep signed bundles unchanged.
+  app with Herdr's installer. The installer links `~/.local/bin/herdr-app` to the app's binary, the
+  app repairs that link on launch, and Herdr's own guide says to keep signed bundles unchanged.
 
 ### The declarations
 
