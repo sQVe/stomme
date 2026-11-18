@@ -5,7 +5,6 @@ export default defineConfig({
   lint: {
     extends: [lint, react, vitest],
     ignorePatterns: ['mods/**/main.js'],
-    rules: { 'react/react-in-jsx-scope': 'off' },
   },
   fmt: {
     ...format,
