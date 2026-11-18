@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::layer::Catalog;
+use crate::layer::{Catalog, SelectionError};
 
 fn foundation_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../foundation")
@@ -146,195 +146,227 @@ fn validate_links_ignores_a_link_inside_a_mismatched_code_span() {
     );
 }
 
-#[test]
-fn validate_links_reports_a_missing_anchor() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#missing)\n"),
-        file("docs/stomme/shared/two.md", "## Test placement\n"),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#missing".to_string(),
-            anchor: "missing".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
+struct AnchorCase {
+    name: &'static str,
+    headings: &'static str,
+    anchor: &'static str,
+    found: bool,
 }
 
 #[test]
-fn validate_links_accepts_a_heading_slug_anchor() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[two](./two.md#test-placement)\n",
-        ),
-        file("docs/stomme/shared/two.md", "## Test placement\n"),
+fn validate_links_decides_each_heading_anchor() {
+    let cases = [
+        AnchorCase {
+            name: "a slug of the heading text",
+            headings: "## Test placement\n",
+            anchor: "test-placement",
+            found: true,
+        },
+        AnchorCase {
+            name: "an anchor no heading has",
+            headings: "## Test placement\n",
+            anchor: "missing",
+            found: false,
+        },
+        AnchorCase {
+            name: "an empty fragment",
+            headings: "# Two\n",
+            anchor: "",
+            found: true,
+        },
+        AnchorCase {
+            name: "the first duplicate heading",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            anchor: "test-placement",
+            found: true,
+        },
+        AnchorCase {
+            name: "the second duplicate heading",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            anchor: "test-placement-1",
+            found: true,
+        },
+        AnchorCase {
+            name: "the third duplicate heading",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            anchor: "test-placement-2",
+            found: true,
+        },
+        AnchorCase {
+            name: "a number past the duplicate headings",
+            headings: "# Test placement\n## Test placement\n",
+            anchor: "test-placement-2",
+            found: false,
+        },
+        AnchorCase {
+            name: "a suffix a later heading already uses",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            anchor: "setup-2",
+            found: true,
+        },
+        AnchorCase {
+            name: "the plain slug before a used suffix",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            anchor: "setup",
+            found: true,
+        },
+        AnchorCase {
+            name: "the written suffix before a used suffix",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            anchor: "setup-1",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading inside a fence",
+            headings: "```\n## Hidden\n```\n",
+            anchor: "hidden",
+            found: false,
+        },
+        AnchorCase {
+            name: "a heading inside a mismatched fence",
+            headings: "~~~\n## Hidden\n```\n## Also hidden\n~~~\n",
+            anchor: "also-hidden",
+            found: false,
+        },
+        AnchorCase {
+            name: "a heading after a short closing fence",
+            headings: "````\n## Hidden\n```\n## Also hidden\n````\n",
+            anchor: "also-hidden",
+            found: false,
+        },
+        AnchorCase {
+            name: "a heading after a fence line with trailing text",
+            headings: "```\n```not a closer\n## Hidden\n```\n",
+            anchor: "hidden",
+            found: false,
+        },
+        AnchorCase {
+            name: "a heading after a closed fence",
+            headings: "```\n## Inside\n```\n## After\n",
+            anchor: "after",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading indented by three spaces",
+            headings: "   ## Test placement\n",
+            anchor: "test-placement",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading hash without a space",
+            headings: "##Test placement\n",
+            anchor: "test-placement",
+            found: false,
+        },
+        AnchorCase {
+            name: "a heading with a closing hash sequence",
+            headings: "## Test placement ##\n",
+            anchor: "test-placement",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading with punctuation",
+            headings: "## Test placement, done!\n",
+            anchor: "test-placement-done",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading underlined with equals signs",
+            headings: "Test placement\n==============\n",
+            anchor: "test-placement",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading that spans two lines",
+            headings: "Two line\nheading\n===\n",
+            links: "[two](./two.md#two-lineheading)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a two-line heading linked with a hyphen at the break",
+            headings: "Two line\nheading\n===\n",
+            links: "[two](./two.md#two-line-heading)\n",
+            first_missing: Some("two-line-heading"),
+        },
+        AnchorCase {
+            name: "a heading underlined with dashes",
+            headings: "Second part\n-----------\n",
+            anchor: "second-part",
+            found: true,
+        },
+        AnchorCase {
+            name: "a heading inside an HTML comment",
+            headings: "<!--\n## Hidden\n-->\n\n## Shown\n",
+            anchor: "hidden",
+            found: false,
+        },
     ];
 
-    assert_eq!(validate_links(&files), Ok(()));
+    for case in cases {
+        let target = format!("[two](./two.md#{})\n", case.anchor);
+        let files = [
+            OwnedFile {
+                path: "docs/stomme/shared/one.md".to_string(),
+                content: Box::leak(target.clone().into_boxed_str()),
+            },
+            file("docs/stomme/shared/two.md", case.headings),
+        ];
+        let expected = if case.found {
+            Ok(())
+        } else {
+            Err(LinkError::MissingAnchor {
+                path: "docs/stomme/shared/one.md".to_string(),
+                target: format!("./two.md#{}", case.anchor),
+                anchor: case.anchor.to_string(),
+                resolved: "docs/stomme/shared/two.md".to_string(),
+            })
+        };
+
+        assert_eq!(validate_links(&files), expected, "{}", case.name);
+    }
 }
 
 #[test]
-fn validate_links_numbers_duplicate_heading_anchors() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[a](./two.md#test-placement) [b](./two.md#test-placement-1) [c](./two.md#test-placement-2)\n",
+fn validate_links_checks_a_reference_style_link_with_a_definition() {
+    let cases = [
+        (
+            "a defined link to a file in the set",
+            "[two][ref]\n\n[ref]: ./two.md\n",
+            Ok(()),
         ),
-        file(
-            "docs/stomme/shared/two.md",
-            "# Test placement\n## Test placement\n### Test placement\n",
+        (
+            "a defined link to a heading in the set",
+            "[two][ref]\n\n[ref]: ./two.md#part\n",
+            Ok(()),
         ),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
-}
-
-#[test]
-fn validate_links_reports_a_number_past_the_duplicate_headings() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[a](./two.md#test-placement-2)\n",
+        (
+            "a defined link to a missing file",
+            "[two][ref]\n\n[ref]: ./missing.md\n",
+            Err(LinkError::Broken {
+                path: "docs/stomme/shared/one.md".to_string(),
+                target: "./missing.md".to_string(),
+            }),
         ),
-        file(
-            "docs/stomme/shared/two.md",
-            "# Test placement\n## Test placement\n",
-        ),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#test-placement-2".to_string(),
-            anchor: "test-placement-2".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
-
-#[test]
-fn validate_links_ignores_a_heading_inside_a_fence() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#hidden)\n"),
-        file("docs/stomme/shared/two.md", "```\n## Hidden\n```\n"),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#hidden".to_string(),
-            anchor: "hidden".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
-
-#[test]
-fn validate_links_ignores_a_heading_inside_a_mismatched_fence() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#also-hidden)\n"),
-        file(
-            "docs/stomme/shared/two.md",
-            "~~~\n## Hidden\n```\n## Also hidden\n~~~\n",
+        (
+            "a defined link to a missing anchor",
+            "[two][ref]\n\n[ref]: ./two.md#missing\n",
+            Err(LinkError::MissingAnchor {
+                path: "docs/stomme/shared/one.md".to_string(),
+                target: "./two.md#missing".to_string(),
+                anchor: "missing".to_string(),
+                resolved: "docs/stomme/shared/two.md".to_string(),
+            }),
         ),
     ];
 
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#also-hidden".to_string(),
-            anchor: "also-hidden".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
+    for (name, content, expected) in cases {
+        let files = [
+            file("docs/stomme/shared/one.md", content),
+            file("docs/stomme/shared/two.md", "# Two\n\n## Part\n"),
+        ];
 
-#[test]
-fn validate_links_ignores_a_heading_after_a_short_closing_fence() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#also-hidden)\n"),
-        file(
-            "docs/stomme/shared/two.md",
-            "````\n## Hidden\n```\n## Also hidden\n````\n",
-        ),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#also-hidden".to_string(),
-            anchor: "also-hidden".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
-
-#[test]
-fn validate_links_accepts_a_heading_indented_by_three_spaces() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[two](./two.md#test-placement)\n",
-        ),
-        file("docs/stomme/shared/two.md", "   ## Test placement\n"),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
-}
-
-#[test]
-fn validate_links_reports_a_heading_hash_without_a_space() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[two](./two.md#test-placement)\n",
-        ),
-        file("docs/stomme/shared/two.md", "##Test placement\n"),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#test-placement".to_string(),
-            anchor: "test-placement".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
-
-#[test]
-fn validate_links_accepts_a_closing_hash_sequence() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[two](./two.md#test-placement)\n",
-        ),
-        file("docs/stomme/shared/two.md", "## Test placement ##\n"),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
-}
-
-#[test]
-fn validate_links_drops_punctuation_from_anchors() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[two](./two.md#test-placement-done)\n",
-        ),
-        file("docs/stomme/shared/two.md", "## Test placement, done!\n"),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
+        assert_eq!(validate_links(&files), expected, "{name}");
+    }
 }
 
 #[test]
@@ -402,104 +434,10 @@ fn a_closing_fence_needs_at_least_the_opening_length() {
 }
 
 #[test]
-fn a_fence_line_with_trailing_text_does_not_close_a_fence_for_headings() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#hidden)\n"),
-        file(
-            "docs/stomme/shared/two.md",
-            "```\n```not a closer\n## Hidden\n```\n",
-        ),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#hidden".to_string(),
-            anchor: "hidden".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
-
-#[test]
 fn a_fence_line_with_trailing_text_does_not_close_a_fence_for_links() {
     let text = "```\n```not a closer\n[inside](./inside.md)\n```\n";
 
     assert_eq!(link_targets(text), Vec::<String>::new());
-}
-
-#[test]
-fn validate_links_accepts_a_setext_heading() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[a](./two.md#test-placement) [b](./two.md#second-part)\n",
-        ),
-        file(
-            "docs/stomme/shared/two.md",
-            "Test placement\n==============\n\nSecond part\n-----------\n",
-        ),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
-}
-
-#[test]
-fn validate_links_ignores_a_heading_inside_an_html_comment() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#hidden)\n"),
-        file(
-            "docs/stomme/shared/two.md",
-            "<!--\n## Hidden\n-->\n\n## Shown\n",
-        ),
-    ];
-
-    assert_eq!(
-        validate_links(&files),
-        Err(LinkError::MissingAnchor {
-            path: "docs/stomme/shared/one.md".to_string(),
-            target: "./two.md#hidden".to_string(),
-            anchor: "hidden".to_string(),
-            resolved: "docs/stomme/shared/two.md".to_string(),
-        })
-    );
-}
-
-#[test]
-fn validate_links_accepts_a_heading_after_a_closed_fence() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#after)\n"),
-        file(
-            "docs/stomme/shared/two.md",
-            "```\n## Inside\n```\n## After\n",
-        ),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
-}
-
-#[test]
-fn validate_links_accepts_an_empty_fragment() {
-    let files = [
-        file("docs/stomme/shared/one.md", "[two](./two.md#)\n"),
-        file("docs/stomme/shared/two.md", "# Two\n"),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
-}
-
-#[test]
-fn validate_links_skips_suffixes_that_other_headings_already_use() {
-    let files = [
-        file(
-            "docs/stomme/shared/one.md",
-            "[a](./two.md#setup) [b](./two.md#setup-1) [c](./two.md#setup-2)\n",
-        ),
-        file("docs/stomme/shared/two.md", "# Setup\n# Setup-1\n# Setup\n"),
-    ];
-
-    assert_eq!(validate_links(&files), Ok(()));
 }
 
 #[test]
@@ -548,13 +486,13 @@ fn owned_set_reads_the_given_catalog() {
     );
 }
 
-fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkError> {
+fn smallest_selection(catalog: &Catalog, name: &str) -> Result<Selection, SelectionError> {
     let (language, layers) = catalog
         .smallest_selection(name)
         .expect("a registered layer has a language and requirements");
-    let layers = crate::layer::select(catalog, language, layers.into_iter().collect())
-        .expect("the smallest selection passes the real selection rules");
-    let selection = Selection {
+    let layers = crate::layer::select(catalog, language, layers.into_iter().collect())?;
+
+    Ok(Selection {
         version: env!("CARGO_PKG_VERSION").to_string(),
         language,
         layers,
@@ -562,7 +500,12 @@ fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkErr
         violations: Vec::new(),
         extra_docs: Vec::new(),
         modules: BTreeMap::new(),
-    };
+    })
+}
+
+fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkError> {
+    let selection = smallest_selection(catalog, name)
+        .expect("the smallest selection passes the real selection rules");
 
     validate_links(&owned_set(&selection, catalog))
 }
@@ -608,4 +551,28 @@ fn bundle_set_holds_every_language_and_layer() {
     assert!(paths.contains("docs/stomme/languages/typescript/guide.md"));
     assert!(paths.contains("docs/stomme/layers/herdr/guide.md"));
     assert_eq!(paths.len(), embedded_paths().len());
+}
+
+#[test]
+fn a_smallest_selection_the_selection_rules_reject_is_an_error() {
+    let catalog = crate::layer::test_guide_catalog(&[
+        (
+            "one",
+            "language = \"rust\"\nrequires = [\"two\"]\n",
+            "# One\n",
+        ),
+        (
+            "two",
+            "language = \"rust\"\nconflicts = [\"one\"]\n",
+            "# Two\n",
+        ),
+    ]);
+
+    assert_eq!(
+        smallest_selection(&catalog, "one").map(|_| ()),
+        Err(SelectionError::Conflict {
+            layer: "two".to_string(),
+            conflict: "one".to_string(),
+        })
+    );
 }
