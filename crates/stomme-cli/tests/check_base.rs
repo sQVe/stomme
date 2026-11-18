@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -45,7 +46,7 @@ fn project() -> tempfile::TempDir {
     root
 }
 
-fn stomme(root: &Path, arguments: &[&str], pull_request_base: Option<&str>) -> Output {
+fn stomme(root: &Path, arguments: &[&str], pull_request_base: Option<&OsStr>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_stomme"));
 
     command
@@ -60,17 +61,38 @@ fn stomme(root: &Path, arguments: &[&str], pull_request_base: Option<&str>) -> O
     command.output().expect("run stomme")
 }
 
+fn assert_growth_names_the_added_entry(output: &Output) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(stderr.contains("[violation-growth]"), "{output:?}");
+    assert!(
+        stderr.contains("rule `role-folder` at `src/domain` with key `cli:domain`"),
+        "{output:?}"
+    );
+    assert!(!stderr.contains("fetch"), "{output:?}");
+}
+
 #[test]
 fn check_compares_a_pull_request_with_its_target_branch() {
     let root = project();
 
-    let output = stomme(root.path(), &["check"], Some("parent"));
+    let output = stomme(root.path(), &["check"], Some(OsStr::new("parent")));
 
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("[violation-growth]"),
-        "{output:?}"
+    assert_growth_names_the_added_entry(&output);
+}
+
+#[test]
+fn check_resolves_the_pull_request_base_as_a_remote_tracking_ref() {
+    let root = project();
+    git(
+        root.path(),
+        &["update-ref", "refs/tags/origin/parent", "HEAD"],
     );
+
+    let output = stomme(root.path(), &["check"], Some(OsStr::new("parent")));
+
+    assert_growth_names_the_added_entry(&output);
 }
 
 #[test]
@@ -80,7 +102,7 @@ fn check_base_flag_wins_over_the_pull_request_base() {
     let output = stomme(
         root.path(),
         &["check", "--base", "origin/main"],
-        Some("parent"),
+        Some(OsStr::new("parent")),
     );
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
@@ -90,7 +112,7 @@ fn check_base_flag_wins_over_the_pull_request_base() {
 fn check_ignores_an_empty_pull_request_base() {
     let root = project();
 
-    let output = stomme(root.path(), &["check"], Some(""));
+    let output = stomme(root.path(), &["check"], Some(OsStr::new("")));
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
 }
@@ -99,15 +121,34 @@ fn check_ignores_an_empty_pull_request_base() {
 fn check_names_an_unfetched_pull_request_base() {
     let root = project();
 
-    let output = stomme(root.path(), &["check"], Some("missing"));
+    let output = stomme(root.path(), &["check"], Some(OsStr::new("missing")));
+    let lines = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].ends_with("[violation-growth]"), "{lines:?}");
+    assert!(
+        lines[0].contains("fetch `refs/remotes/origin/missing` and try again"),
+        "{lines:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_non_utf8_pull_request_base() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = project();
+    let base = OsStr::from_bytes(&[0xff]);
+
+    let output = stomme(root.path(), &["check"], Some(base));
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("[violation-growth]"),
-        "{output:?}"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("origin/missing"),
+        String::from_utf8_lossy(&output.stderr).contains("GITHUB_BASE_REF is not valid UTF-8"),
         "{output:?}"
     );
 }

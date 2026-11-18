@@ -51,13 +51,21 @@ fn git_reader_reads_each_target_state() {
 
 #[test]
 fn default_reference_maps_the_pull_request_base() {
-    let without_pull_request = default_reference(None).expect("no pull request base");
-    let empty = default_reference(Some(OsString::from(""))).expect("an empty base");
-    let named = default_reference(Some(OsString::from("stack/parent"))).expect("a base name");
+    let cases = [
+        ("no pull request base", None, "refs/remotes/origin/main"),
+        ("an empty base", Some(""), "refs/remotes/origin/main"),
+        (
+            "a base name",
+            Some("stack/parent"),
+            "refs/remotes/origin/stack/parent",
+        ),
+    ];
 
-    assert_eq!(without_pull_request, "origin/main");
-    assert_eq!(empty, "origin/main");
-    assert_eq!(named, "origin/stack/parent");
+    for (case, base, expected) in cases {
+        let reference = default_reference(base.map(OsString::from));
+
+        assert_eq!(reference.expect(case), expected, "{case}");
+    }
 }
 
 #[cfg(unix)]
