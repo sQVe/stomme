@@ -36,6 +36,13 @@ and `sync` writes it last. `AGENTS.md` holds one managed block between `<!-- sto
 `<!-- stomme:end -->` markers, and the record holds a hash of that block. Text outside the markers
 belongs to the project. `docs/adr/` holds only project ADRs, with independent numbering.
 
+`stomme.toml` is a regular file. `check` and `sync` refuse a symbolic link or any other kind of
+entry as a broken installation, and the release gate refuses it before it writes. None of them
+follows the link. The gate rewrites the version pin, and a followed link would let it write
+outside the project. The checks assume the checkout does not change while they run. The
+`@sqve/stomme-ts-imports` reader still follows links, because `check` already fails such a
+project.
+
 Side effects in Rust are records of functions declared by the consuming module, not
 single-implementation traits. Seam lives in stomme as `packages/style`, published as
 `@sqve/stomme-ts-style` with its own version. `@sqve/mutation` stays separate, and stomme pins
@@ -104,3 +111,8 @@ not prevent drift, and each copied check still needs separate maintenance.
 
 Require every project to use the same modules and capability names. Rejected because purposes and
 languages differ; only shared structural roles need shared names.
+
+### Links that resolve inside the project
+
+Accept a `stomme.toml` link whose target resolves inside the project. Rejected because each
+reader would resolve targets itself, and the gate would still write through the link.
