@@ -42,8 +42,9 @@ The herdr layer pins one `herdr-app` version and generates Herdr's type declarat
 ### Installing a mod
 
 - `pnpm run mod:install` builds the mod and copies only `main.js` and `mod.json` into Herdr's mods
-  folder. It writes to `$HERDR_APP_HOME/mods/<name>` when that is set, and to
-  `~/.config/herdr-app/mods/<name>` otherwise.
+  folder. It writes to `$HERDR_APP_HOME/mods/<name>` when that is set, else to
+  `$XDG_CONFIG_HOME/herdr-app/mods/<name>` when that is set, else to
+  `~/.config/herdr-app/mods/<name>`.
 - Herdr documents copying as the way to install a mod. A copy also keeps saves of `.ts` files from
   reloading the mod.
 - The script is not named `install`, because pnpm runs that name as a lifecycle script on

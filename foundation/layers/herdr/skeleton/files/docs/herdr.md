@@ -14,6 +14,6 @@ Follow these steps once on a new machine.
 6. Run `pnpm run check`. It runs `check:layer:herdr`, which builds the mod and runs
    `herdr-app check mods/{{name}}`.
 7. Run `pnpm run mod:install`. It builds the mod and copies `main.js` and `mod.json` to
-   `~/.config/herdr-app/mods/{{name}}` (`$HERDR_APP_HOME/mods/{{name}}` when that is set). The first time
-   Herdr sees the folder, it docks the mod on the right. Run it again after each change; Herdr
-   reloads the mod.
+   `$HERDR_APP_HOME/mods/{{name}}` when that is set, else `$XDG_CONFIG_HOME/herdr-app/mods/{{name}}` when
+   that is set, else `~/.config/herdr-app/mods/{{name}}`. The first time Herdr sees the folder, it docks
+   the mod on the right. Run it again after each change; Herdr reloads the mod.

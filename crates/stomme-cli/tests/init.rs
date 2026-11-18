@@ -143,11 +143,30 @@ fn run_in_project(root: &Path, program: &str, arguments: &[String]) -> Output {
 fn run_with_herdr_home(root: &Path, home: &Path, program: &str, arguments: &[String]) -> Output {
     fs::create_dir_all(home).expect("create the Herdr home");
 
-    Command::new(program)
+    run_with_environment(root, program, arguments, &[("HERDR_APP_HOME", Some(home))])
+}
+
+fn run_with_environment(
+    root: &Path,
+    program: &str,
+    arguments: &[String],
+    environment: &[(&str, Option<&Path>)],
+) -> Output {
+    let mut command = Command::new(program);
+
+    command
         .args(arguments)
         .current_dir(root)
-        .env("PATH", path_with_binary_first())
-        .env("HERDR_APP_HOME", home)
+        .env("PATH", path_with_binary_first());
+
+    for (name, value) in environment {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+
+    command
         .output()
         .unwrap_or_else(|error| panic!("run {program}: {error}"))
 }
@@ -364,14 +383,20 @@ fn herdr_starter_mod_passes_herdr_check() {
 fn herdr_mod_install_copies_a_loadable_mod() {
     let root = initialized("koja");
     let home = tempfile::tempdir().expect("create a Herdr home");
+    let user_home = tempfile::tempdir().expect("create a user home");
+    let config_home = tempfile::tempdir().expect("create an XDG config home");
 
     install(root.path());
 
-    let installed = run_with_herdr_home(
+    let installed = run_with_environment(
         root.path(),
-        home.path(),
         "pnpm",
         &["run".to_string(), "mod:install".to_string()],
+        &[
+            ("HERDR_APP_HOME", Some(home.path())),
+            ("XDG_CONFIG_HOME", Some(config_home.path())),
+            ("HOME", Some(user_home.path())),
+        ],
     );
 
     assert_eq!(
@@ -383,6 +408,8 @@ fn herdr_mod_install_copies_a_loadable_mod() {
     let folder = home.path().join("mods/koja");
 
     assert_eq!(entries(&folder), ["main.js", "mod.json"]);
+    assert!(entries(config_home.path()).is_empty());
+    assert!(!user_home.path().join(".config").exists());
 
     let check = run_with_herdr_home(
         root.path(),
@@ -392,6 +419,37 @@ fn herdr_mod_install_copies_a_loadable_mod() {
     );
 
     assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
+}
+
+#[test]
+fn herdr_mod_install_follows_xdg_config_home() {
+    let root = initialized("koja");
+    let user_home = tempfile::tempdir().expect("create a user home");
+    let config_home = tempfile::tempdir().expect("create an XDG config home");
+
+    install(root.path());
+
+    let installed = run_with_environment(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "mod:install".to_string()],
+        &[
+            ("HERDR_APP_HOME", None),
+            ("XDG_CONFIG_HOME", Some(config_home.path())),
+            ("HOME", Some(user_home.path())),
+        ],
+    );
+
+    assert_eq!(
+        installed.status.code(),
+        Some(0),
+        "pnpm run mod:install: {installed:?}"
+    );
+
+    let folder = config_home.path().join("herdr-app/mods/koja");
+
+    assert_eq!(entries(&folder), ["main.js", "mod.json"]);
+    assert!(!user_home.path().join(".config").exists());
 }
 
 #[test]
@@ -558,6 +616,7 @@ fn herdr_docs_name_each_setup_step() {
         "pnpm run check",
         "curl -fsSL https://releases.herdr.dev/app/install.sh | sh",
         "pnpm run mod:install",
+        "XDG_CONFIG_HOME",
         "~/.local/bin",
         "Apple Silicon",
     ] {
