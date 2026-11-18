@@ -57,13 +57,13 @@ fn read_git(root: &Path, reference: &str) -> TargetRead {
 fn read_remote_tracking(root: &Path, reference: &str) -> TargetRead {
     let resolved = run_git(root, &["show-ref", "--verify", "--hash", reference]);
 
-    let id = match resolved {
+    let object_identifier = match resolved {
         Err(error) => return TargetRead::Unavailable(format!("could not run `git`: {error}")),
         Ok(output) if !output.status.success() => return unresolved(reference),
         Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
     };
 
-    match resolve_commit(root, id.trim(), reference) {
+    match resolve_commit(root, object_identifier.trim(), reference) {
         Ok(revision) => read_config(root, &revision, reference),
         Err(problem) => problem,
     }
