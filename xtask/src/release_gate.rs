@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
 use anyhow::Context as _;
+use thiserror::Error;
 
 const USAGE: &str = "\
 Usage:
@@ -18,6 +19,23 @@ pub(crate) enum Outcome {
 
 struct Runner {
     run: fn(binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<Output>,
+    inspect: fn(path: &Path) -> io::Result<fs::Metadata>,
+}
+
+#[derive(Debug, Error)]
+enum ConfigError {
+    #[error("Could not inspect {}", path.display())]
+    Inspect {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("Could not read {}", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,7 +66,10 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     };
 
     let folder = root.join(&arguments.folder);
-    let runner = Runner { run: run_command };
+    let runner = Runner {
+        run: run_command,
+        inspect: inspect_entry,
+    };
 
     match gate(&runner, &binary, &arguments.version, &folder) {
         Ok(outcome) => {
@@ -65,7 +86,7 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
 fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow::Result<Outcome> {
     let config = folder.join("stomme.toml");
 
-    if !is_adopted(&config)? {
+    if !is_adopted(runner, &config)? {
         let check = run_tool(runner, binary, folder, &["check", "--base", "HEAD"])?;
         return Ok(Outcome::NotAdopted {
             output: stderr(&check),
@@ -95,12 +116,19 @@ fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow:
     Ok(Outcome::Passed)
 }
 
-fn is_adopted(config: &Path) -> anyhow::Result<bool> {
-    match fs::symlink_metadata(config) {
+fn is_adopted(runner: &Runner, config: &Path) -> Result<bool, ConfigError> {
+    match (runner.inspect)(config) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error).with_context(|| format!("Could not inspect {}", config.display())),
+        Err(source) => Err(ConfigError::Inspect {
+            path: config.to_path_buf(),
+            source,
+        }),
     }
+}
+
+fn inspect_entry(path: &Path) -> io::Result<fs::Metadata> {
+    fs::symlink_metadata(path)
 }
 
 fn exit_code(outcome: &Outcome) -> ExitCode {
@@ -147,8 +175,10 @@ fn stderr(output: &Output) -> String {
 }
 
 fn rewrite_pinned_version(config: &Path, folder: &Path, version: &str) -> anyhow::Result<()> {
-    let text = fs::read_to_string(config)
-        .with_context(|| format!("Could not read {}", config.display()))?;
+    let text = fs::read_to_string(config).map_err(|source| ConfigError::Read {
+        path: config.to_path_buf(),
+        source,
+    })?;
 
     let rewritten = rewrite_top_level_version(&text, folder, version)?;
 
