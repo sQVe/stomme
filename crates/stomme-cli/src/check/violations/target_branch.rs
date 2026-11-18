@@ -15,6 +15,13 @@ impl TargetBranch {
             read: read_git,
         }
     }
+
+    pub(crate) fn remote_tracking(reference: String) -> Self {
+        Self {
+            reference,
+            read: read_remote_tracking,
+        }
+    }
 }
 
 pub(crate) fn default_reference(pull_request_base: Option<OsString>) -> anyhow::Result<String> {
@@ -47,15 +54,29 @@ fn read_git(root: &Path, reference: &str) -> TargetRead {
         &["rev-parse", "--verify", "--quiet", &commit_argument],
     );
 
-    match resolved {
+    let revision = match resolved {
         Err(error) => return TargetRead::Unavailable(format!("could not run `git`: {error}")),
-        Ok(output) if !output.status.success() => {
-            return TargetRead::Unavailable(format!("the ref `{reference}` does not resolve"));
-        }
-        Ok(_) => {}
-    }
+        Ok(output) if !output.status.success() => return unresolved(reference),
+        Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
+    };
 
-    let object = format!("{reference}:stomme.toml");
+    read_config(root, revision.trim(), reference)
+}
+
+fn read_remote_tracking(root: &Path, reference: &str) -> TargetRead {
+    let resolved = run_git(root, &["show-ref", "--verify", "--hash", reference]);
+
+    let revision = match resolved {
+        Err(error) => return TargetRead::Unavailable(format!("could not run `git`: {error}")),
+        Ok(output) if !output.status.success() => return unresolved(reference),
+        Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
+    };
+
+    read_config(root, revision.trim(), reference)
+}
+
+fn read_config(root: &Path, revision: &str, reference: &str) -> TargetRead {
+    let object = format!("{revision}:stomme.toml");
     let present = run_git(root, &["cat-file", "-e", &object]);
 
     match present {
@@ -69,10 +90,14 @@ fn read_git(root: &Path, reference: &str) -> TargetRead {
     match shown {
         Err(error) => TargetRead::Unavailable(format!("could not run `git`: {error}")),
         Ok(output) if !output.status.success() => {
-            TargetRead::Unavailable(format!("could not read `{object}`"))
+            TargetRead::Unavailable(format!("cannot read `stomme.toml` from `{reference}`"))
         }
         Ok(output) => TargetRead::Config(String::from_utf8_lossy(&output.stdout).into_owned()),
     }
+}
+
+fn unresolved(reference: &str) -> TargetRead {
+    TargetRead::Unavailable(format!("the ref `{reference}` does not resolve"))
 }
 
 fn run_git(root: &Path, arguments: &[&str]) -> io::Result<Output> {

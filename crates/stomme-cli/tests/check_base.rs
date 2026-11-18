@@ -73,6 +73,21 @@ fn assert_growth_names_the_added_entry(output: &Output) {
     assert!(!stderr.contains("fetch"), "{output:?}");
 }
 
+fn assert_unavailable_growth(output: &Output, reference: &str) {
+    let lines = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].ends_with("[violation-growth]"), "{lines:?}");
+    assert!(
+        lines[0].contains(&format!("fetch `{reference}` and try again")),
+        "{lines:?}"
+    );
+}
+
 #[test]
 fn check_compares_a_pull_request_with_its_target_branch() {
     let root = project();
@@ -93,6 +108,26 @@ fn check_resolves_the_pull_request_base_as_a_remote_tracking_ref() {
     let output = stomme(root.path(), &["check"], Some(OsStr::new("parent")));
 
     assert_growth_names_the_added_entry(&output);
+}
+
+#[test]
+fn check_does_not_resolve_the_pull_request_base_through_a_tag() {
+    let root = project();
+    git(
+        root.path(),
+        &["update-ref", "-d", "refs/remotes/origin/parent"],
+    );
+    fs::remove_file(root.path().join("stomme.toml")).expect("remove stomme.toml");
+    commit(root.path(), "without stomme.toml");
+    git(
+        root.path(),
+        &["update-ref", "refs/tags/refs/remotes/origin/parent", "HEAD"],
+    );
+    git(root.path(), &["reset", "--hard", "HEAD^"]);
+
+    let output = stomme(root.path(), &["check"], Some(OsStr::new("parent")));
+
+    assert_unavailable_growth(&output, "refs/remotes/origin/parent");
 }
 
 #[test]
@@ -122,18 +157,8 @@ fn check_names_an_unfetched_pull_request_base() {
     let root = project();
 
     let output = stomme(root.path(), &["check"], Some(OsStr::new("missing")));
-    let lines = String::from_utf8_lossy(&output.stderr)
-        .lines()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
 
-    assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(lines[0].ends_with("[violation-growth]"), "{lines:?}");
-    assert!(
-        lines[0].contains("fetch `refs/remotes/origin/missing` and try again"),
-        "{lines:?}"
-    );
+    assert_unavailable_growth(&output, "refs/remotes/origin/missing");
 }
 
 #[cfg(unix)]

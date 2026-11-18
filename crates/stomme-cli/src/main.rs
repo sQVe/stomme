@@ -37,7 +37,7 @@ fn main() -> ExitCode {
             let pull_request_base = env::var_os("GITHUB_BASE_REF");
 
             match check::default_reference(pull_request_base) {
-                Ok(reference) => run_check(&reference),
+                Ok(reference) => run_check(check::TargetBranch::remote_tracking(reference)),
                 Err(error) => {
                     eprintln!("stomme: {error:#}");
                     ExitCode::FAILURE
@@ -45,7 +45,7 @@ fn main() -> ExitCode {
             }
         }
         [command, flag, reference] if command == "check" && flag == "--base" => {
-            run_check(reference)
+            run_check(check::TargetBranch::git(reference.to_string()))
         }
         [command] if command == "sync" => run_sync(),
         [command, directory] if command == "guides" => run_guides(directory),
@@ -61,8 +61,8 @@ fn main() -> ExitCode {
     clippy::print_stderr,
     reason = "problems and errors are the command's output"
 )]
-fn run_check(reference: &str) -> ExitCode {
-    let problems = match check_current_directory(reference) {
+fn run_check(target: check::TargetBranch) -> ExitCode {
+    let problems = match check_current_directory(target) {
         Ok(problems) => problems,
         Err(error) => {
             eprintln!("stomme: {error:#}");
@@ -81,9 +81,8 @@ fn run_check(reference: &str) -> ExitCode {
     }
 }
 
-fn check_current_directory(reference: &str) -> anyhow::Result<Vec<check::Problem>> {
+fn check_current_directory(target: check::TargetBranch) -> anyhow::Result<Vec<check::Problem>> {
     let root = env::current_dir().context("Could not read the current directory")?;
-    let target = check::TargetBranch::git(reference.to_string());
 
     check::run(&root, layer::catalog(), &target)
 }
