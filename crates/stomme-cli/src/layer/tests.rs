@@ -15,7 +15,17 @@ fn source(name: &'static str, manifest: &'static str) -> Source {
         guide: "",
         refinements: &[],
         detection: Detection::PackageField(name),
+        starter: None,
     }
+}
+
+#[test]
+fn language_parse_reads_the_displayed_name() {
+    for language in [Language::Rust, Language::TypeScript] {
+        assert_eq!(Language::parse(&language.to_string()), Some(language));
+    }
+
+    assert_eq!(Language::parse("Rust"), None);
 }
 
 #[test]
@@ -294,6 +304,7 @@ fn catalog_reports_invalid_layer_bans() {
         guide: "",
         refinements: &[],
         detection: Detection::PackageField("one"),
+        starter: None,
         bans: Some(LayerBans {
             text: "disallowed-methods = [{ path = \"gpui::App::run\" }]\n",
             rule: Rule::GpuiRequiredBan,

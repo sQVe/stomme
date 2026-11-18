@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::rule::{Owner, Rule};
@@ -44,11 +44,21 @@ static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
         .expect("the layer tests check the compiled-in catalog")
 });
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Language {
     Rust,
     TypeScript,
+}
+
+impl Language {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        match name {
+            "rust" => Some(Self::Rust),
+            "typescript" => Some(Self::TypeScript),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Language {
@@ -74,6 +84,13 @@ pub(crate) struct Source {
     bans: Option<LayerBans>,
     refinements: &'static [Refinement],
     detection: Detection,
+    starter: Option<&'static Starter>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Starter {
+    pub(crate) files: &'static [(&'static str, &'static str)],
+    pub(crate) merges: &'static [(&'static str, &'static str)],
 }
 
 pub(crate) struct LayerBans {
@@ -106,6 +123,7 @@ struct Layer {
     guide: &'static str,
     refinements: &'static [Refinement],
     detection: Detection,
+    starter: Option<&'static Starter>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -262,6 +280,7 @@ impl Catalog {
                     guide: source.guide,
                     refinements: source.refinements,
                     detection: source.detection,
+                    starter: source.starter,
                 },
             );
 
@@ -298,6 +317,14 @@ impl Catalog {
 
     pub(crate) fn guide(&self, name: &str) -> Option<&'static str> {
         self.layers.get(name).map(|layer| layer.guide)
+    }
+
+    pub(crate) fn starter(&self, name: &str) -> Option<&'static Starter> {
+        self.layers.get(name).and_then(|layer| layer.starter)
+    }
+
+    pub(crate) fn layer_name(&self, name: &str) -> Option<&'static str> {
+        self.layers.get_key_value(name).map(|(name, _)| *name)
     }
 
     pub(crate) fn refinements(&self, layers: &BTreeSet<String>) -> BTreeSet<Refinement> {
@@ -433,6 +460,7 @@ pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalo
             guide: "",
             refinements: &[],
             detection: Detection::PackageField(name),
+            starter: None,
         })
         .collect();
 
@@ -462,6 +490,7 @@ pub(crate) fn test_policy_catalog(
             }),
             refinements: source.refinements,
             detection: source.detection,
+            starter: source.starter,
         })
         .collect();
 

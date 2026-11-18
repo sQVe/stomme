@@ -1,0 +1,25 @@
+{
+  "name": "{{name}}",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=24.21.0"
+  },
+  "scripts": {
+    "check": "pnpm run typecheck && pnpm run style:check && pnpm run format:check && pnpm run test && stomme check",
+    "typecheck": "tsc --noEmit",
+    "style:check": "stomme-ts-style",
+    "style:fix": "stomme-ts-style --fix",
+    "format": "vp fmt",
+    "format:check": "vp fmt --check",
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "@sqve/stomme-ts-style": "0.0.0",
+    "@types/node": "24.13.3",
+    "typescript": "7.0.2",
+    "vite-plus": "0.3.0",
+    "vitest": "4.1.11"
+  }
+}

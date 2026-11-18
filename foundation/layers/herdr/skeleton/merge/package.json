@@ -1,0 +1,6 @@
+{
+  "main": "main.js",
+  "scripts": {
+    "build": "bun build mods/{{name}}/main.ts --outfile mods/{{name}}/main.js --external herdr --external gpui-kit"
+  }
+}

@@ -1,4 +1,4 @@
-use super::{Detection, LayerBans, Source};
+use super::{Detection, LayerBans, Source, Starter};
 use crate::rule::Rule;
 
 pub(super) const LAYER: Source = Source {
@@ -10,5 +10,14 @@ pub(super) const LAYER: Source = Source {
     }),
     refinements: &[],
     detection: Detection::CargoPackage("gpui"),
+    starter: Some(&STARTER),
     guide: include_str!("../../../../foundation/layers/gpui/guide.md"),
+};
+
+const STARTER: Starter = Starter {
+    files: &[],
+    merges: &[(
+        "clippy.toml",
+        include_str!("../../../../foundation/layers/gpui/skeleton/merge/clippy.toml"),
+    )],
 };

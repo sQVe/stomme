@@ -8,6 +8,7 @@ mod check;
 mod config;
 mod full_check;
 mod guides;
+mod init;
 mod layer;
 mod owned;
 mod packages;
@@ -22,7 +23,7 @@ fn sync_project(root: &std::path::Path) {
     sync::run(root, layer::catalog()).expect("sync the fixture project");
 }
 
-const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>>\n\nCheck or sync the project in the current directory, or write the guides to a folder.";
+const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]>\n\nCheck or sync the project in the current directory, write the guides to a folder, or create a project.";
 
 #[expect(
     clippy::print_stderr,
@@ -38,6 +39,7 @@ fn main() -> ExitCode {
         }
         [command] if command == "sync" => run_sync(),
         [command, directory] if command == "guides" => run_guides(directory),
+        [command, options @ ..] if command == "init" => run_init(options),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::FAILURE
@@ -109,6 +111,7 @@ fn run_guides(directory: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
     let directory = std::path::PathBuf::from(directory);
     let directory = if directory.is_absolute() {
         directory
@@ -117,6 +120,33 @@ fn run_guides(directory: &str) -> ExitCode {
     };
 
     match guides::run(&directory, layer::catalog()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("stomme: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[expect(clippy::print_stderr, reason = "errors are the command's output")]
+fn run_init(arguments: &[String]) -> ExitCode {
+    let request = match init::parse_arguments(arguments) {
+        Ok(request) => request,
+        Err(error) => {
+            eprintln!("stomme: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let root = match env::current_dir().context("Could not read the current directory") {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!("stomme: {error:#}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match init::run(&root, layer::catalog(), &request) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("stomme: {error}");

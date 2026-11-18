@@ -7,7 +7,14 @@ projects in sync. Each project keeps its own modules and decisions. Drift from t
 will fail the project's full check.
 
 stomme is in early development. `stomme check` checks the project in the current directory: its
-`stomme.toml`, its required files, and its ADR index.
+`stomme.toml`, its required files, and its ADR index. `stomme init` creates a project in an empty
+directory:
+
+```sh
+stomme init --name demo --language rust --layers gpui --roles core,cli
+```
+
+`--layers` and `--roles` take comma-separated lists. An invalid request writes nothing.
 
 Install a released binary with mise:
 

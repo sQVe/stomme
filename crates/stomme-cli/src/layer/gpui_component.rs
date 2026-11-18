@@ -6,5 +6,6 @@ pub(super) const LAYER: Source = Source {
     bans: None,
     refinements: &[],
     detection: Detection::CargoPackage("gpui-component"),
+    starter: None,
     guide: include_str!("../../../../foundation/layers/gpui-component/guide.md"),
 };
