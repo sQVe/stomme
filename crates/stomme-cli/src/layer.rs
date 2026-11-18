@@ -318,7 +318,6 @@ impl Catalog {
             .map(|(name, layer)| (*name, layer.detection))
     }
 
-    #[cfg(test)]
     pub(crate) fn guides(&self) -> impl Iterator<Item = (&'static str, &'static str)> + '_ {
         self.layers.iter().map(|(name, layer)| (*name, layer.guide))
     }

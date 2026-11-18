@@ -20,11 +20,14 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::sync::RECORD_SCHEMA;
 
     fn record() -> Record {
         Record {
+            schema: RECORD_SCHEMA,
             version: "1".to_string(),
-            files: BTreeMap::from([("docs/stomme/one.md".to_string(), "hash".to_string())]),
+            agents: None,
+            files: BTreeMap::from([("shared/one.md".to_string(), "hash".to_string())]),
         }
     }
 
@@ -33,19 +36,19 @@ mod tests {
         let record = record();
 
         assert_eq!(
-            record_state(Some(&record), "docs/stomme/one.md", "hash"),
+            record_state(Some(&record), "shared/one.md", "hash"),
             RecordState::Matches
         );
         assert_eq!(
-            record_state(Some(&record), "docs/stomme/one.md", "other"),
+            record_state(Some(&record), "shared/one.md", "other"),
             RecordState::Differs
         );
         assert_eq!(
-            record_state(Some(&record), "docs/stomme/two.md", "hash"),
+            record_state(Some(&record), "shared/two.md", "hash"),
             RecordState::Missing
         );
         assert_eq!(
-            record_state(None, "docs/stomme/one.md", "hash"),
+            record_state(None, "shared/one.md", "hash"),
             RecordState::Missing
         );
     }

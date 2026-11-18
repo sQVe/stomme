@@ -57,17 +57,31 @@ pub(super) fn check(
     }
 
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
-    let recorded_paths: BTreeSet<&str> = record.files.keys().map(String::as_str).collect();
-    let known_paths: BTreeSet<&str> = owned_paths.union(&recorded_paths).copied().collect();
+    let owned_keys: BTreeSet<&str> = owned
+        .iter()
+        .filter_map(|file| sync::record_key(&file.path))
+        .collect();
+    let recorded_paths: BTreeSet<String> = record
+        .files
+        .keys()
+        .map(|key| sync::project_path(key))
+        .collect();
+    let known_paths: BTreeSet<&str> = owned_paths
+        .iter()
+        .copied()
+        .chain(recorded_paths.iter().map(String::as_str))
+        .collect();
 
     for file in &owned {
         check_owned_file(root, file, &record, &mut problems)?;
     }
 
-    for path in &recorded_paths {
-        if !owned_paths.contains(path) && *path != agents_block::PATH {
+    for key in record.files.keys() {
+        if !owned_keys.contains(key.as_str()) {
+            let path = sync::project_path(key);
+
             problems.push(problem(
-                path,
+                &path,
                 "is recorded but not owned by this stomme version; run `stomme sync`",
             ));
         }
@@ -146,13 +160,13 @@ fn check_block(
         return Ok(());
     }
 
-    match sync::record_state(Some(record), agents_block::PATH, &actual) {
-        RecordState::Matches => {}
-        RecordState::Differs => problems.push(block_problem(
+    match record.agents.as_deref() {
+        Some(recorded) if recorded == actual => {}
+        Some(_) => problems.push(block_problem(
             agents_block::PATH,
             "does not match the ownership record; run `stomme sync`",
         )),
-        RecordState::Missing => problems.push(block_problem(
+        None => problems.push(block_problem(
             agents_block::PATH,
             "is not in the ownership record; run `stomme sync`",
         )),
@@ -202,7 +216,9 @@ fn check_owned_file(
         return Ok(());
     }
 
-    match sync::record_state(Some(record), &file.path, &actual) {
+    let key = sync::record_key(&file.path).expect("an owned path is under docs/stomme");
+
+    match sync::record_state(Some(record), key, &actual) {
         RecordState::Matches => {}
         RecordState::Differs => problems.push(problem(
             &file.path,

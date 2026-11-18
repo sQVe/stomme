@@ -37,6 +37,7 @@ the commit in its row.
 
 - [0002: One versioned foundation for every project](./0002-purpose-and-design.md)
 - [0005: Separate languages, framework layers, and roles](./0005-languages-and-layers.md)
+- [0013: Publish a pinned guide bundle for consumers without a project](./0013-consumer-guides.md)
 
 ### Project and toolchain
 

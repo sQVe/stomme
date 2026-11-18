@@ -230,3 +230,16 @@ fn owned_set_reads_the_given_catalog() {
             .any(|file| file.path == "docs/stomme/layers/one/guide.md")
     );
 }
+
+#[test]
+fn bundle_set_holds_every_language_and_layer() {
+    let catalog = crate::layer::catalog();
+    let files = bundle_set(catalog);
+    let paths: BTreeSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
+
+    assert!(paths.contains("docs/stomme/shared/coding.md"));
+    assert!(paths.contains("docs/stomme/languages/rust/guide.md"));
+    assert!(paths.contains("docs/stomme/languages/typescript/guide.md"));
+    assert!(paths.contains("docs/stomme/layers/herdr/guide.md"));
+    assert_eq!(paths.len(), embedded_paths().len());
+}

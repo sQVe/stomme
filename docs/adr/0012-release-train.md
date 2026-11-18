@@ -16,7 +16,8 @@ project adopts it.
 ## Decision
 
 stomme releases the binary through GitHub Releases built by cargo-dist. crates.io is not a
-publishing target.
+publishing target. The binary embeds the guides that `stomme guides` writes, so a guide bundle's
+version is the binary version of the release that carries it.
 
 ### Compatibility record
 

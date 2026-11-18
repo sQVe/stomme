@@ -30,7 +30,9 @@
 
 - `crates/stomme-cli` is the `stomme` binary. `stomme check` checks the project in the current
   directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
-  on any problem. Run it on this repository with `cargo run -q -p stomme -- check`.
+  on any problem. `stomme guides <dir>` writes every shared file and guide, plus `.sync-record.toml`,
+  to `<dir>` for a consumer without a project. Run it on this repository with
+  `cargo run -q -p stomme -- check`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 - `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
   candidate `stomme` binary against one project as its update would, and exits 1 only when an

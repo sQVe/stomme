@@ -62,6 +62,30 @@ fn write_record(root: &Path, path: &str) {
     fs::write(root.join(RECORD_FILE), record).expect("write the record");
 }
 
+const PREVIOUS_BLOCK: &str = "<!-- stomme:start -->\n# Shared rules\n\n- Read [the Rust guide](docs/stomme/languages/rust/guide.md).\n<!-- stomme:end -->\n";
+const PREVIOUS_GUIDE: &str = "old guide\n";
+const CURRENT_GUIDE: &str = "current guide\n";
+
+fn install_record_fixture(root: &Path, name: &str) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/sync-records")
+        .join(name);
+    let destination = root.join(RECORD_FILE);
+
+    fs::create_dir_all(destination.parent().expect("the record has a parent"))
+        .expect("create docs/stomme");
+    fs::copy(source, destination).expect("copy the record fixture");
+}
+
+fn bundled_content(path: &str) -> String {
+    crate::owned::bundle_set(crate::layer::catalog())
+        .into_iter()
+        .find(|file| file.path == path)
+        .expect("the bundle holds the path")
+        .content
+        .to_string()
+}
+
 fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut files = BTreeMap::new();
 
@@ -440,7 +464,7 @@ fn sync_refuses_a_record_that_names_the_record_file() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme/.sync-record.toml`, which is not an owned file"
+                if reason == "names `docs/stomme/.sync-record.toml`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -457,7 +481,7 @@ fn sync_refuses_a_record_that_names_a_path_outside_docs_stomme() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `README.md`, which is not an owned file"
+                if reason == "names `README.md`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -474,7 +498,7 @@ fn sync_refuses_a_record_path_with_an_empty_part() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme//coding.md`, which is not an owned file"
+                if reason == "names `docs/stomme//coding.md`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -491,7 +515,7 @@ fn sync_refuses_a_record_path_with_a_current_folder_part() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme/./coding.md`, which is not an owned file"
+                if reason == "names `docs/stomme/./coding.md`, which is not a synced file"
         ),
         "{error:?}"
     );
@@ -508,7 +532,154 @@ fn sync_refuses_a_record_path_with_a_parent_folder_part() {
         matches!(
             error,
             SyncError::MalformedRecord { ref reason, .. }
-                if reason == "names `docs/stomme/../coding.md`, which is not an owned file"
+                if reason == "names `docs/stomme/../coding.md`, which is not a synced file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_writes_the_current_record_shape() {
+    let root = rust_project(&[]);
+
+    fs::write(root.path().join("AGENTS.md"), "# Project\n").expect("write AGENTS.md");
+    fs::create_dir_all(root.path().join("docs/adr")).expect("create docs/adr");
+    fs::write(root.path().join("docs/adr/README.md"), "# ADR\n").expect("write the ADR index");
+
+    sync_project(root.path()).expect("sync succeeds");
+
+    let record = Record::read(root.path())
+        .expect("read the record")
+        .expect("the record exists");
+
+    assert_eq!(record.schema, RECORD_SCHEMA);
+    assert!(record.agents.is_some());
+    assert!(record.files.contains_key("shared/coding.md"));
+    assert!(!record.files.contains_key("docs/stomme/shared/coding.md"));
+    assert!(!record.files.contains_key("AGENTS.md"));
+}
+
+#[test]
+fn sync_reads_the_frozen_previous_record() {
+    let root = rust_project(&[]);
+
+    install_record_fixture(root.path(), "previous.toml");
+
+    let record = Record::read(root.path())
+        .expect("read the record")
+        .expect("the record exists");
+
+    assert_eq!(record.schema, RECORD_SCHEMA);
+    assert_eq!(record.version, "0.0.0");
+    assert_eq!(record.agents, Some(hash(PREVIOUS_BLOCK.as_bytes())));
+    assert_eq!(
+        record.files.get("shared/coding.md"),
+        Some(&hash(PREVIOUS_GUIDE.as_bytes()))
+    );
+    assert!(!record.files.contains_key("AGENTS.md"));
+    assert!(!record.files.contains_key("docs/stomme/shared/coding.md"));
+}
+
+#[test]
+fn sync_rewrites_the_frozen_previous_record() {
+    let root = rust_project(&[]);
+    let coding = bundled_content("docs/stomme/shared/coding.md");
+
+    fs::write(
+        root.path().join("AGENTS.md"),
+        format!("# Project\n\n{PREVIOUS_BLOCK}"),
+    )
+    .expect("write AGENTS.md");
+    fs::create_dir_all(root.path().join("docs/adr")).expect("create docs/adr");
+    fs::write(root.path().join("docs/adr/README.md"), "# ADR\n").expect("write the ADR index");
+    fs::create_dir_all(root.path().join("docs/stomme/shared")).expect("create docs/stomme/shared");
+    fs::write(
+        root.path().join("docs/stomme/shared/coding.md"),
+        PREVIOUS_GUIDE,
+    )
+    .expect("write the recorded guide");
+    install_record_fixture(root.path(), "previous.toml");
+
+    sync_project(root.path()).expect("sync succeeds");
+
+    let record = Record::read(root.path())
+        .expect("read the record")
+        .expect("the record exists");
+    let block = crate::agents_block::render(&selection(Language::Rust), None);
+
+    assert_eq!(record.schema, RECORD_SCHEMA);
+    assert_eq!(record.agents, Some(hash(block.as_bytes())));
+    assert_eq!(
+        record.files.get("shared/coding.md"),
+        Some(&hash(coding.as_bytes()))
+    );
+    assert!(!record.files.contains_key("AGENTS.md"));
+    assert!(!record.files.contains_key("docs/stomme/shared/coding.md"));
+    assert_eq!(
+        fs::read_to_string(root.path().join("docs/stomme/shared/coding.md"))
+            .expect("read the rewritten guide"),
+        coding
+    );
+}
+
+#[test]
+fn sync_reads_the_frozen_current_record() {
+    let root = rust_project(&[]);
+
+    install_record_fixture(root.path(), "current.toml");
+
+    let record = Record::read(root.path())
+        .expect("read the record")
+        .expect("the record exists");
+
+    assert_eq!(record.schema, RECORD_SCHEMA);
+    assert_eq!(record.version, "0.1.0");
+    assert_eq!(record.agents, Some(hash(PREVIOUS_BLOCK.as_bytes())));
+    assert_eq!(
+        record.files.get("shared/coding.md"),
+        Some(&hash(CURRENT_GUIDE.as_bytes()))
+    );
+}
+
+#[test]
+fn sync_refuses_a_directory_as_the_record() {
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join(RECORD_FILE)).expect("create a directory as the record");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. } if reason == "is not a regular file"
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn sync_refuses_a_current_record_with_an_unsafe_key() {
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join("docs/stomme")).expect("create docs/stomme");
+    fs::write(
+        root.path().join(RECORD_FILE),
+        format!(
+            "schema = 1\nversion = \"{}\"\n[files]\n\"../coding.md\" = \"{}\"\n",
+            env!("CARGO_PKG_VERSION"),
+            "0".repeat(64),
+        ),
+    )
+    .expect("write the record");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref reason, .. }
+                if reason == "names `../coding.md`, which is not a synced file"
         ),
         "{error:?}"
     );
