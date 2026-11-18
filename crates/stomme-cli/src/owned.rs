@@ -205,7 +205,8 @@ fn check_link(
     if let Some(anchor) = link.anchor
         && resolved.ends_with(".md")
     {
-        let found = index.has_anchor(&resolved, anchor);
+        let found =
+            percent_decode(anchor).is_some_and(|decoded| index.has_anchor(&resolved, &decoded));
 
         if !found {
             return Err(LinkError::MissingAnchor {
@@ -295,6 +296,33 @@ fn headings(text: &str) -> Vec<String> {
     }
 
     headings
+}
+
+fn percent_decode(fragment: &str) -> Option<String> {
+    let bytes = fragment.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut position = 0;
+
+    while position < bytes.len() {
+        if bytes[position] == b'%' {
+            let high = hex_value(*bytes.get(position + 1)?)?;
+            let low = hex_value(*bytes.get(position + 2)?)?;
+
+            decoded.push(high * 16 + low);
+            position += 3;
+        } else {
+            decoded.push(bytes[position]);
+            position += 1;
+        }
+    }
+
+    String::from_utf8(decoded).ok()
+}
+
+fn hex_value(digit: u8) -> Option<u8> {
+    let value = char::from(digit).to_digit(16)?;
+
+    u8::try_from(value).ok()
 }
 
 fn slug(heading: &str) -> String {
