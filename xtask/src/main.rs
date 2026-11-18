@@ -3,6 +3,8 @@ mod mutation;
 mod release_gate;
 #[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod workflow;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
