@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
 
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::layer::{self, Catalog, Language};
 use crate::rule::Rule;
@@ -19,23 +19,19 @@ pub(crate) enum Installation {
     Broken(Reason),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum Reason {
+    #[error("is a symbolic link; use a regular file")]
     SymbolicLink,
+    #[error("is not a regular file")]
     NotRegularFile,
-    Unreadable { source: io::Error },
+    #[error("could not read the file: {source}")]
+    Unreadable {
+        #[source]
+        source: io::Error,
+    },
+    #[error("{0}")]
     Invalid(String),
-}
-
-impl fmt::Display for Reason {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::SymbolicLink => formatter.write_str("is a symbolic link; use a regular file"),
-            Self::NotRegularFile => formatter.write_str("is not a regular file"),
-            Self::Unreadable { source } => write!(formatter, "could not read the file: {source}"),
-            Self::Invalid(reason) => formatter.write_str(reason),
-        }
-    }
 }
 
 pub(crate) struct FileRead {

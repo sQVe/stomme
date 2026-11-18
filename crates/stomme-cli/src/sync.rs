@@ -48,7 +48,7 @@ pub(crate) enum SyncError {
     #[error("stomme.toml is missing; add one with `schema = 1`, `version`, and a `language`")]
     NoStomme,
     #[error("stomme.toml {reason}")]
-    Broken { reason: String },
+    Broken { reason: config::Reason },
     #[error(transparent)]
     Link(#[from] LinkError),
     #[error("the ownership record {path} is malformed: {reason}")]
@@ -102,11 +102,7 @@ pub(crate) fn run(
     let selection = match config::read(root, catalog, file) {
         Installation::Valid(selection) => selection,
         Installation::NoStomme => return Err(SyncError::NoStomme),
-        Installation::Broken(reason) => {
-            return Err(SyncError::Broken {
-                reason: reason.to_string(),
-            });
-        }
+        Installation::Broken(reason) => return Err(SyncError::Broken { reason }),
     };
     let owned = owned::owned_set(&selection, catalog);
 

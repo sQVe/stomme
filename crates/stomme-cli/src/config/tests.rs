@@ -94,6 +94,12 @@ fn recording_read(path: &Path) -> io::Result<String> {
     fs::read_to_string(path)
 }
 
+fn spy_read(_path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+
+    Ok(with_version("language = \"typescript\"\n"))
+}
+
 fn denied_inspect(_path: &Path) -> io::Result<fs::Metadata> {
     Err(io::Error::from(io::ErrorKind::PermissionDenied))
 }
@@ -123,6 +129,7 @@ fn read_classifies_the_config_entry() {
         LinkInside,
         LinkOutside,
         DanglingLink,
+        LinkLoop,
         LinkThroughFile,
         Fifo,
         Directory,
@@ -157,6 +164,7 @@ fn read_classifies_the_config_entry() {
                 symlink(outside.path().join(CONFIG_FILE), path).expect("create the link");
             }
             Entry::DanglingLink => symlink("missing.toml", path).expect("create the link"),
+            Entry::LinkLoop => symlink(CONFIG_FILE, path).expect("create the link loop"),
             Entry::LinkThroughFile => {
                 fs::write(root.path().join("regular"), "contents").expect("write the file");
                 symlink("regular/child.toml", path).expect("create the link");
@@ -175,9 +183,13 @@ fn read_classifies_the_config_entry() {
 
     fn file_read(entry: Entry) -> FileRead {
         match entry {
+            Entry::Regular => FileRead {
+                inspect: inspect_entry,
+                read: recording_read,
+            },
             Entry::InspectDenied => FileRead {
                 inspect: denied_inspect,
-                read: recording_read,
+                read: spy_read,
             },
             Entry::ReadDenied => FileRead {
                 inspect: inspect_entry,
@@ -189,7 +201,7 @@ fn read_classifies_the_config_entry() {
             },
             _ => FileRead {
                 inspect: inspect_entry,
-                read: recording_read,
+                read: spy_read,
             },
         }
     }
@@ -215,6 +227,7 @@ fn read_classifies_the_config_entry() {
             Expected::SymbolicLink,
             0,
         ),
+        ("link loop", Entry::LinkLoop, Expected::SymbolicLink, 0),
         (
             "link through a file",
             Entry::LinkThroughFile,
