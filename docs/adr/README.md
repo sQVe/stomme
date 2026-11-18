@@ -39,6 +39,7 @@ the commit in its row.
 - [0005: Separate languages, framework layers, and roles](./0005-languages-and-layers.md)
 - [0013: Publish a pinned guide bundle for consumers without a project](./0013-consumer-guides.md)
 - [0014: Compose new projects from owned starter files](./0014-starter-files.md)
+- [0015: Generate Herdr declarations from a pinned herdr-app](./0015-herdr-declarations-and-pin.md)
 
 ### Project and toolchain
 
