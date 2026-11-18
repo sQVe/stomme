@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use thiserror::Error;
+use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
 use crate::config::Selection;
 use crate::layer::Catalog;
@@ -325,14 +326,27 @@ fn hex_value(digit: u8) -> Option<u8> {
     u8::try_from(value).ok()
 }
 
-fn slug(heading: &str) -> String {
-    let mut slug = String::with_capacity(heading.len());
+fn is_slug_character(character: char) -> bool {
+    let is_kept_category = matches!(
+        character.general_category(),
+        GeneralCategory::NonspacingMark
+            | GeneralCategory::SpacingMark
+            | GeneralCategory::EnclosingMark
+            | GeneralCategory::DecimalNumber
+            | GeneralCategory::ConnectorPunctuation
+    );
 
-    for character in heading.chars() {
+    character.is_alphabetic() || is_kept_category
+}
+
+fn slug(heading: &str) -> String {
+    let lowercased = heading.to_lowercase();
+    let mut slug = String::with_capacity(lowercased.len());
+
+    for character in lowercased.chars() {
         match character {
             ' ' | '-' => slug.push('-'),
-            '_' => slug.push('_'),
-            other if other.is_alphanumeric() => slug.extend(other.to_lowercase()),
+            other if is_slug_character(other) => slug.push(other),
             _ => {}
         }
     }

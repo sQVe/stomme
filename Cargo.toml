@@ -20,6 +20,9 @@ tempfile = "3"
 thiserror = "2"
 toml = "1"
 toml_edit = "0.25"
+unicode-properties = { version = "0.1.5", default-features = false, features = [
+  "general-category",
+] }
 
 [profile.dist]
 inherits = "release"

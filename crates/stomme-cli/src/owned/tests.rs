@@ -175,6 +175,48 @@ fn validate_links_decides_each_heading_anchor() {
             first_missing: None,
         },
         AnchorCase {
+            name: "a heading with combining marks",
+            headings: "## नमस्ते\n",
+            links: "[two](./two.md#नमस्ते)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with connector punctuation",
+            headings: "## a‿b\n",
+            links: "[two](./two.md#a‿b)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with a spacing mark that is not alphabetic",
+            headings: "## a\u{1D165}b\n",
+            links: "[two](./two.md#a\u{1D165}b)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with an enclosing mark",
+            headings: "## a\u{20DD}b\n",
+            links: "[two](./two.md#a\u{20DD}b)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with a superscript digit",
+            headings: "## m²\n",
+            links: "[two](./two.md#m)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading whose last letter is a final sigma",
+            headings: "## \u{39F}\u{3A3}\n",
+            links: "[two](./two.md#\u{3BF}\u{3C2})\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a lone capital sigma",
+            headings: "## \u{3A3}\n",
+            links: "[two](./two.md#\u{3C3})\n",
+            first_missing: None,
+        },
+        AnchorCase {
             name: "a non-ASCII heading linked as written",
             headings: "## Café\n",
             links: "[two](./two.md#café)\n",

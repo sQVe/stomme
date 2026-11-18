@@ -290,6 +290,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "unicode-properties",
 ]
 
 [[package]]
