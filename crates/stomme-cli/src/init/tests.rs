@@ -88,6 +88,36 @@ fn run_fails_before_writing_for_a_duplicate_role() {
 }
 
 #[test]
+fn run_fails_before_writing_for_a_rust_xtask_name() {
+    let root = empty_folder();
+    let request = Request {
+        name: "xtask".to_string(),
+        ..request(Language::Rust, &[], &[])
+    };
+
+    let error = run(root.path(), layer::catalog(), &request).expect_err("the name collides");
+
+    assert!(
+        matches!(&error, InitError::NameCollision { name } if name == "xtask"),
+        "{error:?}"
+    );
+    assert_eq!(entries(root.path()), Vec::<String>::new());
+}
+
+#[test]
+fn run_accepts_a_typescript_xtask_name() {
+    let root = empty_folder();
+    let request = Request {
+        name: "xtask".to_string(),
+        ..request(Language::TypeScript, &[], &[])
+    };
+
+    run(root.path(), layer::catalog(), &request).expect("typescript accepts the name");
+
+    assert!(root.path().join("stomme.toml").is_file());
+}
+
+#[test]
 fn run_fails_when_the_folder_is_not_empty() {
     let root = empty_folder();
     let request = request(Language::Rust, &[], &[]);

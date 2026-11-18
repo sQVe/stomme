@@ -284,6 +284,14 @@ fn init_fails_before_writing_for_an_unknown_role() {
 }
 
 #[test]
+fn init_fails_before_writing_for_a_rust_xtask_name() {
+    assert_init_refuses_with_an_empty_folder(
+        &["--name", "xtask", "--language", "rust"],
+        &["xtask", "collides"],
+    );
+}
+
+#[test]
 fn init_refuses_a_folder_that_is_not_empty() {
     let root = project_root();
 

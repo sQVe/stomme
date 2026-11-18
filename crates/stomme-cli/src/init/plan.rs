@@ -30,6 +30,7 @@ struct Config<'a> {
 }
 
 pub(crate) fn validate(root: &Path, catalog: &Catalog, request: &Request) -> Result<(), InitError> {
+    validate_name(request)?;
     layer::select(catalog, request.language, request.layers.clone())?;
     validate_roles(request)?;
     check_empty(root)
@@ -92,6 +93,16 @@ pub(crate) fn execute(root: &Path, plan: &InitPlan) -> Result<(), InitError> {
         }
 
         fs::write(&target, text).map_err(write_error)?;
+    }
+
+    Ok(())
+}
+
+fn validate_name(request: &Request) -> Result<(), InitError> {
+    if request.language == Language::Rust && request.name == "xtask" {
+        return Err(InitError::NameCollision {
+            name: request.name.clone(),
+        });
     }
 
     Ok(())

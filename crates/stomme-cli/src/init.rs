@@ -42,6 +42,8 @@ pub(crate) enum InitError {
         "the name `{name}` is not a lower-case letter followed by lower-case letters, digits, or `-`"
     )]
     Name { name: String },
+    #[error("the name `{name}` collides with the generated `{name}` package; choose another name")]
+    NameCollision { name: String },
     #[error(transparent)]
     Selection(#[from] SelectionError),
     #[error("role `{role}` has no starter for {language}")]
