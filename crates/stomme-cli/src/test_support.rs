@@ -140,6 +140,8 @@ pub(crate) fn commit(root: &Path, message: &str) {
             "user.name=Stomme Test",
             "-c",
             "user.email=stomme@example.com",
+            "-c",
+            "commit.gpgsign=false",
             "commit",
             "-qm",
             message,
