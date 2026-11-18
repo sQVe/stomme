@@ -35,6 +35,10 @@ are fragments of a shared target at the same path. `{{name}}` and `{{version}}` 
 every path and text. The binary embeds each file, so a release carries its starters as it carries
 its synced text.
 
+A layer that needs set-up steps puts them in `docs/<layer>.md` in its skeleton. The language's
+`docs/development.md` links that path pattern, because whole-file ownership stops a layer from
+adding a step to the language's file.
+
 ### Ownership and merge rules
 
 - A whole file has one owner. Two sources that both own a path are an error, even with equal

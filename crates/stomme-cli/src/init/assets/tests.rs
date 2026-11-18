@@ -316,6 +316,33 @@ fn plan_keeps_the_layer_files_apart() {
 }
 
 #[test]
+fn layer_starters_keep_their_set_up_steps_in_the_layer_doc() {
+    let mut layers_with_docs = 0;
+
+    for (name, _) in layer::catalog().guides() {
+        let Some(starter) = layer::catalog().starter(name) else {
+            continue;
+        };
+
+        for (path, _) in starter.files {
+            if path.starts_with("docs/") {
+                layers_with_docs += 1;
+                assert_eq!(*path, format!("docs/{name}.md"), "layer {name}");
+            }
+        }
+    }
+
+    assert!(layers_with_docs > 0, "no layer starter has a doc");
+}
+
+#[test]
+fn typescript_development_guide_links_the_layer_docs() {
+    let plan = typescript_plan(&[]);
+
+    assert!(plan.files["docs/development.md"].contains("`docs/<layer>.md`"));
+}
+
+#[test]
 fn plan_includes_the_catalogue_starter_for_a_selected_layer() {
     let request = request(Language::TypeScript, &["react"], &[]);
     let sources = super::sources(&request, layer::catalog()).expect("the sources resolve");
