@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 
@@ -46,4 +47,34 @@ fn git_reader_reads_each_target_state() {
         read(missing_ref.path()),
         TargetRead::Unavailable(_)
     ));
+}
+
+#[test]
+fn default_reference_maps_the_pull_request_base() {
+    let cases = [
+        ("no pull request base", None, "refs/remotes/origin/main"),
+        ("an empty base", Some(""), "refs/remotes/origin/main"),
+        (
+            "a base name",
+            Some("stack/parent"),
+            "refs/remotes/origin/stack/parent",
+        ),
+    ];
+
+    for (case, base, expected) in cases {
+        let reference = default_reference(base.map(OsString::from));
+
+        assert_eq!(reference.expect(case), expected, "{case}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn default_reference_rejects_a_non_utf8_pull_request_base() {
+    use std::os::unix::ffi::OsStringExt as _;
+
+    let base = OsString::from_vec(vec![0xff]);
+    let error = default_reference(Some(base)).expect_err("a non-UTF-8 base");
+
+    assert!(error.to_string().contains("GITHUB_BASE_REF"), "{error:#}");
 }

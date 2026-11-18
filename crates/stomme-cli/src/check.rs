@@ -26,7 +26,7 @@ mod synced_files;
 mod test_support;
 mod violations;
 
-pub(crate) use violations::TargetBranch;
+pub(crate) use violations::{TargetBranch, default_reference};
 
 #[cfg(test)]
 pub(crate) use package_pins::write_pinned_fixture;

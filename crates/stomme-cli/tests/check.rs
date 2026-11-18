@@ -17,6 +17,7 @@ fn stomme(root: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_stomme"))
         .args(arguments)
         .current_dir(root)
+        .env_remove("GITHUB_BASE_REF")
         .output()
         .expect("run stomme")
 }
