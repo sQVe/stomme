@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::scopes::{self, Scope, Target};
@@ -18,12 +19,52 @@ enum Meaning {
 }
 
 type ScopeKey = (String, Vec<String>);
-type InProgress = BTreeSet<(Vec<String>, String)>;
+type Pair = (Vec<String>, String);
+
+const LOOKUP_BUDGET: usize = 10_000;
+
+/// State of one `reached_files` call.
+struct Walk {
+    /// Open pairs, each with its index on the lookup stack.
+    open: BTreeMap<Pair, usize>,
+    /// Lowest stack index that a lookup cut since its enclosing lookup began.
+    lowest_cut: Option<usize>,
+    remaining: usize,
+    exhausted: bool,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Self {
+            open: BTreeMap::new(),
+            lowest_cut: None,
+            remaining: LOOKUP_BUDGET,
+            exhausted: false,
+        }
+    }
+
+    fn spend(&mut self) -> bool {
+        if self.remaining == 0 {
+            self.exhausted = true;
+
+            return false;
+        }
+
+        self.remaining -= 1;
+
+        true
+    }
+
+    fn record_cut(&mut self, index: usize) {
+        self.lowest_cut = Some(self.lowest_cut.map_or(index, |lowest| lowest.min(index)));
+    }
+}
 
 pub(super) struct Resolver<'a> {
     pub(super) tree: &'a Tree,
     pub(super) modules: &'a [Module],
     scopes: BTreeMap<ScopeKey, Scope>,
+    memo: RefCell<BTreeMap<(Place, String), BTreeSet<Meaning>>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -45,6 +86,7 @@ impl<'a> Resolver<'a> {
             tree,
             modules,
             scopes,
+            memo: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -54,14 +96,14 @@ impl<'a> Resolver<'a> {
         let Some((last, middle)) = segments.split_last() else {
             return reached;
         };
-        let mut in_progress = InProgress::new();
+        let mut walk = Walk::new();
         let mut places = BTreeSet::from([entry_place(module)]);
 
         for segment in middle {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.module_places(module, place, segment, &mut in_progress);
+                let found = self.module_places(module, place, segment, &mut walk);
 
                 if found.is_empty() {
                     reached.extend(place.file.clone());
@@ -74,8 +116,12 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let meanings = self.lookup(module, place, last, &mut in_progress);
+            let meanings = self.lookup(module, place, last, &mut walk);
             reached.extend(terminal_files(place, &meanings));
+        }
+
+        if walk.exhausted {
+            return BTreeSet::new();
         }
 
         reached
@@ -86,23 +132,46 @@ impl<'a> Resolver<'a> {
         module: &Module,
         place: &Place,
         name: &str,
-        in_progress: &mut InProgress,
+        walk: &mut Walk,
     ) -> BTreeSet<Meaning> {
+        if !walk.spend() {
+            return BTreeSet::new();
+        }
+
+        let memo_key = (place.clone(), name.to_string());
+        let remembered = self.memo.borrow().get(&memo_key).cloned();
+
+        if let Some(meanings) = remembered {
+            return meanings;
+        }
+
         let mut meanings = self.child_meanings(module, place, name);
         let Some(scope) = self.scope(module, &place.path) else {
             return meanings;
         };
         let pair = (place.path.clone(), name.to_string());
 
-        if !in_progress.insert(pair.clone()) {
+        if let Some(&index) = walk.open.get(&pair) {
+            walk.record_cut(index);
+
             return meanings;
         }
 
+        let index = walk.open.len();
+        let outer_cut = walk.lowest_cut.take();
+        walk.open.insert(pair.clone(), index);
+
         for export in scope.exports.iter().filter(|export| export.name == name) {
-            meanings.extend(self.resolve_target(module, place, &export.target, in_progress));
+            meanings.extend(self.resolve_target(module, place, &export.target, walk));
         }
 
-        in_progress.remove(&pair);
+        walk.open.remove(&pair);
+        let open_cut = walk.lowest_cut.filter(|cut| *cut < index);
+        walk.lowest_cut = [outer_cut, open_cut].into_iter().flatten().min();
+
+        if open_cut.is_none() && !walk.exhausted {
+            self.memo.borrow_mut().insert(memo_key, meanings.clone());
+        }
 
         meanings
     }
@@ -155,9 +224,9 @@ impl<'a> Resolver<'a> {
         module: &Module,
         place: &Place,
         segment: &str,
-        in_progress: &mut InProgress,
+        walk: &mut Walk,
     ) -> BTreeSet<Place> {
-        let meanings = self.lookup(module, place, segment, in_progress);
+        let meanings = self.lookup(module, place, segment, walk);
 
         meanings
             .into_iter()
@@ -173,17 +242,17 @@ impl<'a> Resolver<'a> {
         module: &Module,
         place: &Place,
         target: &Target,
-        in_progress: &mut InProgress,
+        walk: &mut Walk,
     ) -> BTreeSet<Meaning> {
         let item = BTreeSet::from([Meaning::Item]);
 
         match target {
             Target::External => item,
-            Target::Bare(segments) => self.walk_target(module, place, segments, in_progress),
+            Target::Bare(segments) => self.walk_target(module, place, segments, walk),
             Target::Relative {
                 supers: 0,
                 segments,
-            } => self.walk_target(module, place, segments, in_progress),
+            } => self.walk_target(module, place, segments, walk),
             Target::Relative { supers, segments } => {
                 let Some(kept) = place.path.len().checked_sub(*supers) else {
                     return item;
@@ -191,9 +260,9 @@ impl<'a> Resolver<'a> {
                 let mut absolute = place.path[..kept].to_vec();
                 absolute.extend(segments.iter().cloned());
 
-                self.resolve_absolute(module, &absolute, in_progress)
+                self.resolve_absolute(module, &absolute, walk)
             }
-            Target::Crate(segments) => self.resolve_absolute(module, segments, in_progress),
+            Target::Crate(segments) => self.resolve_absolute(module, segments, walk),
         }
     }
 
@@ -201,7 +270,7 @@ impl<'a> Resolver<'a> {
         &self,
         module: &Module,
         absolute: &[String],
-        in_progress: &mut InProgress,
+        walk: &mut Walk,
     ) -> BTreeSet<Meaning> {
         let inside_row =
             absolute.starts_with(&module.path) && !self.in_deeper_row(module, absolute);
@@ -213,7 +282,7 @@ impl<'a> Resolver<'a> {
         let start = entry_place(module);
         let segments = &absolute[module.path.len()..];
 
-        self.walk_target(module, &start, segments, in_progress)
+        self.walk_target(module, &start, segments, walk)
     }
 
     fn walk_target(
@@ -221,7 +290,7 @@ impl<'a> Resolver<'a> {
         module: &Module,
         start: &Place,
         segments: &[String],
-        in_progress: &mut InProgress,
+        walk: &mut Walk,
     ) -> BTreeSet<Meaning> {
         let Some((last, middle)) = segments.split_last() else {
             return BTreeSet::from([Meaning::Module(start.clone())]);
@@ -233,7 +302,7 @@ impl<'a> Resolver<'a> {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.module_places(module, place, segment, in_progress);
+                let found = self.module_places(module, place, segment, walk);
 
                 if found.is_empty() {
                     meanings.insert(Meaning::Item);
@@ -246,7 +315,7 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let found = self.lookup(module, place, last, in_progress);
+            let found = self.lookup(module, place, last, walk);
 
             if found.is_empty() {
                 meanings.insert(Meaning::Item);

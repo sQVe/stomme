@@ -551,6 +551,53 @@ fn an_alias_to_another_row_is_not_walked_from_the_entry() {
     );
 }
 
+#[test]
+fn fan_in_alias_chains_resolve_without_exponential_work() {
+    let mut fan_in =
+        "pub mod attention;\npub use self::attention as a0;\npub use self::attention as b0;\n"
+            .to_string();
+
+    for level in 1..=64 {
+        let previous = level - 1;
+        fan_in.push_str(&format!(
+            "pub use self::b{previous} as a{level};\npub use self::b{previous} as b{level};\npub use self::a{previous} as b{level};\n"
+        ));
+    }
+
+    let closed = format!("{fan_in}pub use self::b64 as b0;\n");
+    let self_cycles: String = (1..=64)
+        .map(|level| {
+            format!("pub use self::a{level} as a{level};\npub use self::b{level} as b{level};\n")
+        })
+        .collect();
+    let looped = format!("{fan_in}{self_cycles}");
+    let cases = [
+        ("fan-in chain", fan_in, vec![ATTENTION]),
+        ("fan-in chain closed into a cycle", closed, Vec::new()),
+        (
+            "fan-in chain with a self-cycle per level",
+            looped,
+            vec![ATTENTION],
+        ),
+    ];
+
+    for (name, fact_entry, keys) in cases {
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let root = alias_project(&fact_entry, &[], "", "use crate::fact::b64::helper;\n");
+
+            sender.send(problems(root.path())).ok();
+        });
+
+        let problems = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("{name}: the check did not finish in 10 seconds"));
+
+        assert_keys(&problems, &keys, name);
+    }
+}
+
 fn assert_keys(problems: &[Problem], keys: &[&str], name: &str) {
     let found: Vec<_> = problems
         .iter()
