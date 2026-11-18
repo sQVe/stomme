@@ -27,13 +27,23 @@ const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init 
 
 #[expect(
     clippy::print_stderr,
-    reason = "the usage message is the command's output"
+    reason = "the usage message and errors are the command's output"
 )]
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
 
     match arguments.as_slice() {
-        [command] if command == "check" => run_check("origin/main"),
+        [command] if command == "check" => {
+            let pull_request_base = env::var_os("GITHUB_BASE_REF");
+
+            match check::default_reference(pull_request_base) {
+                Ok(reference) => run_check(&reference),
+                Err(error) => {
+                    eprintln!("stomme: {error:#}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         [command, flag, reference] if command == "check" && flag == "--base" => {
             run_check(reference)
         }

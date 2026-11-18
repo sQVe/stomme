@@ -7,7 +7,7 @@ use crate::rule::Rule;
 
 mod target_branch;
 
-pub(crate) use target_branch::{TargetBranch, TargetRead};
+pub(crate) use target_branch::{TargetBranch, TargetRead, default_reference};
 
 pub(crate) fn apply(problems: Vec<Problem>, recorded: &[Violation]) -> Vec<Problem> {
     let mut matched = vec![false; recorded.len()];

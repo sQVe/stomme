@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -14,6 +15,22 @@ impl TargetBranch {
             read: read_git,
         }
     }
+}
+
+pub(crate) fn default_reference(pull_request_base: Option<OsString>) -> anyhow::Result<String> {
+    let Some(base) = pull_request_base else {
+        return Ok("origin/main".to_string());
+    };
+
+    if base.is_empty() {
+        return Ok("origin/main".to_string());
+    }
+
+    let name = base
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("GITHUB_BASE_REF is not valid UTF-8"))?;
+
+    Ok(format!("origin/{name}"))
 }
 
 #[derive(Debug, PartialEq, Eq)]
