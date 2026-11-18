@@ -26,9 +26,9 @@
    herdr-app --version
    ```
 
-   `herdr-app --version` prints `herdr-app 0.1.16`. Add the `export` line to your shell profile to
-   keep it. On macOS, mise skips this tool. Install the Herdr app with
-   `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` instead.
+   Compare the output of `herdr-app --version` with the version in that file. The `export` line
+   affects only the current shell, so run it again in a new shell. On macOS, mise skips this tool.
+   Install the Herdr app with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` instead.
 4. Install JavaScript dependencies from the repository root:
 
    ```sh

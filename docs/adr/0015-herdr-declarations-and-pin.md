@@ -49,7 +49,7 @@ names in the generated declarations, because Herdr has no command that lists its
 ### Positive
 
 - A fresh clone typechecks after `pnpm install`.
-- The declarations always match the pinned Herdr.
+- On Linux, the declarations always match the pinned Herdr.
 
 ### Negative
 
