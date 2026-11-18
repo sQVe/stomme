@@ -65,7 +65,7 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
 fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow::Result<Outcome> {
     let config = folder.join("stomme.toml");
 
-    if !config.exists() {
+    if !is_adopted(&config)? {
         let check = run_tool(runner, binary, folder, &["check", "--base", "HEAD"])?;
         return Ok(Outcome::NotAdopted {
             output: stderr(&check),
@@ -93,6 +93,14 @@ fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow:
     }
 
     Ok(Outcome::Passed)
+}
+
+fn is_adopted(config: &Path) -> anyhow::Result<bool> {
+    match fs::symlink_metadata(config) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("Could not inspect {}", config.display())),
+    }
 }
 
 fn exit_code(outcome: &Outcome) -> ExitCode {

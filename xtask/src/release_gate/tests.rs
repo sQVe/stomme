@@ -220,6 +220,117 @@ fn gate_reports_a_project_without_stomme_toml_without_failing() {
     assert_eq!(std::fs::read_dir(folder.path()).unwrap().count(), 0);
 }
 
+enum Entry {
+    Absent,
+    RegularFile,
+    BrokenLink,
+    LinkLoop,
+    FolderIsAFile,
+}
+
+enum Expected {
+    NotAdopted,
+    Passed,
+    Refused {
+        message: fn(config: &Path) -> String,
+    },
+}
+
+fn could_not_read(config: &Path) -> String {
+    let cause = std::fs::read_to_string(config).expect_err("the entry cannot be read");
+
+    format!("Could not read {}: {cause}", config.display())
+}
+
+fn could_not_inspect(config: &Path) -> String {
+    let cause = std::fs::symlink_metadata(config).expect_err("the entry cannot be inspected");
+
+    format!("Could not inspect {}: {cause}", config.display())
+}
+
+#[test]
+fn gate_decides_adoption_from_the_stomme_toml_entry() {
+    use std::os::unix::fs::symlink;
+
+    let table = [
+        ("absent", Entry::Absent, Expected::NotAdopted),
+        ("regular file", Entry::RegularFile, Expected::Passed),
+        (
+            "broken link",
+            Entry::BrokenLink,
+            Expected::Refused {
+                message: could_not_read,
+            },
+        ),
+        (
+            "link loop",
+            Entry::LinkLoop,
+            Expected::Refused {
+                message: could_not_read,
+            },
+        ),
+        (
+            "folder is a file",
+            Entry::FolderIsAFile,
+            Expected::Refused {
+                message: could_not_inspect,
+            },
+        ),
+    ];
+
+    for (name, entry, expected) in table {
+        let scratch = temporary_directory();
+        let folder = match entry {
+            Entry::FolderIsAFile => {
+                let file = scratch.path().join("file");
+                std::fs::write(&file, "").expect("write the file");
+                file
+            }
+            _ => scratch.path().to_path_buf(),
+        };
+        let config = folder.join("stomme.toml");
+
+        match entry {
+            Entry::Absent | Entry::FolderIsAFile => {}
+            Entry::RegularFile => std::fs::write(&config, CONFIG).expect("write stomme.toml"),
+            Entry::BrokenLink => {
+                symlink(scratch.path().join("missing.toml"), &config).expect("create the link");
+            }
+            Entry::LinkLoop => {
+                symlink(&config, &config).expect("create the link loop");
+            }
+        }
+
+        install(Response::default(), Response::default());
+
+        let result = gate(&runner(), Path::new("/stomme"), "1.2.3", &folder);
+        let sync_calls = calls()
+            .iter()
+            .filter(|call| call.arguments.first().map(String::as_str) == Some("sync"))
+            .count();
+
+        match expected {
+            Expected::NotAdopted => {
+                let outcome = result.expect("run the gate");
+                assert!(matches!(outcome, Outcome::NotAdopted { .. }), "{name}");
+                assert_eq!(exit_code(&outcome), ExitCode::SUCCESS, "{name}");
+                assert_eq!(sync_calls, 0, "{name}");
+            }
+            Expected::Passed => {
+                let outcome = result.expect("run the gate");
+                assert_eq!(outcome, Outcome::Passed, "{name}");
+                assert_eq!(exit_code(&outcome), ExitCode::SUCCESS, "{name}");
+                assert_eq!(sync_calls, 1, "{name}");
+            }
+            Expected::Refused { message } => {
+                let error = result.expect_err(name);
+                assert_eq!(format!("{error:#}"), message(&config), "{name}");
+                assert!(calls().is_empty(), "{name}");
+            }
+        }
+    }
+}
+
 #[test]
 fn gate_refuses_a_stomme_toml_without_a_version_line() {
     let folder = project("schema = 1\nlanguage = \"rust\"\n");
