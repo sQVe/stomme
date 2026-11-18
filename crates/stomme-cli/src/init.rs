@@ -18,6 +18,10 @@ const LAYERS_FLAG: &str = "--layers";
 const ROLES_FLAG: &str = "--roles";
 const FLAGS: [&str; 4] = [NAME_FLAG, LANGUAGE_FLAG, LAYERS_FLAG, ROLES_FLAG];
 
+// npm's package-name limit, which also keeps `crates/<name>-<role>` under the 255-byte file-name
+// limit that common filesystems impose.
+const NAME_LENGTH_LIMIT: usize = 214;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Request {
     name: String,
@@ -42,6 +46,8 @@ pub(crate) enum InitError {
         "the name `{name}` is not a lower-case letter followed by lower-case letters, digits, or `-`"
     )]
     Name { name: String },
+    #[error("the name is longer than {NAME_LENGTH_LIMIT} characters")]
+    NameTooLong,
     #[error("the name `{name}` collides with the generated `{name}` package; choose another name")]
     NameCollision { name: String },
     #[error(transparent)]
@@ -107,6 +113,10 @@ pub(crate) fn parse_arguments(arguments: &[String]) -> Result<Request, InitError
         return Err(InitError::Name {
             name: name.to_string(),
         });
+    }
+
+    if name.chars().count() > NAME_LENGTH_LIMIT {
+        return Err(InitError::NameTooLong);
     }
 
     Ok(Request {

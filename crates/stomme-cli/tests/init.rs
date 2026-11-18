@@ -292,6 +292,18 @@ fn init_fails_before_writing_for_a_rust_xtask_name() {
 }
 
 #[test]
+fn init_fails_before_writing_for_a_name_over_the_limit() {
+    let name = "a".repeat(215);
+
+    for language in ["rust", "typescript"] {
+        assert_init_refuses_with_an_empty_folder(
+            &["--name", name.as_str(), "--language", language],
+            &["longer than 214 characters"],
+        );
+    }
+}
+
+#[test]
 fn init_refuses_a_folder_that_is_not_empty() {
     let root = project_root();
 
@@ -321,6 +333,14 @@ fn herdr_project_bundles_one_main_js() {
 
     install(root.path());
 
+    let mod_path = root.path().join("mods/koja/main.ts");
+    let source = fs::read_to_string(&mod_path).expect("read mods/koja/main.ts");
+    let source = format!(
+        "{source}\nimport {{ app }} from 'herdr';\nimport {{ kit }} from 'gpui-kit';\n\nexport const herdrNames = (): string => `${{app}}-${{kit}}`;\n"
+    );
+
+    fs::write(&mod_path, source).expect("append the Herdr imports");
+
     let output = run_in_project(
         root.path(),
         "pnpm",
@@ -331,7 +351,12 @@ fn herdr_project_bundles_one_main_js() {
     let manifest: serde_json::Value = serde_json::from_str(&mod_json).expect("parse mod.json");
 
     assert_eq!(output.status.code(), Some(0), "pnpm run build: {output:?}");
-    assert!(root.path().join("mods/koja/main.js").is_file());
+
+    let bundle =
+        fs::read_to_string(root.path().join("mods/koja/main.js")).expect("read mods/koja/main.js");
+
+    assert!(bundle.contains("\"herdr\""), "{bundle}");
+    assert!(bundle.contains("\"gpui-kit\""), "{bundle}");
     assert_eq!(manifest["name"], "koja");
 }
 

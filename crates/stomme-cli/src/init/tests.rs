@@ -105,6 +105,40 @@ fn run_fails_before_writing_for_a_rust_xtask_name() {
 }
 
 #[test]
+fn parse_arguments_rejects_a_name_over_the_limit() {
+    let name = "a".repeat(215);
+
+    for language in ["rust", "typescript"] {
+        let arguments = arguments(&["--name", name.as_str(), "--language", language]);
+
+        let error = parse_arguments(&arguments).expect_err("the name is too long");
+
+        assert!(
+            matches!(&error, InitError::NameTooLong),
+            "{language}: {error:?}"
+        );
+    }
+}
+
+#[test]
+fn parse_arguments_accepts_a_name_at_the_limit() {
+    let name = "a".repeat(214);
+
+    for language in ["rust", "typescript"] {
+        let root = empty_folder();
+        let arguments = arguments(&["--name", name.as_str(), "--language", language]);
+
+        let request =
+            parse_arguments(&arguments).unwrap_or_else(|error| panic!("{language}: {error:?}"));
+
+        run(root.path(), layer::catalog(), &request)
+            .unwrap_or_else(|error| panic!("{language}: {error:?}"));
+
+        assert!(root.path().join("stomme.toml").is_file(), "{language}");
+    }
+}
+
+#[test]
 fn run_accepts_a_typescript_xtask_name() {
     let root = empty_folder();
     let request = Request {

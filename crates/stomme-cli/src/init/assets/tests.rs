@@ -228,7 +228,7 @@ fn plan_merges_the_layer_package_fields() {
     assert_eq!(manifest["main"], "main.js");
     assert_eq!(
         manifest["scripts"]["build"],
-        "bun build mods/demo/main.ts --outfile mods/demo/main.js"
+        "bun build mods/demo/main.ts --outfile mods/demo/main.js --external herdr --external gpui-kit"
     );
     assert!(manifest["scripts"]["check"].is_string());
 
