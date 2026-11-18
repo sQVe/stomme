@@ -13,6 +13,10 @@ pub(super) const LAYER: Source = Source {
 const STARTER: Starter = Starter {
     files: &[
         (
+            "pnpm-workspace.yaml",
+            include_str!("../../../../foundation/layers/pi/skeleton/files/pnpm-workspace.yaml"),
+        ),
+        (
             "src/piExtension.test.ts",
             include_str!("../../../../foundation/layers/pi/skeleton/files/src/piExtension.test.ts"),
         ),
