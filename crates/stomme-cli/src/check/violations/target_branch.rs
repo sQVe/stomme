@@ -48,31 +48,41 @@ pub(crate) enum TargetRead {
 }
 
 fn read_git(root: &Path, reference: &str) -> TargetRead {
-    let commit_argument = format!("{reference}^{{commit}}");
-    let resolved = run_git(
-        root,
-        &["rev-parse", "--verify", "--quiet", &commit_argument],
-    );
-
-    let revision = match resolved {
-        Err(error) => return TargetRead::Unavailable(format!("could not run `git`: {error}")),
-        Ok(output) if !output.status.success() => return unresolved(reference),
-        Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
-    };
-
-    read_config(root, revision.trim(), reference)
+    match resolve_commit(root, reference, reference) {
+        Ok(revision) => read_config(root, &revision, reference),
+        Err(problem) => problem,
+    }
 }
 
 fn read_remote_tracking(root: &Path, reference: &str) -> TargetRead {
     let resolved = run_git(root, &["show-ref", "--verify", "--hash", reference]);
 
-    let revision = match resolved {
+    let id = match resolved {
         Err(error) => return TargetRead::Unavailable(format!("could not run `git`: {error}")),
         Ok(output) if !output.status.success() => return unresolved(reference),
         Ok(output) => String::from_utf8_lossy(&output.stdout).into_owned(),
     };
 
-    read_config(root, revision.trim(), reference)
+    match resolve_commit(root, id.trim(), reference) {
+        Ok(revision) => read_config(root, &revision, reference),
+        Err(problem) => problem,
+    }
+}
+
+fn resolve_commit(root: &Path, revision: &str, reference: &str) -> Result<String, TargetRead> {
+    let commit_argument = format!("{revision}^{{commit}}");
+    let resolved = run_git(
+        root,
+        &["rev-parse", "--verify", "--quiet", &commit_argument],
+    );
+
+    match resolved {
+        Err(error) => Err(TargetRead::Unavailable(format!(
+            "could not run `git`: {error}"
+        ))),
+        Ok(output) if !output.status.success() => Err(unresolved(reference)),
+        Ok(output) => Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+    }
 }
 
 fn read_config(root: &Path, revision: &str, reference: &str) -> TargetRead {

@@ -1,7 +1,8 @@
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 #[path = "../src/test_support.rs"]
 #[expect(
@@ -88,6 +89,29 @@ fn assert_unavailable_growth(output: &Output, reference: &str) {
     );
 }
 
+fn blob(root: &Path, contents: &str) -> String {
+    let mut child = Command::new("git")
+        .args(["hash-object", "-w", "--stdin"])
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("run git hash-object");
+
+    child
+        .stdin
+        .take()
+        .expect("open the git stdin")
+        .write_all(contents.as_bytes())
+        .expect("write the blob");
+
+    let output = child.wait_with_output().expect("read the blob id");
+
+    assert!(output.status.success(), "{output:?}");
+
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
 #[test]
 fn check_compares_a_pull_request_with_its_target_branch() {
     let root = project();
@@ -124,6 +148,21 @@ fn check_does_not_resolve_the_pull_request_base_through_a_tag() {
         &["update-ref", "refs/tags/refs/remotes/origin/parent", "HEAD"],
     );
     git(root.path(), &["reset", "--hard", "HEAD^"]);
+
+    let output = stomme(root.path(), &["check"], Some(OsStr::new("parent")));
+
+    assert_unavailable_growth(&output, "refs/remotes/origin/parent");
+}
+
+#[test]
+fn check_reports_a_pull_request_base_that_is_not_a_commit() {
+    let root = project();
+    let blob = blob(root.path(), "not a commit\n");
+
+    git(
+        root.path(),
+        &["update-ref", "refs/remotes/origin/parent", &blob],
+    );
 
     let output = stomme(root.path(), &["check"], Some(OsStr::new("parent")));
 
