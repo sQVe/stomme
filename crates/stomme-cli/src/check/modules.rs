@@ -1,3 +1,11 @@
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the resolver that reads scopes is not wired in yet"
+    )
+)]
+mod scopes;
 mod use_paths;
 
 use std::collections::{BTreeMap, BTreeSet};
