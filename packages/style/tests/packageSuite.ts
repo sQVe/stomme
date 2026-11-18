@@ -197,6 +197,24 @@ export const loadingTests: PackageTests = (context) => {
     expect(withoutPresets.stdout).not.toContain('no-focused-tests');
     expect(withoutPresets.stdout).not.toContain('prefer-import-in-mock');
   });
+
+  it('lints JSX without a React import under the React preset', async ({
+    expect,
+    onTestFinished,
+  }) => {
+    const { folder } = await context.caseFolder(
+      { 'label.tsx': lines('export const Label = (): unknown => <span>label</span>;') },
+      onTestFinished,
+      'react',
+    );
+
+    const project = join(context.consumer.directory, 'react');
+    const result = await context.consumer.seam([folder], project);
+
+    expect(result.error).toBeUndefined();
+    expect(diagnosticOutput(result.stdout)).toBe('');
+    expect(result.status).toBe(0);
+  });
 };
 
 // These tests check lint and fix results, which do not depend on the runtime that loads the package.
