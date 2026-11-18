@@ -3,8 +3,10 @@
 ## Set up
 
 1. Install [mise](https://mise.jdx.dev) and [rustup](https://rustup.rs).
-2. Run `mise install`. It installs the `stomme` binary that `mise.toml` pins.
-3. Run `rustup toolchain install`. It installs the toolchain that `rust-toolchain.toml` pins.
+2. Run `mise trust mise.toml` after you open `mise.toml` and check the tools it pins. The command
+   marks the file as trusted, so mise reads it.
+3. Run `mise install`. It installs the `stomme` binary that `mise.toml` pins.
+4. Run `rustup toolchain install`. It installs the toolchain that `rust-toolchain.toml` pins.
 
 ## Run the full check
 

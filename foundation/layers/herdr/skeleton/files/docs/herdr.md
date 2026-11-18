@@ -1,6 +1,7 @@
 # Herdr mod set-up
 
-Follow these steps once on a new machine.
+Complete the [development guide setup](development.md#set-up) through `mise install` first. Then
+follow these steps once on a new machine.
 
 1. Run `mise install`. It installs Bun and, on Linux, `herdr-app` 0.1.16.
 2. On macOS, install the Herdr app with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh`.

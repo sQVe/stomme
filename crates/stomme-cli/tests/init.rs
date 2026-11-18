@@ -603,6 +603,31 @@ fn herdr_install_writes_ignored_declarations() {
 }
 
 #[test]
+fn herdr_docs_link_the_development_setup_before_the_steps() {
+    let root = initialized("koja");
+    let docs = fs::read_to_string(root.path().join("docs/herdr.md")).expect("read docs/herdr.md");
+    let link = docs
+        .find("](development.md#set-up)")
+        .expect("link the development setup");
+    let first_step = docs.find("\n1. ").expect("number the setup steps");
+
+    assert!(link < first_step, "{docs}");
+    assert!(!docs.contains("mise trust"), "{docs}");
+    assert!(
+        docs.contains("through `mise install`"),
+        "link only the setup steps through `mise install`: {docs}"
+    );
+
+    let development = fs::read_to_string(root.path().join("docs/development.md"))
+        .expect("read docs/development.md");
+
+    assert!(
+        development.lines().any(|line| line == "## Set up"),
+        "the link target #set-up has no `## Set up` heading: {development}"
+    );
+}
+
+#[test]
 fn herdr_docs_name_each_setup_step() {
     let root = initialized("koja");
     let docs = fs::read_to_string(root.path().join("docs/herdr.md")).expect("read docs/herdr.md");
