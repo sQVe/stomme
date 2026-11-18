@@ -303,6 +303,7 @@ fn slug(heading: &str) -> String {
     for character in heading.chars() {
         match character {
             ' ' | '-' => slug.push('-'),
+            '_' => slug.push('_'),
             other if other.is_alphanumeric() => slug.extend(other.to_lowercase()),
             _ => {}
         }

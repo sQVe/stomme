@@ -169,6 +169,12 @@ fn validate_links_decides_each_heading_anchor() {
             first_missing: Some("missing"),
         },
         AnchorCase {
+            name: "a heading with an underscore",
+            headings: "## foo_bar\n",
+            links: "[two](./two.md#foo_bar)\n",
+            first_missing: None,
+        },
+        AnchorCase {
             name: "an empty fragment",
             headings: "# Two\n",
             links: "[two](./two.md#)\n",
