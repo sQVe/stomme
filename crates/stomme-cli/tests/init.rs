@@ -376,6 +376,44 @@ fn herdr_full_check_fails_when_herdr_rejects_the_mod() {
 }
 
 #[test]
+fn herdr_full_check_fails_when_the_build_fails_after_a_good_bundle() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let build = run_in_project(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "build".to_string()],
+    );
+
+    assert_eq!(build.status.code(), Some(0), "pnpm run build: {build:?}");
+
+    let mod_path = root.path().join("mods/koja/main.ts");
+    let source = fs::read_to_string(&mod_path).expect("read mods/koja/main.ts");
+    let source = format!(
+        "{source}\n// @ts-expect-error The module does not exist, so the bundle cannot build.\nexport {{ missing }} from './missing.ts';\n"
+    );
+
+    fs::write(&mod_path, source).expect("append the unresolvable export");
+
+    let output = run_full_check(root.path());
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr_text(&output)
+    );
+
+    assert!(
+        root.path().join("mods/koja/main.js").is_file(),
+        "the earlier bundle is still on disk"
+    );
+    assert!(text.contains("Could not resolve"), "{text}");
+    assert_ne!(output.status.code(), Some(0), "{output:?}");
+    assert!(!text.contains("check passed"), "{text}");
+}
+
+#[test]
 fn herdr_build_marks_every_host_module_external() {
     let root = initialized("koja");
 
@@ -470,6 +508,7 @@ fn herdr_docs_name_each_setup_step() {
         "pnpm run build",
         "herdr-app check mods/koja",
         "pnpm run check",
+        "curl -fsSL https://releases.herdr.dev/app/install.sh | sh",
     ] {
         assert!(docs.contains(step), "missing {step}: {docs}");
     }
@@ -537,4 +576,37 @@ fn rust_project_carries_the_layer_bans() {
     let clippy: toml::Table = toml::from_str(&text).expect("parse clippy.toml");
 
     assert!(clippy.contains_key("disallowed-methods"), "{text}");
+}
+
+#[test]
+fn herdr_build_keeps_the_herdr_import_external() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let mod_path = root.path().join("mods/koja/main.ts");
+    let source = fs::read_to_string(&mod_path).expect("read mods/koja/main.ts");
+    let source =
+        format!("{source}\nimport {{ home }} from 'herdr';\n\nexport const homeFolder = home;\n");
+
+    fs::write(&mod_path, source).expect("append the herdr import");
+
+    let build = run_in_project(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "build".to_string()],
+    );
+
+    assert_eq!(build.status.code(), Some(0), "pnpm run build: {build:?}");
+
+    let bundle =
+        fs::read_to_string(root.path().join("mods/koja/main.js")).expect("read mods/koja/main.js");
+    let check = run_in_project(
+        root.path(),
+        "herdr-app",
+        &["check".to_string(), "mods/koja".to_string()],
+    );
+
+    assert!(bundle.contains("\"herdr\""), "{bundle}");
+    assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
 }

@@ -280,6 +280,20 @@ fn plan_merges_the_layer_package_fields() {
 }
 
 #[test]
+fn plan_limits_the_herdr_app_tool_to_linux() {
+    let plan = typescript_plan(&["herdr"]);
+    let tool = &parsed(&plan, "mise.toml")["tools"]["http:herdr-app"];
+    let systems: Vec<&str> = tool["os"]
+        .as_array()
+        .expect("os is an array")
+        .iter()
+        .map(|system| system.as_str().expect("an os entry is text"))
+        .collect();
+
+    assert_eq!(systems, ["linux"]);
+}
+
+#[test]
 fn plan_keeps_the_layer_files_apart() {
     let plan = typescript_plan(&["react", "pi", "herdr"]);
 
