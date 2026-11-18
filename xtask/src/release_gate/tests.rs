@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::io;
+use std::os::unix::fs::FileTypeExt as _;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output};
@@ -93,6 +94,7 @@ fn runner() -> Runner {
     Runner {
         run: fake_runner,
         inspect: inspect_entry,
+        read: read_entry,
     }
 }
 
@@ -229,6 +231,7 @@ enum Entry {
     ResolvableLink,
     BrokenLink,
     LinkLoop,
+    Fifo,
     Directory,
     FolderIsAFile,
 }
@@ -237,7 +240,7 @@ enum Entry {
 enum Failure {
     Inspect,
     Link,
-    Read,
+    NotRegularFile,
 }
 
 enum Expected {
@@ -277,6 +280,14 @@ fn fixture(entry: &Entry, scratch: &Path) -> Fixture {
         }
         Entry::BrokenLink => symlink(&missing_target, &config).expect("create the link"),
         Entry::LinkLoop => symlink(&config, &config).expect("create the link loop"),
+        Entry::Fifo => {
+            let status = std::process::Command::new("mkfifo")
+                .arg(&config)
+                .status()
+                .expect("run mkfifo");
+
+            assert!(status.success(), "mkfifo: {status:?}");
+        }
         Entry::Directory => std::fs::create_dir(&config).expect("create the directory"),
     }
 
@@ -308,6 +319,10 @@ fn assert_entry_unchanged(entry: &Entry, fixture: &Fixture, name: &str) {
             let target = std::fs::read_link(&fixture.config).expect("the link stays");
             assert_eq!(target, fixture.config, "{name}");
         }
+        Entry::Fifo => {
+            let metadata = std::fs::symlink_metadata(&fixture.config).expect("the fifo stays");
+            assert!(metadata.file_type().is_fifo(), "{name}");
+        }
         Entry::Directory => {
             let metadata = std::fs::symlink_metadata(&fixture.config).expect("the folder stays");
             assert!(metadata.is_dir(), "{name}");
@@ -328,8 +343,7 @@ fn assert_refusal(error: &anyhow::Error, failure: Failure, config: &Path, name: 
     );
 
     match (error.downcast_ref::<ConfigError>(), failure) {
-        (Some(ConfigError::Inspect { path, source }), Failure::Inspect)
-        | (Some(ConfigError::Read { path, source }), Failure::Read) => {
+        (Some(ConfigError::Inspect { path, source }), Failure::Inspect) => {
             assert_eq!(path, config, "{name}");
             assert!(rendered.contains(&source.to_string()), "{name}: {rendered}");
         }
@@ -337,6 +351,13 @@ fn assert_refusal(error: &anyhow::Error, failure: Failure, config: &Path, name: 
             assert_eq!(path, config, "{name}");
             assert!(
                 rendered.contains("is a symbolic link; use a regular file"),
+                "{name}: {rendered}"
+            );
+        }
+        (Some(ConfigError::NotRegularFile { path }), Failure::NotRegularFile) => {
+            assert_eq!(path, config, "{name}");
+            assert!(
+                rendered.contains("is not a regular file"),
                 "{name}: {rendered}"
             );
         }
@@ -365,9 +386,14 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
             Expected::Refused(Failure::Link),
         ),
         (
+            "fifo",
+            Entry::Fifo,
+            Expected::Refused(Failure::NotRegularFile),
+        ),
+        (
             "directory",
             Entry::Directory,
-            Expected::Refused(Failure::Read),
+            Expected::Refused(Failure::NotRegularFile),
         ),
         (
             "folder is a file",
@@ -413,6 +439,33 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
 
 fn denied_inspect(_path: &Path) -> io::Result<std::fs::Metadata> {
     Err(io::Error::from(io::ErrorKind::PermissionDenied))
+}
+
+fn denied_read(_path: &Path) -> io::Result<String> {
+    Err(io::Error::from(io::ErrorKind::PermissionDenied))
+}
+
+#[test]
+fn gate_refuses_a_stomme_toml_that_cannot_be_read() {
+    let folder = project(CONFIG);
+    let config = folder.path().join("stomme.toml");
+    install(Response::default(), Response::default());
+    let runner = Runner {
+        read: denied_read,
+        ..runner()
+    };
+
+    let error =
+        gate(&runner, Path::new("/stomme"), "1.2.3", folder.path()).expect_err("refuse the entry");
+
+    let Some(ConfigError::Read { path, source }) = error.downcast_ref::<ConfigError>() else {
+        panic!("expected a read failure, got {error:?}");
+    };
+    assert_eq!(path, &config);
+    assert_eq!(source.kind(), io::ErrorKind::PermissionDenied);
+    assert!(format!("{error:#}").contains(&config.display().to_string()));
+    assert!(calls().is_empty());
+    assert_eq!(config_text(&folder), CONFIG);
 }
 
 #[test]
