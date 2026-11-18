@@ -39,6 +39,16 @@ The herdr layer pins one `herdr-app` version and generates Herdr's type declarat
 - Git, lint, and format ignore `mods/**/gpui-kit.d.ts`.
 - A `tsconfig.json` in the mod folder stops Herdr from writing a `jsconfig.json`.
 
+### Installing a mod
+
+- `pnpm run mod:install` builds the mod and copies only `main.js` and `mod.json` into Herdr's mods
+  folder. It writes to `$HERDR_APP_HOME/mods/<name>` when that is set, and to
+  `~/.config/herdr-app/mods/<name>` otherwise.
+- Herdr documents copying as the way to install a mod. A copy also keeps saves of `.ts` files from
+  reloading the mod.
+- The script is not named `install`, because pnpm runs that name as a lifecycle script on
+  `pnpm install`.
+
 ### The externals list
 
 The build's `--external` list is written out by hand. A test compares it with the `declare module`
@@ -83,3 +93,8 @@ bundle without a `herdr-app` executable, and changing the bundle breaks its sign
 
 Pass `--packages external` to the build instead of a list. Rejected because npm dependencies would
 stay unbundled, and Herdr resolves imports only inside the mod folder.
+
+### Symlink the mod folder into Herdr
+
+Link `mods/<name>` into Herdr's mods folder. Rejected because Herdr does not document symlinked mods,
+and saving any `.ts` file in the folder would reload the mod.
