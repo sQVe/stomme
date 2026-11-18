@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
@@ -86,6 +86,13 @@ pub(crate) struct OwnedFile {
 pub(crate) enum LinkError {
     #[error("{path} links to {target}, which is not in the synced set")]
     Broken { path: String, target: String },
+    #[error("{path} links to {target}, but {resolved} has no heading with the anchor `{anchor}`")]
+    MissingAnchor {
+        path: String,
+        target: String,
+        anchor: String,
+        resolved: String,
+    },
 }
 
 pub(crate) fn owned_set(selection: &Selection, catalog: &Catalog) -> Vec<OwnedFile> {
@@ -133,22 +140,79 @@ pub(crate) fn bundle_set(catalog: &Catalog) -> Vec<OwnedFile> {
 }
 
 pub(crate) fn validate_links(files: &[OwnedFile]) -> Result<(), LinkError> {
-    let paths: BTreeSet<&str> = files.iter().map(|file| file.path.as_str()).collect();
+    let index = OwnedIndex::new(files);
 
     for file in files {
         let base = file.path.rsplit_once('/').map_or("", |(parent, _)| parent);
 
         for target in link_targets(file.content) {
-            let Some(relative) = relative_target(&target) else {
-                continue;
-            };
-            let Some(resolved) = resolve(base, relative) else {
-                return Err(broken_link(file, target));
-            };
+            check_link(file, &target, base, &index)?;
+        }
+    }
 
-            if !paths.contains(resolved.as_str()) {
-                return Err(broken_link(file, target));
-            }
+    Ok(())
+}
+
+struct OwnedIndex<'a> {
+    contents: BTreeMap<&'a str, &'a str>,
+    anchors: BTreeMap<&'a str, BTreeSet<String>>,
+}
+
+impl<'a> OwnedIndex<'a> {
+    fn new(files: &'a [OwnedFile]) -> Self {
+        let contents = files
+            .iter()
+            .map(|file| (file.path.as_str(), file.content))
+            .collect();
+        let anchors = files
+            .iter()
+            .filter(|file| file.path.ends_with(".md"))
+            .map(|file| (file.path.as_str(), heading_slugs(file.content)))
+            .collect();
+
+        Self { contents, anchors }
+    }
+
+    fn contains(&self, path: &str) -> bool {
+        self.contents.contains_key(path)
+    }
+
+    fn has_anchor(&self, path: &str, anchor: &str) -> bool {
+        self.anchors
+            .get(path)
+            .is_some_and(|slugs| slugs.contains(anchor))
+    }
+}
+
+fn check_link(
+    file: &OwnedFile,
+    target: &str,
+    base: &str,
+    index: &OwnedIndex<'_>,
+) -> Result<(), LinkError> {
+    let Some(link) = relative_link(target) else {
+        return Ok(());
+    };
+    let Some(resolved) = resolve(base, link.path) else {
+        return Err(broken_link(file, target));
+    };
+
+    if !index.contains(&resolved) {
+        return Err(broken_link(file, target));
+    }
+
+    if let Some(anchor) = link.anchor
+        && resolved.ends_with(".md")
+    {
+        let found = index.has_anchor(&resolved, anchor);
+
+        if !found {
+            return Err(LinkError::MissingAnchor {
+                path: file.path.clone(),
+                target: target.to_string(),
+                anchor: anchor.to_string(),
+                resolved,
+            });
         }
     }
 
@@ -162,23 +226,132 @@ fn owned(path: &str, content: &'static str) -> OwnedFile {
     }
 }
 
-fn broken_link(file: &OwnedFile, target: String) -> LinkError {
+fn broken_link(file: &OwnedFile, target: &str) -> LinkError {
     LinkError::Broken {
         path: file.path.clone(),
-        target,
+        target: target.to_string(),
     }
 }
 
-pub(crate) fn relative_target(target: &str) -> Option<&str> {
+pub(crate) struct RelativeLink<'a> {
+    pub(crate) path: &'a str,
+    pub(crate) anchor: Option<&'a str>,
+}
+
+pub(crate) fn relative_link(target: &str) -> Option<RelativeLink<'_>> {
     let target = target.split_whitespace().next()?;
 
     if target.is_empty() || is_external(target) {
         return None;
     }
 
-    let path = target.split('#').next()?;
+    let (path, anchor) = target
+        .split_once('#')
+        .map_or((target, None), |(path, anchor)| (path, Some(anchor)));
 
-    (!path.is_empty()).then_some(path)
+    if path.is_empty() {
+        return None;
+    }
+
+    let anchor = anchor.filter(|anchor| !anchor.is_empty());
+
+    Some(RelativeLink { path, anchor })
+}
+
+fn heading_slugs(text: &str) -> BTreeSet<String> {
+    let mut slugs = BTreeSet::new();
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+
+    for heading in headings(text) {
+        let base = slug(heading);
+        let count = counts.entry(base.clone()).or_default();
+        let unique = if *count == 0 {
+            base
+        } else {
+            format!("{base}-{}", *count)
+        };
+
+        *count += 1;
+        slugs.insert(unique);
+    }
+
+    slugs
+}
+
+fn headings(text: &str) -> Vec<&str> {
+    let mut headings = Vec::new();
+    let mut fence: Option<(u8, usize)> = None;
+
+    for line in text.lines() {
+        let bytes = line.as_bytes();
+
+        if let Some((marker, length)) = fence {
+            if let Some((found_marker, found_length, _)) = fence_start(bytes, 0)
+                && found_marker == marker
+                && found_length >= length
+            {
+                fence = None;
+            }
+
+            continue;
+        }
+
+        if let Some((marker, length, _)) = fence_start(bytes, 0) {
+            fence = Some((marker, length));
+            continue;
+        }
+
+        if let Some(heading) = heading_text(line) {
+            headings.push(heading);
+        }
+    }
+
+    headings
+}
+
+fn heading_text(line: &str) -> Option<&str> {
+    let indent = line.len() - line.trim_start_matches(' ').len();
+
+    if indent > 3 {
+        return None;
+    }
+
+    let rest = &line[indent..];
+    let level = rest.bytes().take_while(|&byte| byte == b'#').count();
+
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+
+    let after = &rest[level..];
+
+    if !after.is_empty() && !after.starts_with(' ') {
+        return None;
+    }
+
+    let text = after.trim();
+    let without_closing = text.trim_end_matches('#');
+    let text = if without_closing.len() < text.len() && without_closing.ends_with(' ') {
+        without_closing.trim_end()
+    } else {
+        text
+    };
+
+    (!text.is_empty()).then_some(text)
+}
+
+fn slug(heading: &str) -> String {
+    let mut slug = String::with_capacity(heading.len());
+
+    for character in heading.chars() {
+        match character {
+            ' ' | '-' => slug.push('-'),
+            other if other.is_alphanumeric() => slug.extend(other.to_lowercase()),
+            _ => {}
+        }
+    }
+
+    slug
 }
 
 fn is_external(target: &str) -> bool {

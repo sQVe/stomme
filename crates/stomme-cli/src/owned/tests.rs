@@ -65,7 +65,7 @@ fn embedded_sources_match_the_source_tree() {
 fn validate_links_accepts_a_link_inside_the_set() {
     let files = [
         file("docs/stomme/shared/one.md", "[two](./two.md#part)\n"),
-        file("docs/stomme/shared/two.md", "# Two\n"),
+        file("docs/stomme/shared/two.md", "# Two\n\n## Part\n"),
     ];
 
     assert_eq!(validate_links(&files), Ok(()));
@@ -143,6 +143,197 @@ fn validate_links_ignores_a_link_inside_a_mismatched_code_span() {
             target: "./after.md".to_string(),
         })
     );
+}
+
+#[test]
+fn validate_links_reports_a_missing_anchor() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#missing)\n"),
+        file("docs/stomme/shared/two.md", "## Test placement\n"),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#missing".to_string(),
+            anchor: "missing".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_accepts_a_heading_slug_anchor() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[two](./two.md#test-placement)\n",
+        ),
+        file("docs/stomme/shared/two.md", "## Test placement\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_numbers_duplicate_heading_anchors() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[a](./two.md#test-placement) [b](./two.md#test-placement-1) [c](./two.md#test-placement-2)\n",
+        ),
+        file(
+            "docs/stomme/shared/two.md",
+            "# Test placement\n## Test placement\n### Test placement\n",
+        ),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_reports_a_number_past_the_duplicate_headings() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[a](./two.md#test-placement-2)\n",
+        ),
+        file(
+            "docs/stomme/shared/two.md",
+            "# Test placement\n## Test placement\n",
+        ),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#test-placement-2".to_string(),
+            anchor: "test-placement-2".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_ignores_a_heading_inside_a_fence() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#hidden)\n"),
+        file("docs/stomme/shared/two.md", "```\n## Hidden\n```\n"),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#hidden".to_string(),
+            anchor: "hidden".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_ignores_a_heading_inside_a_mismatched_fence() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#also-hidden)\n"),
+        file(
+            "docs/stomme/shared/two.md",
+            "~~~\n## Hidden\n```\n## Also hidden\n~~~\n",
+        ),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#also-hidden".to_string(),
+            anchor: "also-hidden".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_ignores_a_heading_after_a_short_closing_fence() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#also-hidden)\n"),
+        file(
+            "docs/stomme/shared/two.md",
+            "````\n## Hidden\n```\n## Also hidden\n````\n",
+        ),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#also-hidden".to_string(),
+            anchor: "also-hidden".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_accepts_a_heading_indented_by_three_spaces() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[two](./two.md#test-placement)\n",
+        ),
+        file("docs/stomme/shared/two.md", "   ## Test placement\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_reports_a_heading_hash_without_a_space() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[two](./two.md#test-placement)\n",
+        ),
+        file("docs/stomme/shared/two.md", "##Test placement\n"),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#test-placement".to_string(),
+            anchor: "test-placement".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_accepts_a_closing_hash_sequence() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[two](./two.md#test-placement)\n",
+        ),
+        file("docs/stomme/shared/two.md", "## Test placement ##\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_drops_punctuation_from_anchors() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[two](./two.md#test-placement-done)\n",
+        ),
+        file("docs/stomme/shared/two.md", "## Test placement, done!\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
 }
 
 #[test]
