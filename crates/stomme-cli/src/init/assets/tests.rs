@@ -178,6 +178,23 @@ fn parsed_json(plan: &super::super::plan::InitPlan, path: &str) -> serde_json::V
         .unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
 }
 
+fn full_check_steps(development: &str) -> Vec<&str> {
+    let section = development
+        .split("## Run the full check")
+        .nth(1)
+        .expect("the development guide describes the full check");
+    let steps = section
+        .lines()
+        .take_while(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let (number, step) = line.split_once(". ")?;
+            number.parse::<u8>().ok()?;
+            Some(step)
+        });
+
+    steps.collect()
+}
+
 #[test]
 fn plan_writes_the_typescript_base() {
     let plan = typescript_plan(&[]);
@@ -203,13 +220,37 @@ fn plan_writes_the_typescript_base() {
     assert!(plan.files["tsconfig.json"].contains("mods/**/*.ts"));
     assert_eq!(manifest["scripts"]["style:check"], "stomme-ts-style");
     assert_eq!(manifest["scripts"]["typecheck"], "tsc --noEmit");
-    assert!(
-        manifest["scripts"]["check"]
-            .as_str()
-            .unwrap()
-            .ends_with("&& stomme check")
-    );
     assert!(plan.files["mise.toml"].contains(&format!("\"github:sQVe/stomme\" = \"{VERSION}\"")));
+}
+
+#[test]
+fn plan_writes_the_typescript_check_script() {
+    let plan = typescript_plan(&[]);
+    let manifest = parsed_json(&plan, "package.json");
+    let check_script = manifest["scripts"]["check"].as_str().unwrap();
+
+    assert!(
+        check_script.ends_with(
+            r#"pnpm run test && pnpm run --if-present "/^check:layer:/" && stomme check"#
+        )
+    );
+}
+
+#[test]
+fn plan_writes_the_typescript_full_check_steps() {
+    let plan = typescript_plan(&[]);
+    let steps = full_check_steps(&plan.files["docs/development.md"]);
+
+    assert_eq!(steps.len(), 6);
+    assert!(steps[4].starts_with("`pnpm run --if-present \"/^check:layer:/\"`"));
+    assert_eq!(steps[5], "`stomme check`");
+}
+
+#[test]
+fn full_check_steps_stop_at_the_next_heading() {
+    let development = "## Run the full check\n\n1. `first`\n\n## Later\n\n1. `second`\n";
+
+    assert_eq!(full_check_steps(development), vec!["`first`"]);
 }
 
 #[test]

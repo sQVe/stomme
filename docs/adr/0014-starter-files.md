@@ -64,7 +64,11 @@ and plans every file before the first write, so an invalid request writes nothin
 
 Each language base names one full check in `.pi/tau.json`: `cargo xtask check` for Rust and
 `pnpm run check` for TypeScript. The starter's check runs `stomme check`, so a new project fails
-on drift from its first commit.
+on drift from its first commit. The TypeScript check runs every `check:layer:<layer>` script after
+the tests and before `stomme check`. A layer adds a check this way because merge refuses a second
+value for `scripts.check`, so no layer can extend the language's check script itself. Each layer
+uses its own key, such as `check:layer:herdr`, and pnpm runs every matching script, fails when one
+fails, and passes when none match.
 
 ## Consequences
 

@@ -23,6 +23,8 @@ The check runs these steps in order and stops at the first step that fails:
 2. `stomme-ts-style`
 3. `vp fmt --check`
 4. `vp test`
-5. `stomme check`
+5. `pnpm run --if-present "/^check:layer:/"`: the checks that layers add as `check:layer:<layer>`
+   scripts
+6. `stomme check`
 
 Fix style and format problems with `pnpm run style:fix`.
