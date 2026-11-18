@@ -7,7 +7,9 @@ use crate::config::{self, Installation};
 use crate::layer;
 
 fn problems(root: &Path) -> Vec<Problem> {
-    let Installation::Valid(selection) = config::read(root, layer::catalog()) else {
+    let Installation::Valid(selection) =
+        config::read(root, layer::catalog(), &config::FileRead::filesystem())
+    else {
         panic!("expected a valid installation");
     };
     let lock = match cargo_lock::read(root).expect("read the lock") {

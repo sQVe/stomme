@@ -210,7 +210,48 @@ fn check_reports_an_unknown_exception_field() {
 
 #[cfg(unix)]
 #[test]
-fn check_reports_a_dangling_stomme_toml_link() {
+fn check_reports_a_stomme_toml_that_is_a_link() {
+    use std::os::unix::fs::symlink;
+
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    for case in ["inside", "outside", "dangling", "through a file"] {
+        let root = complete_project();
+        let config = fs::read(root.path().join("stomme.toml")).expect("read stomme.toml");
+
+        fs::remove_file(root.path().join("stomme.toml")).expect("remove stomme.toml");
+        let target = match case {
+            "inside" => {
+                fs::write(root.path().join("config.toml"), &config).expect("write the target");
+                "config.toml".to_string()
+            }
+            "outside" => {
+                fs::write(outside.path().join("config.toml"), &config).expect("write the target");
+                outside.path().join("config.toml").display().to_string()
+            }
+            "dangling" => "missing.toml".to_string(),
+            _ => {
+                fs::write(root.path().join("regular"), "contents").expect("write the file");
+                "regular/child.toml".to_string()
+            }
+        };
+
+        symlink(&target, root.path().join("stomme.toml")).expect("create the link");
+
+        let output = stomme(root.path(), &["check"]);
+
+        assert_single_problem(&output, "stomme.toml", "broken-installation", case);
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("is a symbolic link; use a regular file"),
+            "{case}: {output:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_reports_a_stomme_toml_that_is_a_link() {
     use std::os::unix::fs::symlink;
 
     let root = complete_project();
@@ -218,18 +259,43 @@ fn check_reports_a_dangling_stomme_toml_link() {
     fs::remove_file(root.path().join("stomme.toml")).expect("remove stomme.toml");
     symlink("missing.toml", root.path().join("stomme.toml")).expect("create the link");
 
-    let output = stomme(root.path(), &["check"]);
+    let output = stomme(root.path(), &["sync"]);
 
-    assert_single_problem(
-        &output,
-        "stomme.toml",
-        "broken-installation",
-        "dangling stomme.toml link",
+    assert_eq!(output.status.code(), Some(1), "sync: {output:?}");
+    assert_eq!(
+        stderr_lines(&output),
+        vec!["stomme: stomme.toml is a symbolic link; use a regular file"]
     );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("target cannot be read"),
-        "{output:?}"
-    );
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_stomme_toml_that_is_not_a_regular_file() {
+    use std::process::Command;
+
+    for case in ["fifo", "directory"] {
+        let root = complete_project();
+        let path = root.path().join("stomme.toml");
+
+        fs::remove_file(&path).expect("remove stomme.toml");
+        if case == "fifo" {
+            let status = Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .expect("run mkfifo");
+            assert!(status.success(), "mkfifo: {status:?}");
+        } else {
+            fs::create_dir(&path).expect("create the directory");
+        }
+
+        let output = stomme(root.path(), &["check"]);
+
+        assert_single_problem(&output, "stomme.toml", "broken-installation", case);
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("is not a regular file"),
+            "{case}: {output:?}"
+        );
+    }
 }
 
 #[cfg(unix)]

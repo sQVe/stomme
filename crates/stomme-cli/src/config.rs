@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -11,11 +12,52 @@ use crate::rule::Rule;
 pub(crate) const CONFIG_FILE: &str = "stomme.toml";
 pub(crate) const SCHEMA: i64 = 1;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum Installation {
     NoStomme,
     Valid(Selection),
-    Broken(String),
+    Broken(Reason),
+}
+
+#[derive(Debug)]
+pub(crate) enum Reason {
+    SymbolicLink,
+    NotRegularFile,
+    Unreadable { source: io::Error },
+    Invalid(String),
+}
+
+impl fmt::Display for Reason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SymbolicLink => formatter.write_str("is a symbolic link; use a regular file"),
+            Self::NotRegularFile => formatter.write_str("is not a regular file"),
+            Self::Unreadable { source } => write!(formatter, "could not read the file: {source}"),
+            Self::Invalid(reason) => formatter.write_str(reason),
+        }
+    }
+}
+
+pub(crate) struct FileRead {
+    pub(crate) inspect: fn(&Path) -> io::Result<fs::Metadata>,
+    pub(crate) read: fn(&Path) -> io::Result<String>,
+}
+
+impl FileRead {
+    pub(crate) fn filesystem() -> Self {
+        Self {
+            inspect: inspect_entry,
+            read: read_text,
+        }
+    }
+}
+
+fn inspect_entry(path: &Path) -> io::Result<fs::Metadata> {
+    fs::symlink_metadata(path)
+}
+
+fn read_text(path: &Path) -> io::Result<String> {
+    fs::read_to_string(path)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -68,15 +110,13 @@ pub(crate) struct ModuleRow {
     pub(crate) imports: Vec<String>,
 }
 
-pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
+pub(crate) fn read(root: &Path, catalog: &Catalog, file: &FileRead) -> Installation {
     let path = root.join(CONFIG_FILE);
 
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return unreadable_entry(&path, &error);
-        }
-        Err(error) => return Installation::Broken(format!("could not read the file: {error}")),
+    let text = match read_entry(&path, file) {
+        Entry::Missing => return Installation::NoStomme,
+        Entry::Broken(reason) => return Installation::Broken(reason),
+        Entry::Text(text) => text,
     };
 
     match parse(&text, catalog)
@@ -84,23 +124,36 @@ pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
         .and_then(|selection| validate_exceptions(root, selection))
     {
         Ok(selection) => Installation::Valid(selection),
-        Err(reason) => Installation::Broken(reason),
+        Err(reason) => Installation::Broken(Reason::Invalid(reason)),
     }
 }
 
-fn unreadable_entry(path: &Path, error: &io::Error) -> Installation {
-    match fs::symlink_metadata(path) {
-        Ok(_) => Installation::Broken(format!("is a link whose target cannot be read: {error}")),
-        Err(metadata_error) => absent_entry(&metadata_error),
-    }
+enum Entry {
+    Missing,
+    Broken(Reason),
+    Text(String),
 }
 
-fn absent_entry(error: &io::Error) -> Installation {
-    if error.kind() == io::ErrorKind::NotFound {
-        return Installation::NoStomme;
+fn read_entry(path: &Path, file: &FileRead) -> Entry {
+    let metadata = match (file.inspect)(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Entry::Missing,
+        Err(source) => return Entry::Broken(Reason::Unreadable { source }),
+    };
+    let file_type = metadata.file_type();
+
+    if file_type.is_symlink() {
+        return Entry::Broken(Reason::SymbolicLink);
     }
 
-    Installation::Broken(format!("could not inspect the file: {error}"))
+    if !file_type.is_file() {
+        return Entry::Broken(Reason::NotRegularFile);
+    }
+
+    match (file.read)(path) {
+        Ok(text) => Entry::Text(text),
+        Err(source) => Entry::Broken(Reason::Unreadable { source }),
+    }
 }
 
 fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {

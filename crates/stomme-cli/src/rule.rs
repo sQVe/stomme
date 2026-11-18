@@ -104,7 +104,7 @@ rules! {
     },
     BrokenInstallation => Metadata {
         id: "broken-installation",
-        summary: "`stomme.toml` is valid TOML that matches the schema, selects a valid layer set, and has a closed module table.",
+        summary: "`stomme.toml` is a regular file of valid TOML that matches the schema, selects a valid layer set, and has a closed module table.",
         owner: Owner::Common,
         applies: "`stomme.toml` exists",
         fields: &["schema", "version", "language", "layers", "roles", "violations", "modules"],

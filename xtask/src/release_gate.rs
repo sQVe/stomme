@@ -30,6 +30,8 @@ enum ConfigError {
         #[source]
         source: io::Error,
     },
+    #[error("{} is a symbolic link; use a regular file", path.display())]
+    SymbolicLink { path: PathBuf },
     #[error("Could not read {}", path.display())]
     Read {
         path: PathBuf,
@@ -117,14 +119,24 @@ fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow:
 }
 
 fn is_adopted(runner: &Runner, config: &Path) -> Result<bool, ConfigError> {
-    match (runner.inspect)(config) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(source) => Err(ConfigError::Inspect {
+    let metadata = match (runner.inspect)(config) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => {
+            return Err(ConfigError::Inspect {
+                path: config.to_path_buf(),
+                source,
+            });
+        }
+    };
+
+    if metadata.file_type().is_symlink() {
+        return Err(ConfigError::SymbolicLink {
             path: config.to_path_buf(),
-            source,
-        }),
+        });
     }
+
+    Ok(true)
 }
 
 fn inspect_entry(path: &Path) -> io::Result<fs::Metadata> {

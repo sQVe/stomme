@@ -8,7 +8,7 @@ use crate::rule::Rule;
 use crate::test_support::{complete_project, write_file};
 
 fn selection(root: &Path) -> Selection {
-    match config::read(root, layer::catalog()) {
+    match config::read(root, layer::catalog(), &config::FileRead::filesystem()) {
         Installation::Valid(selection) => selection,
         other => panic!("expected a valid installation, got {other:?}"),
     }

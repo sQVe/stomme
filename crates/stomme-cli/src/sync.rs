@@ -94,11 +94,19 @@ struct Plan {
     record: Record,
 }
 
-pub(crate) fn run(root: &Path, catalog: &Catalog) -> Result<(), SyncError> {
-    let selection = match config::read(root, catalog) {
+pub(crate) fn run(
+    root: &Path,
+    catalog: &Catalog,
+    file: &config::FileRead,
+) -> Result<(), SyncError> {
+    let selection = match config::read(root, catalog, file) {
         Installation::Valid(selection) => selection,
         Installation::NoStomme => return Err(SyncError::NoStomme),
-        Installation::Broken(reason) => return Err(SyncError::Broken { reason }),
+        Installation::Broken(reason) => {
+            return Err(SyncError::Broken {
+                reason: reason.to_string(),
+            });
+        }
     };
     let owned = owned::owned_set(&selection, catalog);
 

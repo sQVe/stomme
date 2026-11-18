@@ -49,7 +49,11 @@ fn typescript_project(layers: &[&str]) -> TempDir {
 }
 
 fn sync_project(root: &Path) -> Result<(), SyncError> {
-    run(root, crate::layer::catalog())
+    run(
+        root,
+        crate::layer::catalog(),
+        &crate::config::FileRead::filesystem(),
+    )
 }
 
 fn write_record(root: &Path, path: &str) {

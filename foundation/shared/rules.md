@@ -6,7 +6,7 @@ paths are relative to the stomme crate.
 | ID | Rule | Owner | Applies | `stomme.toml` fields | Checker | Fixtures | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `no-stomme` | The project has a `stomme.toml`. | common | always | none | src/check.rs | tests/fixtures/rules/no-stomme | enforced |
-| `broken-installation` | `stomme.toml` is valid TOML that matches the schema, selects a valid layer set, and has a closed module table. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles`, `violations`, `modules` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
+| `broken-installation` | `stomme.toml` is a regular file of valid TOML that matches the schema, selects a valid layer set, and has a closed module table. | common | `stomme.toml` exists | `schema`, `version`, `language`, `layers`, `roles`, `violations`, `modules` | src/check.rs | tests/fixtures/rules/broken-installation | enforced |
 | `role-name` | Every role name in `[roles]` is one of the shared roles. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-name | enforced |
 | `role-path` | Every role path is a relative folder inside the project. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-path | enforced |
 | `role-folder` | A role folder is named after the role or ends with `-<role>`. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-folder | enforced |

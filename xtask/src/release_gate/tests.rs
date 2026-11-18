@@ -226,14 +226,17 @@ fn gate_reports_a_project_without_stomme_toml_without_failing() {
 enum Entry {
     Absent,
     RegularFile,
+    ResolvableLink,
     BrokenLink,
     LinkLoop,
+    Directory,
     FolderIsAFile,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Failure {
     Inspect,
+    Link,
     Read,
 }
 
@@ -246,6 +249,7 @@ enum Expected {
 struct Fixture {
     folder: PathBuf,
     config: PathBuf,
+    target: PathBuf,
     missing_target: PathBuf,
 }
 
@@ -253,6 +257,7 @@ fn fixture(entry: &Entry, scratch: &Path) -> Fixture {
     use std::os::unix::fs::symlink;
 
     let missing_target = scratch.join("missing.toml");
+    let target = scratch.join("target.toml");
     let folder = match entry {
         Entry::FolderIsAFile => {
             let file = scratch.join("file");
@@ -266,19 +271,31 @@ fn fixture(entry: &Entry, scratch: &Path) -> Fixture {
     match entry {
         Entry::Absent | Entry::FolderIsAFile => {}
         Entry::RegularFile => std::fs::write(&config, CONFIG).expect("write stomme.toml"),
+        Entry::ResolvableLink => {
+            std::fs::write(&target, CONFIG).expect("write the target");
+            symlink(&target, &config).expect("create the link");
+        }
         Entry::BrokenLink => symlink(&missing_target, &config).expect("create the link"),
         Entry::LinkLoop => symlink(&config, &config).expect("create the link loop"),
+        Entry::Directory => std::fs::create_dir(&config).expect("create the directory"),
     }
 
     Fixture {
         folder,
         config,
+        target,
         missing_target,
     }
 }
 
 fn assert_entry_unchanged(entry: &Entry, fixture: &Fixture, name: &str) {
     match entry {
+        Entry::ResolvableLink => {
+            let target = std::fs::read_link(&fixture.config).expect("the link stays");
+            assert_eq!(target, fixture.target, "{name}");
+            let text = std::fs::read_to_string(&fixture.target).expect("the target stays");
+            assert_eq!(text, CONFIG, "{name}");
+        }
         Entry::BrokenLink => {
             let target = std::fs::read_link(&fixture.config).expect("the link stays");
             assert_eq!(target, fixture.missing_target, "{name}");
@@ -290,6 +307,10 @@ fn assert_entry_unchanged(entry: &Entry, fixture: &Fixture, name: &str) {
         Entry::LinkLoop => {
             let target = std::fs::read_link(&fixture.config).expect("the link stays");
             assert_eq!(target, fixture.config, "{name}");
+        }
+        Entry::Directory => {
+            let metadata = std::fs::symlink_metadata(&fixture.config).expect("the folder stays");
+            assert!(metadata.is_dir(), "{name}");
         }
         Entry::FolderIsAFile => {
             let text = std::fs::read_to_string(&fixture.folder).expect("the file stays");
@@ -312,6 +333,13 @@ fn assert_refusal(error: &anyhow::Error, failure: Failure, config: &Path, name: 
             assert_eq!(path, config, "{name}");
             assert!(rendered.contains(&source.to_string()), "{name}: {rendered}");
         }
+        (Some(ConfigError::SymbolicLink { path }), Failure::Link) => {
+            assert_eq!(path, config, "{name}");
+            assert!(
+                rendered.contains("is a symbolic link; use a regular file"),
+                "{name}: {rendered}"
+            );
+        }
         (other, _) => panic!("{name}: expected {failure:?}, got {other:?}"),
     }
 }
@@ -322,13 +350,23 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
         ("absent", Entry::Absent, Expected::NotAdopted),
         ("regular file", Entry::RegularFile, Expected::Passed),
         (
+            "resolvable link",
+            Entry::ResolvableLink,
+            Expected::Refused(Failure::Link),
+        ),
+        (
             "broken link",
             Entry::BrokenLink,
-            Expected::Refused(Failure::Read),
+            Expected::Refused(Failure::Link),
         ),
         (
             "link loop",
             Entry::LinkLoop,
+            Expected::Refused(Failure::Link),
+        ),
+        (
+            "directory",
+            Entry::Directory,
             Expected::Refused(Failure::Read),
         ),
         (
@@ -371,29 +409,6 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
             }
         }
     }
-}
-
-#[test]
-fn gate_reports_a_different_cause_for_a_link_loop_than_for_a_broken_link() {
-    let causes: Vec<io::ErrorKind> = [Entry::BrokenLink, Entry::LinkLoop]
-        .iter()
-        .map(|entry| {
-            let scratch = temporary_directory();
-            let fixture = fixture(entry, scratch.path());
-            install(Response::default(), Response::default());
-
-            let error = gate(&runner(), Path::new("/stomme"), "1.2.3", &fixture.folder)
-                .expect_err("refuse the link");
-
-            match error.downcast_ref::<ConfigError>() {
-                Some(ConfigError::Read { source, .. }) => source.kind(),
-                other => panic!("expected a read failure, got {other:?}"),
-            }
-        })
-        .collect();
-
-    assert_eq!(causes[0], io::ErrorKind::NotFound);
-    assert_ne!(causes[1], io::ErrorKind::NotFound);
 }
 
 fn denied_inspect(_path: &Path) -> io::Result<std::fs::Metadata> {

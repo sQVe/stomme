@@ -63,8 +63,9 @@ pub(crate) fn run(
     root: &Path,
     catalog: &Catalog,
     target: &TargetBranch,
+    file: &config::FileRead,
 ) -> anyhow::Result<Vec<Problem>> {
-    let installation = config::read(root, catalog);
+    let installation = config::read(root, catalog, file);
     let mut problems: Vec<Problem> = installation_problem(&installation).into_iter().collect();
     let selection = match &installation {
         Installation::Valid(selection) => Some(selection),
@@ -156,7 +157,7 @@ fn installation_problem(installation: &Installation) -> Option<Problem> {
             Rule::NoStomme,
             "is missing; add one with `schema = 1`, `version`, and a `language`".to_string(),
         ),
-        Installation::Broken(reason) => (Rule::BrokenInstallation, reason.clone()),
+        Installation::Broken(reason) => (Rule::BrokenInstallation, reason.to_string()),
     };
 
     Some(Problem {

@@ -170,6 +170,7 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
                 root.path(),
                 layer::catalog(),
                 &check::TargetBranch::git("origin/main".to_string()),
+                &crate::config::FileRead::filesystem(),
             )
             .expect("check the fixture");
             let reported = problems.iter().any(|problem| problem.rule == rule);
@@ -232,7 +233,12 @@ fn prepare_fixture(source: &Path) -> tempfile::TempDir {
     rewrite_fixture_version(root.path());
 
     if root.path().join(".sync").is_file() {
-        crate::sync::run(root.path(), layer::catalog()).expect("sync the fixture");
+        crate::sync::run(
+            root.path(),
+            layer::catalog(),
+            &crate::config::FileRead::filesystem(),
+        )
+        .expect("sync the fixture");
         apply_after_sync(root.path());
     }
 
