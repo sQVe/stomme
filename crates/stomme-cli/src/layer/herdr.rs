@@ -16,9 +16,19 @@ pub(super) const LAYER: Source = Source {
 const STARTER: Starter = Starter {
     files: &[
         (
-            "mods/{{name}}/main.test.ts",
+            "docs/herdr.md",
+            include_str!("../../../../foundation/layers/herdr/skeleton/files/docs/herdr.md"),
+        ),
+        (
+            "mods/{{name}}/greeting.test.ts",
             include_str!(
-                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/main.test.ts"
+                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/greeting.test.ts"
+            ),
+        ),
+        (
+            "mods/{{name}}/greeting.ts",
+            include_str!(
+                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/greeting.ts"
             ),
         ),
         (
@@ -31,6 +41,12 @@ const STARTER: Starter = Starter {
             "mods/{{name}}/mod.json",
             include_str!(
                 "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/mod.json"
+            ),
+        ),
+        (
+            "mods/{{name}}/tsconfig.json",
+            include_str!(
+                "../../../../foundation/layers/herdr/skeleton/files/mods/{{name}}/tsconfig.json"
             ),
         ),
     ],

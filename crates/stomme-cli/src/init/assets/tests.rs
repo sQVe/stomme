@@ -178,6 +178,23 @@ fn parsed_json(plan: &super::super::plan::InitPlan, path: &str) -> serde_json::V
         .unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
 }
 
+fn full_check_steps(development: &str) -> Vec<&str> {
+    let section = development
+        .split("## Run the full check")
+        .nth(1)
+        .expect("the development guide describes the full check");
+    let steps = section
+        .lines()
+        .take_while(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let (number, step) = line.split_once(". ")?;
+            number.parse::<u8>().ok()?;
+            Some(step)
+        });
+
+    steps.collect()
+}
+
 #[test]
 fn plan_writes_the_typescript_base() {
     let plan = typescript_plan(&[]);
@@ -203,13 +220,37 @@ fn plan_writes_the_typescript_base() {
     assert!(plan.files["tsconfig.json"].contains("mods/**/*.ts"));
     assert_eq!(manifest["scripts"]["style:check"], "stomme-ts-style");
     assert_eq!(manifest["scripts"]["typecheck"], "tsc --noEmit");
-    assert!(
-        manifest["scripts"]["check"]
-            .as_str()
-            .unwrap()
-            .ends_with("&& stomme check")
-    );
     assert!(plan.files["mise.toml"].contains(&format!("\"github:sQVe/stomme\" = \"{VERSION}\"")));
+}
+
+#[test]
+fn plan_writes_the_typescript_check_script() {
+    let plan = typescript_plan(&[]);
+    let manifest = parsed_json(&plan, "package.json");
+    let check_script = manifest["scripts"]["check"].as_str().unwrap();
+
+    assert!(
+        check_script.ends_with(
+            r#"pnpm run test && pnpm run --if-present "/^check:layer:/" && stomme check"#
+        )
+    );
+}
+
+#[test]
+fn plan_writes_the_typescript_full_check_steps() {
+    let plan = typescript_plan(&[]);
+    let steps = full_check_steps(&plan.files["docs/development.md"]);
+
+    assert_eq!(steps.len(), 6);
+    assert!(steps[4].starts_with("`pnpm run --if-present \"/^check:layer:/\"`"));
+    assert_eq!(steps[5], "`stomme check`");
+}
+
+#[test]
+fn full_check_steps_stop_at_the_next_heading() {
+    let development = "## Run the full check\n\n1. `first`\n\n## Later\n\n1. `second`\n";
+
+    assert_eq!(full_check_steps(development), vec!["`first`"]);
 }
 
 #[test]
@@ -228,7 +269,7 @@ fn plan_merges_the_layer_package_fields() {
     assert_eq!(manifest["main"], "main.js");
     assert_eq!(
         manifest["scripts"]["build"],
-        "bun build mods/demo/main.ts --outfile mods/demo/main.js --external herdr --external gpui-kit"
+        "bun build mods/demo/main.ts --outfile mods/demo/main.js --external gpui-kit --external gpui --external gpui-base --external gpui-component --external gpui-shell --external gpui-fps --external buffer --external path --external url --external crypto --external zlib --external console --external process --external os --external fs/promises --external net --external websocket --external herdr"
     );
     assert!(manifest["scripts"]["check"].is_string());
 
@@ -236,6 +277,20 @@ fn plan_merges_the_layer_package_fields() {
 
     assert!(tools["bun"].is_str());
     assert!(tools["node"].is_str());
+}
+
+#[test]
+fn plan_limits_the_herdr_app_tool_to_linux() {
+    let plan = typescript_plan(&["herdr"]);
+    let tool = &parsed(&plan, "mise.toml")["tools"]["http:herdr-app"];
+    let systems: Vec<&str> = tool["os"]
+        .as_array()
+        .expect("os is an array")
+        .iter()
+        .map(|system| system.as_str().expect("an os entry is text"))
+        .collect();
+
+    assert_eq!(systems, ["linux"]);
 }
 
 #[test]
@@ -247,14 +302,44 @@ fn plan_keeps_the_layer_files_apart() {
         "src/piExtension.ts",
         "src/piExtension.test.ts",
         "mods/demo/main.ts",
-        "mods/demo/main.test.ts",
+        "mods/demo/greeting.ts",
+        "mods/demo/greeting.test.ts",
+        "mods/demo/tsconfig.json",
         "mods/demo/mod.json",
+        "docs/herdr.md",
     ] {
         assert!(plan.files.contains_key(path), "missing {path}");
     }
 
     assert!(plan.files["src/App.tsx"].contains("Hello from demo."));
     assert!(plan.files["src/main.ts"].contains("greet"));
+}
+
+#[test]
+fn layer_starters_keep_their_set_up_steps_in_the_layer_doc() {
+    let mut layers_with_docs = 0;
+
+    for (name, _) in layer::catalog().guides() {
+        let Some(starter) = layer::catalog().starter(name) else {
+            continue;
+        };
+
+        for (path, _) in starter.files {
+            if path.starts_with("docs/") {
+                layers_with_docs += 1;
+                assert_eq!(*path, format!("docs/{name}.md"), "layer {name}");
+            }
+        }
+    }
+
+    assert!(layers_with_docs > 0, "no layer starter has a doc");
+}
+
+#[test]
+fn typescript_development_guide_links_the_layer_docs() {
+    let plan = typescript_plan(&[]);
+
+    assert!(plan.files["docs/development.md"].contains("`docs/<layer>.md`"));
 }
 
 #[test]

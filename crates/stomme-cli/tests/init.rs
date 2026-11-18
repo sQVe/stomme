@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -328,7 +329,119 @@ fn init_accepts_a_folder_with_only_git() {
 }
 
 #[test]
-fn herdr_project_bundles_one_main_js() {
+fn herdr_starter_mod_passes_herdr_check() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let build = run_in_project(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "build".to_string()],
+    );
+
+    assert_eq!(build.status.code(), Some(0), "pnpm run build: {build:?}");
+
+    let check = run_in_project(
+        root.path(),
+        "herdr-app",
+        &["check".to_string(), "mods/koja".to_string()],
+    );
+
+    assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
+}
+
+#[test]
+fn herdr_full_check_fails_when_herdr_rejects_the_mod() {
+    let root = initialized("koja");
+    let mod_folder = root.path().join("mods/koja");
+
+    fs::remove_file(mod_folder.join("greeting.test.ts")).expect("remove greeting.test.ts");
+    fs::remove_file(mod_folder.join("greeting.ts")).expect("remove greeting.ts");
+    fs::write(
+        mod_folder.join("main.ts"),
+        "export const modName = 'koja';\n",
+    )
+    .expect("replace main.ts");
+
+    let output = run_full_check(root.path());
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr_text(&output)
+    );
+
+    assert_ne!(output.status.code(), Some(0), "{output:?}");
+    assert!(text.contains("extends View"), "{text}");
+}
+
+#[test]
+fn herdr_full_check_fails_when_the_build_fails_after_a_good_bundle() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let build = run_in_project(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "build".to_string()],
+    );
+
+    assert_eq!(build.status.code(), Some(0), "pnpm run build: {build:?}");
+
+    let mod_path = root.path().join("mods/koja/main.ts");
+    let source = fs::read_to_string(&mod_path).expect("read mods/koja/main.ts");
+    let source = format!(
+        "{source}\n// @ts-expect-error The module does not exist, so the bundle cannot build.\nexport {{ missing }} from './missing.ts';\n"
+    );
+
+    fs::write(&mod_path, source).expect("append the unresolvable export");
+
+    let output = run_full_check(root.path());
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr_text(&output)
+    );
+
+    assert!(
+        root.path().join("mods/koja/main.js").is_file(),
+        "the earlier bundle is still on disk"
+    );
+    assert!(text.contains("Could not resolve"), "{text}");
+    assert_ne!(output.status.code(), Some(0), "{output:?}");
+    assert!(!text.contains("check passed"), "{text}");
+}
+
+#[test]
+fn herdr_build_marks_every_host_module_external() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let declarations = fs::read_to_string(root.path().join("mods/koja/gpui-kit.d.ts"))
+        .expect("read gpui-kit.d.ts");
+    let declared: BTreeSet<&str> = declarations
+        .lines()
+        .filter_map(|line| line.strip_prefix("declare module \""))
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    let manifest = package_json(root.path());
+    let build = manifest["scripts"]["build"]
+        .as_str()
+        .expect("scripts.build is text");
+    let external: BTreeSet<&str> = build
+        .split("--external ")
+        .skip(1)
+        .filter_map(|rest| rest.split_whitespace().next())
+        .collect();
+
+    assert!(!declared.is_empty(), "{declarations}");
+    assert_eq!(declared, external);
+}
+
+#[test]
+fn herdr_build_keeps_gpui_base_external() {
     let root = initialized("koja");
 
     install(root.path());
@@ -336,28 +449,69 @@ fn herdr_project_bundles_one_main_js() {
     let mod_path = root.path().join("mods/koja/main.ts");
     let source = fs::read_to_string(&mod_path).expect("read mods/koja/main.ts");
     let source = format!(
-        "{source}\nimport {{ app }} from 'herdr';\nimport {{ kit }} from 'gpui-kit';\n\nexport const herdrNames = (): string => `${{app}}-${{kit}}`;\n"
+        "{source}\nimport {{ v_flex }} from 'gpui-base';\n\nexport const column = v_flex;\n"
     );
 
-    fs::write(&mod_path, source).expect("append the Herdr imports");
+    fs::write(&mod_path, source).expect("append the gpui-base import");
 
-    let output = run_in_project(
+    let build = run_in_project(
         root.path(),
         "pnpm",
         &["run".to_string(), "build".to_string()],
+    );
+
+    assert_eq!(build.status.code(), Some(0), "pnpm run build: {build:?}");
+
+    let bundle =
+        fs::read_to_string(root.path().join("mods/koja/main.js")).expect("read mods/koja/main.js");
+    let check = run_in_project(
+        root.path(),
+        "herdr-app",
+        &["check".to_string(), "mods/koja".to_string()],
     );
     let mod_json = fs::read_to_string(root.path().join("mods/koja/mod.json"))
         .expect("read mods/koja/mod.json");
     let manifest: serde_json::Value = serde_json::from_str(&mod_json).expect("parse mod.json");
 
-    assert_eq!(output.status.code(), Some(0), "pnpm run build: {output:?}");
-
-    let bundle =
-        fs::read_to_string(root.path().join("mods/koja/main.js")).expect("read mods/koja/main.js");
-
-    assert!(bundle.contains("\"herdr\""), "{bundle}");
-    assert!(bundle.contains("\"gpui-kit\""), "{bundle}");
+    assert!(bundle.contains("\"gpui-base\""), "{bundle}");
+    assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
     assert_eq!(manifest["name"], "koja");
+}
+
+#[test]
+fn herdr_install_writes_ignored_declarations() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let gitignore = fs::read_to_string(root.path().join(".gitignore")).expect("read .gitignore");
+
+    assert!(root.path().join("mods/koja/gpui-kit.d.ts").is_file());
+    assert!(!root.path().join("mods/koja/jsconfig.json").exists());
+    assert!(
+        gitignore
+            .lines()
+            .any(|line| line == "mods/**/gpui-kit.d.ts"),
+        "{gitignore}"
+    );
+}
+
+#[test]
+fn herdr_docs_name_each_setup_step() {
+    let root = initialized("koja");
+    let docs = fs::read_to_string(root.path().join("docs/herdr.md")).expect("read docs/herdr.md");
+
+    for step in [
+        "mise install",
+        "pnpm install",
+        "herdr-app types mods/koja",
+        "pnpm run build",
+        "herdr-app check mods/koja",
+        "pnpm run check",
+        "curl -fsSL https://releases.herdr.dev/app/install.sh | sh",
+    ] {
+        assert!(docs.contains(step), "missing {step}: {docs}");
+    }
 }
 
 #[test]
@@ -422,4 +576,37 @@ fn rust_project_carries_the_layer_bans() {
     let clippy: toml::Table = toml::from_str(&text).expect("parse clippy.toml");
 
     assert!(clippy.contains_key("disallowed-methods"), "{text}");
+}
+
+#[test]
+fn herdr_build_keeps_the_herdr_import_external() {
+    let root = initialized("koja");
+
+    install(root.path());
+
+    let mod_path = root.path().join("mods/koja/main.ts");
+    let source = fs::read_to_string(&mod_path).expect("read mods/koja/main.ts");
+    let source =
+        format!("{source}\nimport {{ home }} from 'herdr';\n\nexport const homeFolder = home;\n");
+
+    fs::write(&mod_path, source).expect("append the herdr import");
+
+    let build = run_in_project(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "build".to_string()],
+    );
+
+    assert_eq!(build.status.code(), Some(0), "pnpm run build: {build:?}");
+
+    let bundle =
+        fs::read_to_string(root.path().join("mods/koja/main.js")).expect("read mods/koja/main.js");
+    let check = run_in_project(
+        root.path(),
+        "herdr-app",
+        &["check".to_string(), "mods/koja".to_string()],
+    );
+
+    assert!(bundle.contains("\"herdr\""), "{bundle}");
+    assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
 }

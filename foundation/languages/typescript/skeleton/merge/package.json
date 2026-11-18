@@ -7,7 +7,7 @@
     "node": ">=24.21.0"
   },
   "scripts": {
-    "check": "pnpm run typecheck && pnpm run style:check && pnpm run format:check && pnpm run test && stomme check",
+    "check": "pnpm run typecheck && pnpm run style:check && pnpm run format:check && pnpm run test && pnpm run --if-present \"/^check:layer:/\" && stomme check",
     "typecheck": "tsc --noEmit",
     "style:check": "stomme-ts-style",
     "style:fix": "stomme-ts-style --fix",

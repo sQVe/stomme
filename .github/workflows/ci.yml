@@ -60,6 +60,15 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+        with:
+          install: false
+      - name: Install herdr-app
+        working-directory: foundation/layers/herdr/skeleton/merge
+        run: |
+          mise trust
+          mise install http:herdr-app
+          echo "$(mise where http:herdr-app)/herdr-app" >> "$GITHUB_PATH"
       - run: pnpm install --frozen-lockfile
       - run: cargo xtask check build
 
@@ -87,6 +96,15 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+        with:
+          install: false
+      - name: Install herdr-app
+        working-directory: foundation/layers/herdr/skeleton/merge
+        run: |
+          mise trust
+          mise install http:herdr-app
+          echo "$(mise where http:herdr-app)/herdr-app" >> "$GITHUB_PATH"
       - name: Mutate the pull request's diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -130,6 +148,15 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+        with:
+          install: false
+      - name: Install herdr-app
+        working-directory: foundation/layers/herdr/skeleton/merge
+        run: |
+          mise trust
+          mise install http:herdr-app
+          echo "$(mise where http:herdr-app)/herdr-app" >> "$GITHUB_PATH"
       - name: Mutate the whole workspace
         run: |
           status=0

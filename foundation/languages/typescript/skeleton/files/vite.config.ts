@@ -4,7 +4,7 @@ import { defineConfig } from 'vite-plus';
 export default defineConfig({
   lint: {
     extends: [lint, react, vitest],
-    ignorePatterns: ['mods/**/main.js'],
+    ignorePatterns: ['mods/**/main.js', 'mods/**/gpui-kit.d.ts'],
   },
   fmt: {
     ...format,
@@ -14,6 +14,7 @@ export default defineConfig({
       'AGENTS.md',
       'docs/stomme/**',
       'mods/**/main.js',
+      'mods/**/gpui-kit.d.ts',
     ],
   },
   test: {

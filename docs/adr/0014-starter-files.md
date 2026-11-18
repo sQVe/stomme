@@ -35,6 +35,10 @@ are fragments of a shared target at the same path. `{{name}}` and `{{version}}` 
 every path and text. The binary embeds each file, so a release carries its starters as it carries
 its synced text.
 
+A layer that needs set-up steps puts them in `docs/<layer>.md` in its skeleton. The language's
+`docs/development.md` links that path pattern, because whole-file ownership stops a layer from
+adding a step to the language's file.
+
 ### Ownership and merge rules
 
 - A whole file has one owner. Two sources that both own a path are an error, even with equal
@@ -64,7 +68,11 @@ and plans every file before the first write, so an invalid request writes nothin
 
 Each language base names one full check in `.pi/tau.json`: `cargo xtask check` for Rust and
 `pnpm run check` for TypeScript. The starter's check runs `stomme check`, so a new project fails
-on drift from its first commit.
+on drift from its first commit. The TypeScript check runs every `check:layer:<layer>` script after
+the tests and before `stomme check`. A layer adds a check this way because merge refuses a second
+value for `scripts.check`, so no layer can extend the language's check script itself. Each layer
+uses its own key, such as `check:layer:herdr`, and pnpm runs every matching script, fails when one
+fails, and passes when none match.
 
 ## Consequences
 

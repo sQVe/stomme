@@ -1,2 +1,11 @@
 [tools]
 bun = "1.4.2"
+
+[tools."http:herdr-app"]
+version = "0.1.16"
+bin_path = "herdr-app"
+os = ["linux"]
+
+[tools."http:herdr-app".platforms]
+linux-x64 = { url = "https://releases.herdr.dev/app/0.1.16/herdr-app-linux-x86_64.tar.gz", checksum = "sha256:282d2632196b238206cfe66bfb61c0faf299ca1c91843bd076521bbe36571216" }
+linux-arm64 = { url = "https://releases.herdr.dev/app/0.1.16/herdr-app-linux-aarch64.tar.gz", checksum = "sha256:efeef4f1759b0e8900f205c2c22b14287a112f874406539b4ea1b3be24b73631" }

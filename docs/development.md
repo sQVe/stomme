@@ -14,6 +14,21 @@
    [CI](../.github/workflows/ci.yml), and the pnpm version in
    [package.json](../package.json). The package's `engines` field sets the minimum Node and Bun
    versions. Bun is needed for the packed package tests, even when developing with Node.
+   The init tests also need `herdr-app` on `PATH`, at the version pinned by the `http:herdr-app`
+   table in
+   [foundation/layers/herdr/skeleton/merge/mise.toml](../foundation/layers/herdr/skeleton/merge/mise.toml).
+   Install [mise](https://mise.jdx.dev). Then run these commands in the repository root. They trust
+   the mise file, install `herdr-app`, and add its folder to `PATH`, as CI does:
+
+   ```sh
+   (cd foundation/layers/herdr/skeleton/merge && mise trust && mise install http:herdr-app)
+   export PATH="$(cd foundation/layers/herdr/skeleton/merge && mise where http:herdr-app)/herdr-app:$PATH"
+   herdr-app --version
+   ```
+
+   Compare the output of `herdr-app --version` with the version in that file. The `export` line
+   affects only the current shell, so run it again in a new shell. On macOS, mise skips this tool.
+   Install the Herdr app with `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` instead.
 4. Install JavaScript dependencies from the repository root:
 
    ```sh

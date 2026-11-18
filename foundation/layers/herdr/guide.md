@@ -12,6 +12,6 @@ Herdr runs only JavaScript, and it resolves a mod's imports only inside that mod
 - `herdr-mod-files`: Keep the file names Herdr reads fixed: `main.js` for the bundle and `mod.json`
   for the manifest. The build copies files that are not TypeScript, such as `mod.json`, icons, and
   scripts, unchanged.
-- `herdr-declarations`: Typecheck mods against a copy of Herdr's type declarations, kept in the
-  repository for the Herdr version the project targets. Update that copy as part of moving to a new
-  Herdr version.
+- `herdr-declarations`: Typecheck mods against the declarations that the pinned Herdr writes with
+  `herdr-app types`. Generate them on install, and never commit them. Regenerate them as part of
+  moving to a new Herdr version.
