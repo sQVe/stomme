@@ -30,15 +30,21 @@ struct Call {
 thread_local! {
     static FAKE: RefCell<Fake> = RefCell::new(Fake::default());
     static CALLS: RefCell<Vec<Call>> = const { RefCell::new(Vec::new()) };
+    static SYNC_CONFIG: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 fn install(sync: Response, check: Response) {
     FAKE.with(|fake| *fake.borrow_mut() = Fake { sync, check });
     CALLS.with(|calls| calls.borrow_mut().clear());
+    SYNC_CONFIG.with(|config| *config.borrow_mut() = None);
 }
 
 fn calls() -> Vec<Call> {
     CALLS.with(|calls| calls.borrow().clone())
+}
+
+fn sync_config() -> Option<String> {
+    SYNC_CONFIG.with(|config| config.borrow().clone())
 }
 
 fn output(response: &Response) -> Output {
@@ -64,6 +70,12 @@ fn fake_runner(_binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<
         });
     });
 
+    if arguments.first().map(String::as_str) == Some("sync") {
+        let config = std::fs::read_to_string(folder.join("stomme.toml"))
+            .expect("the test wrote stomme.toml before running the gate");
+        SYNC_CONFIG.with(|recorded| *recorded.borrow_mut() = Some(config));
+    }
+
     let response = FAKE.with(|fake| {
         let fake = fake.borrow();
 
@@ -87,6 +99,10 @@ fn project(config: &str) -> tempfile::TempDir {
     std::fs::write(folder.path().join("stomme.toml"), config).expect("write stomme.toml");
 
     folder
+}
+
+fn config_text(folder: &tempfile::TempDir) -> String {
+    std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml")
 }
 
 #[test]
@@ -213,10 +229,155 @@ fn gate_refuses_a_stomme_toml_without_a_version_line() {
         .expect_err("refuse the config");
 
     let message = format!("{error:#}");
-    assert!(
-        message.contains(&folder.path().display().to_string()),
-        "{message}"
+    assert_eq!(
+        message,
+        format!(
+            "stomme.toml in {} has no top-level version line",
+            folder.path().display()
+        )
     );
+    assert_eq!(config_text(&folder), "schema = 1\nlanguage = \"rust\"\n");
+    assert!(calls().is_empty());
+}
+
+#[test]
+fn gate_rewrites_a_commented_version_pin_and_keeps_the_comment() {
+    let config = "schema = 1\nversion = \"0.2.0\" # candidate pin\nlanguage = \"rust\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let outcome =
+        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    let rewritten = "schema = 1\nversion = \"1.2.3\" # candidate pin\nlanguage = \"rust\"\n";
+    assert_eq!(outcome, Outcome::Passed);
+    assert_eq!(sync_config().as_deref(), Some(rewritten));
+    assert_eq!(config_text(&folder), rewritten);
+}
+
+#[test]
+fn gate_keeps_crlf_line_endings_when_rewriting_the_pin() {
+    let config = "schema = 1\r\nversion = \"0.2.0\"\r\nlanguage = \"rust\"\r\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    assert_eq!(
+        config_text(&folder),
+        "schema = 1\r\nversion = \"1.2.3\"\r\nlanguage = \"rust\"\r\n"
+    );
+}
+
+#[test]
+fn gate_keeps_a_missing_final_newline_when_rewriting_the_pin() {
+    let config = "schema = 1\nversion = \"0.2.0\"\nlanguage = \"rust\"";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    assert_eq!(
+        config_text(&folder),
+        "schema = 1\nversion = \"1.2.3\"\nlanguage = \"rust\""
+    );
+}
+
+#[test]
+fn gate_keeps_interleaved_dotted_keys_in_place_when_rewriting_the_pin() {
+    let config = "schema = 1\nroles.cli = \"a\"\nversion = \"0.2.0\"\nlanguage = \"rust\"\nroles.other = \"b\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    assert_eq!(
+        config_text(&folder),
+        "schema = 1\nroles.cli = \"a\"\nversion = \"1.2.3\"\nlanguage = \"rust\"\nroles.other = \"b\"\n"
+    );
+}
+
+#[test]
+fn gate_rewrites_a_literal_string_version_pin() {
+    let config = "schema = 1\nversion = '0.2.0'\nlanguage = \"rust\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let outcome =
+        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    assert_eq!(outcome, Outcome::Passed);
+    assert_eq!(
+        config_text(&folder),
+        "schema = 1\nversion = \"1.2.3\"\nlanguage = \"rust\"\n"
+    );
+}
+
+#[test]
+fn gate_refuses_a_stomme_toml_that_does_not_parse() {
+    let config = "schema = 1\nversion = \"0.0.0\"\nlanguage = [rust\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
+        .expect_err("refuse the config");
+
+    let message = format!("{error:#}");
+    let prefix = format!(
+        "stomme.toml in {} does not parse as TOML",
+        folder.path().display()
+    );
+    assert!(message.starts_with(&prefix), "{message}");
+    assert!(message.contains("TOML parse error"), "{message}");
+
+    let causes: Vec<String> = error.chain().map(|cause| cause.to_string()).collect();
+    assert!(causes.len() > 1, "{causes:?}");
+    assert_eq!(causes[0], prefix);
+    assert!(causes[1].contains("TOML parse error"), "{causes:?}");
+
+    assert_eq!(config_text(&folder), config);
+    assert!(calls().is_empty());
+}
+
+#[test]
+fn gate_refuses_a_non_string_version() {
+    let config = "schema = 1\nversion = 1\nlanguage = \"rust\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
+        .expect_err("refuse the config");
+
+    let message = format!("{error:#}");
+    assert_eq!(
+        message,
+        format!(
+            "stomme.toml in {} has a version that is not a string",
+            folder.path().display()
+        )
+    );
+    assert_eq!(config_text(&folder), config);
+    assert!(calls().is_empty());
+}
+
+#[test]
+fn gate_refuses_a_table_valued_version() {
+    let config = "schema = 1\nlanguage = \"rust\"\n\n[version]\npin = \"0.2.0\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
+        .expect_err("refuse the config");
+
+    let message = format!("{error:#}");
+    assert_eq!(
+        message,
+        format!(
+            "stomme.toml in {} has a version that is not a string",
+            folder.path().display()
+        )
+    );
+    assert_eq!(config_text(&folder), config);
     assert!(calls().is_empty());
 }
 

@@ -142,54 +142,37 @@ fn rewrite_pinned_version(config: &Path, folder: &Path, version: &str) -> anyhow
     let text = fs::read_to_string(config)
         .with_context(|| format!("Could not read {}", config.display()))?;
 
-    let Some(rewritten) = rewrite_top_level_version(&text, version) else {
+    let rewritten = rewrite_top_level_version(&text, folder, version)?;
+
+    fs::write(config, rewritten).with_context(|| format!("Could not write {}", config.display()))
+}
+
+fn rewrite_top_level_version(text: &str, folder: &Path, version: &str) -> anyhow::Result<String> {
+    let document = toml_edit::Document::parse(text)
+        .with_context(|| format!("stomme.toml in {} does not parse as TOML", folder.display()))?;
+
+    let Some(item) = document.get("version") else {
         anyhow::bail!(
             "stomme.toml in {} has no top-level version line",
             folder.display()
         );
     };
 
-    fs::write(config, rewritten).with_context(|| format!("Could not write {}", config.display()))
-}
-
-fn rewrite_top_level_version(text: &str, version: &str) -> Option<String> {
-    let mut rewritten = String::new();
-    let mut replaced = false;
-    let mut in_table = false;
-
-    for line in text.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-
-        if trimmed.starts_with('[') {
-            in_table = true;
-        }
-
-        let is_candidate = !replaced && !in_table && is_version_line(trimmed);
-
-        if is_candidate {
-            let indent = &line[..line.len() - trimmed.len()];
-            let ending = if line.ends_with('\n') { "\n" } else { "" };
-
-            rewritten.push_str(&format!("{indent}version = \"{version}\"{ending}"));
-            replaced = true;
-        } else {
-            rewritten.push_str(line);
-        }
-    }
-
-    replaced.then_some(rewritten)
-}
-
-fn is_version_line(line: &str) -> bool {
-    let Some((key, value)) = line.split_once('=') else {
-        return false;
+    let Some(value) = item.as_value().filter(|value| value.is_str()) else {
+        anyhow::bail!(
+            "stomme.toml in {} has a version that is not a string",
+            folder.display()
+        );
     };
 
-    let Some(quoted) = value.trim().strip_prefix('"') else {
-        return false;
-    };
+    let span = value.span().expect("a parsed value has a source span");
+    let replacement = toml_edit::Value::from(version).to_string();
 
-    key.trim() == "version" && quoted.strip_suffix('"').is_some()
+    Ok(format!(
+        "{}{replacement}{}",
+        &text[..span.start],
+        &text[span.end..]
+    ))
 }
 
 fn report(folder: &Path, outcome: &Outcome) -> String {
