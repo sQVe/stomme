@@ -32,12 +32,27 @@ thread_local! {
     static FAKE: RefCell<Fake> = RefCell::new(Fake::default());
     static CALLS: RefCell<Vec<Call>> = const { RefCell::new(Vec::new()) };
     static SYNC_CONFIG: RefCell<Option<String>> = const { RefCell::new(None) };
+    static READS: RefCell<usize> = const { RefCell::new(0) };
+    static CONFIG_READ: RefCell<fn(&Path) -> io::Result<String>> =
+        const { RefCell::new(read_entry) };
 }
 
 fn install(sync: Response, check: Response) {
     FAKE.with(|fake| *fake.borrow_mut() = Fake { sync, check });
     CALLS.with(|calls| calls.borrow_mut().clear());
     SYNC_CONFIG.with(|config| *config.borrow_mut() = None);
+    READS.with(|reads| *reads.borrow_mut() = 0);
+    CONFIG_READ.with(|read| *read.borrow_mut() = read_entry);
+}
+
+fn read_count() -> usize {
+    READS.with(|reads| *reads.borrow())
+}
+
+fn spy_read(_path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+
+    Err(io::Error::from(io::ErrorKind::InvalidData))
 }
 
 fn calls() -> Vec<Call> {
@@ -72,8 +87,8 @@ fn fake_runner(_binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<
     });
 
     if arguments.first().map(String::as_str) == Some("sync") {
-        let config = std::fs::read_to_string(folder.join("stomme.toml"))
-            .expect("the test wrote stomme.toml before running the gate");
+        let read = CONFIG_READ.with(|read| *read.borrow());
+        let config = read(&folder.join("stomme.toml"))?;
         SYNC_CONFIG.with(|recorded| *recorded.borrow_mut() = Some(config));
     }
 
@@ -408,7 +423,17 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
 
         install(Response::default(), Response::default());
 
-        let result = gate(&runner(), Path::new("/stomme"), "1.2.3", &fixture.folder);
+        let refused = matches!(&expected, Expected::Refused(_));
+        let runner = if refused {
+            CONFIG_READ.with(|read| *read.borrow_mut() = spy_read);
+            Runner {
+                read: spy_read,
+                ..runner()
+            }
+        } else {
+            runner()
+        };
+        let result = gate(&runner, Path::new("/stomme"), "1.2.3", &fixture.folder);
         let sync_calls = calls()
             .iter()
             .filter(|call| call.arguments.first().map(String::as_str) == Some("sync"))
@@ -431,6 +456,7 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
                 let error = result.expect_err(name);
                 assert_refusal(&error, failure, &fixture.config, name);
                 assert!(calls().is_empty(), "{name}");
+                assert_eq!(read_count(), 0, "{name}");
                 assert_entry_unchanged(&entry, &fixture, name);
             }
         }
