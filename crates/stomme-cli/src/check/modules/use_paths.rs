@@ -17,13 +17,6 @@ pub(super) struct UsePath {
     pub(super) inline_modules: Vec<String>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only scopes reads aliased use trees, and it is not wired in yet"
-    )
-)]
 pub(super) struct UseLeaf {
     pub(super) absolute: bool,
     pub(super) segments: Vec<String>,
@@ -73,13 +66,6 @@ pub(super) fn code_tokens(source: &str) -> Vec<Token<'_>> {
     tokens
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only scopes reads aliased use trees, and it is not wired in yet"
-    )
-)]
 pub(super) fn read_use_tree(tokens: &mut TokenStream<'_>) -> Vec<UseLeaf> {
     let mut parser = Parser { tokens };
 

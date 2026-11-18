@@ -5,7 +5,7 @@ use crate::check::test_support::project;
 use crate::config::{self, Installation};
 use crate::layer;
 
-fn problems(root: &Path) -> Vec<Problem> {
+pub(super) fn problems(root: &Path) -> Vec<Problem> {
     let Installation::Valid(selection) =
         config::read(root, layer::catalog(), &config::FileRead::filesystem())
     else {
@@ -15,7 +15,7 @@ fn problems(root: &Path) -> Vec<Problem> {
     check(root, &selection.modules).expect("check the project")
 }
 
-fn assert_problem(problems: &[Problem], path: &str, rule: Rule, key: &str, case: &str) {
+pub(super) fn assert_problem(problems: &[Problem], path: &str, rule: Rule, key: &str, case: &str) {
     assert_eq!(problems.len(), 1, "{case}: {problems:?}");
     assert_eq!(problems[0].path, path, "{case}");
     assert_eq!(problems[0].rule, rule, "{case}");
