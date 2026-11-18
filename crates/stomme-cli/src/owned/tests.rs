@@ -149,8 +149,8 @@ fn validate_links_ignores_a_link_inside_a_mismatched_code_span() {
 struct AnchorCase {
     name: &'static str,
     headings: &'static str,
-    anchor: &'static str,
-    found: bool,
+    links: &'static str,
+    first_missing: Option<&'static str>,
 }
 
 #[test]
@@ -159,122 +159,122 @@ fn validate_links_decides_each_heading_anchor() {
         AnchorCase {
             name: "a slug of the heading text",
             headings: "## Test placement\n",
-            anchor: "test-placement",
-            found: true,
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "an anchor no heading has",
             headings: "## Test placement\n",
-            anchor: "missing",
-            found: false,
+            links: "[two](./two.md#missing)\n",
+            first_missing: Some("missing"),
         },
         AnchorCase {
             name: "an empty fragment",
             headings: "# Two\n",
-            anchor: "",
-            found: true,
+            links: "[two](./two.md#)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "the first duplicate heading",
             headings: "# Test placement\n## Test placement\n### Test placement\n",
-            anchor: "test-placement",
-            found: true,
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "the second duplicate heading",
             headings: "# Test placement\n## Test placement\n### Test placement\n",
-            anchor: "test-placement-1",
-            found: true,
+            links: "[two](./two.md#test-placement-1)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "the third duplicate heading",
             headings: "# Test placement\n## Test placement\n### Test placement\n",
-            anchor: "test-placement-2",
-            found: true,
+            links: "[two](./two.md#test-placement-2)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a number past the duplicate headings",
             headings: "# Test placement\n## Test placement\n",
-            anchor: "test-placement-2",
-            found: false,
+            links: "[two](./two.md#test-placement-2)\n",
+            first_missing: Some("test-placement-2"),
         },
         AnchorCase {
             name: "a suffix a later heading already uses",
             headings: "# Setup\n# Setup-1\n# Setup\n",
-            anchor: "setup-2",
-            found: true,
+            links: "[two](./two.md#setup-2)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "the plain slug before a used suffix",
             headings: "# Setup\n# Setup-1\n# Setup\n",
-            anchor: "setup",
-            found: true,
+            links: "[two](./two.md#setup)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "the written suffix before a used suffix",
             headings: "# Setup\n# Setup-1\n# Setup\n",
-            anchor: "setup-1",
-            found: true,
+            links: "[two](./two.md#setup-1)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a heading inside a fence",
             headings: "```\n## Hidden\n```\n",
-            anchor: "hidden",
-            found: false,
+            links: "[two](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
         },
         AnchorCase {
             name: "a heading inside a mismatched fence",
             headings: "~~~\n## Hidden\n```\n## Also hidden\n~~~\n",
-            anchor: "also-hidden",
-            found: false,
+            links: "[two](./two.md#also-hidden)\n",
+            first_missing: Some("also-hidden"),
         },
         AnchorCase {
             name: "a heading after a short closing fence",
             headings: "````\n## Hidden\n```\n## Also hidden\n````\n",
-            anchor: "also-hidden",
-            found: false,
+            links: "[two](./two.md#also-hidden)\n",
+            first_missing: Some("also-hidden"),
         },
         AnchorCase {
             name: "a heading after a fence line with trailing text",
             headings: "```\n```not a closer\n## Hidden\n```\n",
-            anchor: "hidden",
-            found: false,
+            links: "[two](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
         },
         AnchorCase {
             name: "a heading after a closed fence",
             headings: "```\n## Inside\n```\n## After\n",
-            anchor: "after",
-            found: true,
+            links: "[two](./two.md#after)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a heading indented by three spaces",
             headings: "   ## Test placement\n",
-            anchor: "test-placement",
-            found: true,
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a heading hash without a space",
             headings: "##Test placement\n",
-            anchor: "test-placement",
-            found: false,
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: Some("test-placement"),
         },
         AnchorCase {
             name: "a heading with a closing hash sequence",
             headings: "## Test placement ##\n",
-            anchor: "test-placement",
-            found: true,
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a heading with punctuation",
             headings: "## Test placement, done!\n",
-            anchor: "test-placement-done",
-            found: true,
+            links: "[two](./two.md#test-placement-done)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a heading underlined with equals signs",
             headings: "Test placement\n==============\n",
-            anchor: "test-placement",
-            found: true,
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
         },
         AnchorCase {
             name: "a heading that spans two lines",
@@ -291,35 +291,60 @@ fn validate_links_decides_each_heading_anchor() {
         AnchorCase {
             name: "a heading underlined with dashes",
             headings: "Second part\n-----------\n",
-            anchor: "second-part",
-            found: true,
+            links: "[two](./two.md#second-part)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "three duplicate headings linked together",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            links: "[a](./two.md#test-placement) [b](./two.md#test-placement-1) [c](./two.md#test-placement-2)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a number past the duplicates after valid links",
+            headings: "# Test placement\n## Test placement\n",
+            links: "[a](./two.md#test-placement) [b](./two.md#test-placement-1) [c](./two.md#test-placement-2)\n",
+            first_missing: Some("test-placement-2"),
+        },
+        AnchorCase {
+            name: "the setup suffixes linked together",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            links: "[a](./two.md#setup) [b](./two.md#setup-1) [c](./two.md#setup-2)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "both setext heading kinds in one file",
+            headings: "Test placement\n==============\n\nSecond part\n-----------\n",
+            links: "[a](./two.md#test-placement) [b](./two.md#second-part)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a visible heading after a hidden one",
+            headings: "```\n## Hidden\n```\n## Shown\n",
+            links: "[a](./two.md#shown) [b](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
         },
         AnchorCase {
             name: "a heading inside an HTML comment",
             headings: "<!--\n## Hidden\n-->\n\n## Shown\n",
-            anchor: "hidden",
-            found: false,
+            links: "[two](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
         },
     ];
 
     for case in cases {
-        let target = format!("[two](./two.md#{})\n", case.anchor);
         let files = [
-            OwnedFile {
-                path: "docs/stomme/shared/one.md".to_string(),
-                content: Box::leak(target.clone().into_boxed_str()),
-            },
+            file("docs/stomme/shared/one.md", case.links),
             file("docs/stomme/shared/two.md", case.headings),
         ];
-        let expected = if case.found {
-            Ok(())
-        } else {
-            Err(LinkError::MissingAnchor {
+        let expected = match case.first_missing {
+            None => Ok(()),
+            Some(anchor) => Err(LinkError::MissingAnchor {
                 path: "docs/stomme/shared/one.md".to_string(),
-                target: format!("./two.md#{}", case.anchor),
-                anchor: case.anchor.to_string(),
+                target: format!("./two.md#{anchor}"),
+                anchor: anchor.to_string(),
                 resolved: "docs/stomme/shared/two.md".to_string(),
-            })
+            }),
         };
 
         assert_eq!(validate_links(&files), expected, "{}", case.name);
@@ -486,23 +511,6 @@ fn owned_set_reads_the_given_catalog() {
     );
 }
 
-fn smallest_selection(catalog: &Catalog, name: &str) -> Result<Selection, SelectionError> {
-    let (language, layers) = catalog
-        .smallest_selection(name)
-        .expect("a registered layer has a language and requirements");
-    let layers = crate::layer::select(catalog, language, layers.into_iter().collect())?;
-
-    Ok(Selection {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        language,
-        layers,
-        roles: BTreeMap::new(),
-        violations: Vec::new(),
-        extra_docs: Vec::new(),
-        modules: BTreeMap::new(),
-    })
-}
-
 fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkError> {
     let selection = smallest_selection(catalog, name)
         .expect("the smallest selection passes the real selection rules");
@@ -575,4 +583,21 @@ fn a_smallest_selection_the_selection_rules_reject_is_an_error() {
             conflict: "one".to_string(),
         })
     );
+}
+
+fn smallest_selection(catalog: &Catalog, name: &str) -> Result<Selection, SelectionError> {
+    let (language, layers) = catalog
+        .smallest_selection(name)
+        .expect("a registered layer has a language and requirements");
+    let layers = crate::layer::select(catalog, language, layers.into_iter().collect())?;
+
+    Ok(Selection {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        language,
+        layers,
+        roles: BTreeMap::new(),
+        violations: Vec::new(),
+        extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
+    })
 }
