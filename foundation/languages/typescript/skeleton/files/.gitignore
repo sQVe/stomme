@@ -1,3 +1,4 @@
 node_modules/
 dist/
 mods/**/main.js
+mods/**/gpui-kit.d.ts

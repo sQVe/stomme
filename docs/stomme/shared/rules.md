@@ -81,4 +81,4 @@ paths are relative to the stomme crate.
 | `pi-registered-name` | Renaming code keeps every name registered with Pi. | layer `pi` | always | none | none | none | guidance only |
 | `herdr-mod-bundle` | Each mod builds into one `main.js` bundle; imports of Herdr's own modules stay imports. | layer `herdr` | always | none | none | none | guidance only |
 | `herdr-mod-files` | A mod keeps the fixed names `main.js` and `mod.json`, and the build copies non-TypeScript files unchanged. | layer `herdr` | always | none | none | none | guidance only |
-| `herdr-declarations` | Mods typecheck against a copy of Herdr's declarations for the targeted version. | layer `herdr` | always | none | none | none | guidance only |
+| `herdr-declarations` | Mods typecheck against declarations that the pinned Herdr generates, and the repository never commits them. | layer `herdr` | always | none | none | none | guidance only |

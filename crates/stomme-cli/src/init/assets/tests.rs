@@ -269,7 +269,7 @@ fn plan_merges_the_layer_package_fields() {
     assert_eq!(manifest["main"], "main.js");
     assert_eq!(
         manifest["scripts"]["build"],
-        "bun build mods/demo/main.ts --outfile mods/demo/main.js --external herdr --external gpui-kit"
+        "bun build mods/demo/main.ts --outfile mods/demo/main.js --external gpui-kit --external gpui --external gpui-base --external gpui-component --external gpui-shell --external gpui-fps --external buffer --external path --external url --external crypto --external zlib --external console --external process --external os --external fs/promises --external net --external websocket --external herdr"
     );
     assert!(manifest["scripts"]["check"].is_string());
 
@@ -288,8 +288,11 @@ fn plan_keeps_the_layer_files_apart() {
         "src/piExtension.ts",
         "src/piExtension.test.ts",
         "mods/demo/main.ts",
-        "mods/demo/main.test.ts",
+        "mods/demo/greeting.ts",
+        "mods/demo/greeting.test.ts",
+        "mods/demo/tsconfig.json",
         "mods/demo/mod.json",
+        "docs/herdr.md",
     ] {
         assert!(plan.files.contains_key(path), "missing {path}");
     }

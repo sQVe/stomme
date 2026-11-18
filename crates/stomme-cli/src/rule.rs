@@ -848,7 +848,7 @@ rules! {
     },
     HerdrDeclarations => Metadata {
         id: "herdr-declarations",
-        summary: "Mods typecheck against a copy of Herdr's declarations for the targeted version.",
+        summary: "Mods typecheck against declarations that the pinned Herdr generates, and the repository never commits them.",
         owner: Owner::Layer("herdr"),
         applies: "always",
         fields: &[],
