@@ -232,6 +232,33 @@ fn owned_set_reads_the_given_catalog() {
 }
 
 #[test]
+fn every_layer_passes_links_in_its_smallest_selection() {
+    let catalog = crate::layer::catalog();
+
+    for (name, _) in catalog.guides() {
+        let (language, layers) = catalog
+            .smallest_selection(name)
+            .expect("a registered layer has a language and requirements");
+        let selection = Selection {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            language,
+            layers,
+            roles: BTreeMap::new(),
+            violations: Vec::new(),
+            extra_docs: Vec::new(),
+            modules: BTreeMap::new(),
+        };
+        let files = owned_set(&selection, catalog);
+
+        assert_eq!(
+            validate_links(&files),
+            Ok(()),
+            "layer `{name}` fails links in its smallest selection"
+        );
+    }
+}
+
+#[test]
 fn bundle_set_holds_every_language_and_layer() {
     let catalog = crate::layer::catalog();
     let files = bundle_set(catalog);
