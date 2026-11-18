@@ -266,7 +266,7 @@ fn plan_merges_the_layer_package_fields() {
     }
 
     assert_eq!(manifest["pi"]["extensions"][0], "./src/piExtension.ts");
-    assert_eq!(manifest["main"], "main.js");
+    assert!(manifest.get("main").is_none());
     assert_eq!(
         manifest["scripts"]["build"],
         "bun build mods/demo/main.ts --outfile mods/demo/main.js --external gpui-kit --external gpui --external gpui-base --external gpui-component --external gpui-shell --external gpui-fps --external buffer --external path --external url --external crypto --external zlib --external console --external process --external os --external fs/promises --external net --external websocket --external herdr"

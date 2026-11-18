@@ -135,10 +135,38 @@ fn path_with_binary_first() -> std::ffi::OsString {
 }
 
 fn run_in_project(root: &Path, program: &str, arguments: &[String]) -> Output {
-    Command::new(program)
+    let home = root.join("node_modules/.herdr-home");
+
+    run_with_herdr_home(root, &home, program, arguments)
+}
+
+fn run_with_herdr_home(root: &Path, home: &Path, program: &str, arguments: &[String]) -> Output {
+    fs::create_dir_all(home).expect("create the Herdr home");
+
+    run_with_environment(root, program, arguments, &[("HERDR_APP_HOME", Some(home))])
+}
+
+fn run_with_environment(
+    root: &Path,
+    program: &str,
+    arguments: &[String],
+    environment: &[(&str, Option<&Path>)],
+) -> Output {
+    let mut command = Command::new(program);
+
+    command
         .args(arguments)
         .current_dir(root)
-        .env("PATH", path_with_binary_first())
+        .env("PATH", path_with_binary_first());
+
+    for (name, value) in environment {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+
+    command
         .output()
         .unwrap_or_else(|error| panic!("run {program}: {error}"))
 }
@@ -352,6 +380,89 @@ fn herdr_starter_mod_passes_herdr_check() {
 }
 
 #[test]
+fn herdr_mod_install_copies_a_loadable_mod() {
+    let root = initialized("koja");
+    let home = tempfile::tempdir().expect("create a Herdr home");
+    let user_home = tempfile::tempdir().expect("create a user home");
+    let config_home = tempfile::tempdir().expect("create an XDG config home");
+
+    install(root.path());
+
+    let installed = run_with_environment(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "mod:install".to_string()],
+        &[
+            ("HERDR_APP_HOME", Some(home.path())),
+            ("XDG_CONFIG_HOME", Some(config_home.path())),
+            ("HOME", Some(user_home.path())),
+        ],
+    );
+
+    assert_eq!(
+        installed.status.code(),
+        Some(0),
+        "pnpm run mod:install: {installed:?}"
+    );
+
+    let folder = home.path().join("mods/koja");
+
+    assert_eq!(entries(&folder), ["main.js", "mod.json"]);
+    assert!(entries(config_home.path()).is_empty());
+    assert!(!user_home.path().join(".config").exists());
+
+    let check = run_with_herdr_home(
+        root.path(),
+        home.path(),
+        "herdr-app",
+        &["check".to_string(), folder.display().to_string()],
+    );
+
+    assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
+}
+
+#[test]
+fn herdr_mod_install_follows_xdg_config_home() {
+    let root = initialized("koja");
+    let user_home = tempfile::tempdir().expect("create a user home");
+    let config_home = tempfile::tempdir().expect("create an XDG config home");
+
+    install(root.path());
+
+    let installed = run_with_environment(
+        root.path(),
+        "pnpm",
+        &["run".to_string(), "mod:install".to_string()],
+        &[
+            ("HERDR_APP_HOME", None),
+            ("XDG_CONFIG_HOME", Some(config_home.path())),
+            ("HOME", Some(user_home.path())),
+        ],
+    );
+
+    assert_eq!(
+        installed.status.code(),
+        Some(0),
+        "pnpm run mod:install: {installed:?}"
+    );
+
+    let folder = config_home.path().join("herdr-app/mods/koja");
+
+    assert_eq!(entries(&folder), ["main.js", "mod.json"]);
+    assert!(!user_home.path().join(".config").exists());
+}
+
+#[test]
+fn herdr_starter_manifest_docks_on_the_right() {
+    let root = initialized("koja");
+    let text = fs::read_to_string(root.path().join("mods/koja/mod.json"))
+        .expect("read mods/koja/mod.json");
+    let manifest: serde_json::Value = serde_json::from_str(&text).expect("parse mod.json");
+
+    assert_eq!(manifest, serde_json::json!({"place": "right", "size": 320}));
+}
+
+#[test]
 fn herdr_full_check_fails_when_herdr_rejects_the_mod() {
     let root = initialized("koja");
     let mod_folder = root.path().join("mods/koja");
@@ -469,13 +580,8 @@ fn herdr_build_keeps_gpui_base_external() {
         "herdr-app",
         &["check".to_string(), "mods/koja".to_string()],
     );
-    let mod_json = fs::read_to_string(root.path().join("mods/koja/mod.json"))
-        .expect("read mods/koja/mod.json");
-    let manifest: serde_json::Value = serde_json::from_str(&mod_json).expect("parse mod.json");
-
     assert!(bundle.contains("\"gpui-base\""), "{bundle}");
     assert_eq!(check.status.code(), Some(0), "herdr-app check: {check:?}");
-    assert_eq!(manifest["name"], "koja");
 }
 
 #[test]
@@ -509,6 +615,10 @@ fn herdr_docs_name_each_setup_step() {
         "herdr-app check mods/koja",
         "pnpm run check",
         "curl -fsSL https://releases.herdr.dev/app/install.sh | sh",
+        "pnpm run mod:install",
+        "XDG_CONFIG_HOME",
+        "~/.local/bin",
+        "Apple Silicon",
     ] {
         assert!(docs.contains(step), "missing {step}: {docs}");
     }
