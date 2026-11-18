@@ -1,4 +1,6 @@
 use std::fs;
+use std::io;
+use std::path::Path;
 
 use super::*;
 use crate::config::{self, Installation};
@@ -6,6 +8,16 @@ use crate::layer;
 
 fn arguments(values: &[&str]) -> Vec<String> {
     values.iter().map(ToString::to_string).collect()
+}
+
+const DENIED_READ: &str = "the fake record denies the read";
+
+fn denied_config_read(path: &Path) -> io::Result<String> {
+    if path.ends_with(config::CONFIG_FILE) {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, DENIED_READ));
+    }
+
+    Err(io::Error::other("read outside the config path"))
 }
 
 #[test]
@@ -20,7 +32,13 @@ fn run_fails_before_writing_for_an_invalid_layer() {
         let root = empty_folder();
         let request = request(language, &[layer], &[]);
 
-        let error = run(root.path(), layer::catalog(), &request).expect_err("the layer is invalid");
+        let error = run(
+            root.path(),
+            layer::catalog(),
+            &request,
+            &config::FileRead::filesystem(),
+        )
+        .expect_err("the layer is invalid");
 
         let named = match &error {
             InitError::Selection(SelectionError::UnknownLayer { layer }) => layer,
@@ -44,7 +62,13 @@ fn run_fails_before_writing_for_an_unknown_role() {
         let root = empty_folder();
         let request = request(language, &[], &[role]);
 
-        let error = run(root.path(), layer::catalog(), &request).expect_err("the role is unknown");
+        let error = run(
+            root.path(),
+            layer::catalog(),
+            &request,
+            &config::FileRead::filesystem(),
+        )
+        .expect_err("the role is unknown");
 
         assert!(
             matches!(
@@ -63,8 +87,14 @@ fn run_with_sources_fails_before_writing_for_an_unknown_role() {
     let root = empty_folder();
     let request = request(Language::TypeScript, &[], &["core"]);
 
-    let error = run_with_sources(root.path(), layer::catalog(), &request, &[])
-        .expect_err("the role is unknown");
+    let error = run_with_sources(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &[],
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("the role is unknown");
 
     assert!(
         matches!(&error, InitError::UnknownRole { role, .. } if role == "core"),
@@ -78,7 +108,13 @@ fn run_fails_before_writing_for_a_duplicate_role() {
     let root = empty_folder();
     let request = request(Language::Rust, &[], &["core", "cli", "core"]);
 
-    let error = run(root.path(), layer::catalog(), &request).expect_err("the role repeats");
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("the role repeats");
 
     assert!(
         matches!(&error, InitError::DuplicateRole { role } if role == "core"),
@@ -95,7 +131,13 @@ fn run_fails_before_writing_for_a_rust_xtask_name() {
         ..request(Language::Rust, &[], &[])
     };
 
-    let error = run(root.path(), layer::catalog(), &request).expect_err("the name collides");
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("the name collides");
 
     assert!(
         matches!(&error, InitError::NameCollision { name } if name == "xtask"),
@@ -131,8 +173,13 @@ fn parse_arguments_accepts_a_name_at_the_limit() {
         let request =
             parse_arguments(&arguments).unwrap_or_else(|error| panic!("{language}: {error:?}"));
 
-        run(root.path(), layer::catalog(), &request)
-            .unwrap_or_else(|error| panic!("{language}: {error:?}"));
+        run(
+            root.path(),
+            layer::catalog(),
+            &request,
+            &config::FileRead::filesystem(),
+        )
+        .unwrap_or_else(|error| panic!("{language}: {error:?}"));
 
         assert!(root.path().join("stomme.toml").is_file(), "{language}");
     }
@@ -146,7 +193,13 @@ fn run_accepts_a_typescript_xtask_name() {
         ..request(Language::TypeScript, &[], &[])
     };
 
-    run(root.path(), layer::catalog(), &request).expect("typescript accepts the name");
+    run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect("typescript accepts the name");
 
     assert!(root.path().join("stomme.toml").is_file());
 }
@@ -158,7 +211,13 @@ fn run_fails_when_the_folder_is_not_empty() {
 
     fs::write(root.path().join("notes.txt"), "keep\n").expect("write a file");
 
-    let error = run(root.path(), layer::catalog(), &request).expect_err("the folder has a file");
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("the folder has a file");
 
     assert!(
         matches!(&error, InitError::NotEmpty { path } if *path == root.path().display().to_string()),
@@ -174,7 +233,13 @@ fn run_allows_an_existing_git_folder() {
 
     fs::create_dir(root.path().join(".git")).expect("create .git");
 
-    run(root.path(), layer::catalog(), &request).expect("init accepts a .git folder");
+    run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect("init accepts a .git folder");
 
     assert!(root.path().join("stomme.toml").is_file());
 }
@@ -184,7 +249,13 @@ fn run_writes_a_synced_project() {
     let root = empty_folder();
     let request = request(Language::Rust, &[], &[]);
 
-    run(root.path(), layer::catalog(), &request).expect("init succeeds");
+    run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect("init succeeds");
 
     assert!(root.path().join("stomme.toml").is_file());
     assert!(root.path().join("docs/stomme/shared/coding.md").is_file());
@@ -195,9 +266,41 @@ fn run_writes_a_synced_project() {
     );
     assert!(root.path().join(crate::sync::RECORD_FILE).is_file());
     assert!(matches!(
-        config::read(root.path(), layer::catalog()),
+        config::read(
+            root.path(),
+            layer::catalog(),
+            &config::FileRead::filesystem()
+        ),
         Installation::Valid(_)
     ));
+}
+
+#[test]
+fn run_reads_the_written_config_through_the_callers_record() {
+    let root = empty_folder();
+    let request = request(Language::Rust, &[], &[]);
+    let file = config::FileRead {
+        inspect: |path| fs::symlink_metadata(path),
+        read: denied_config_read,
+    };
+
+    let error = run(root.path(), layer::catalog(), &request, &file)
+        .expect_err("the record denies the read");
+
+    let reason = match &error {
+        InitError::Sync(crate::sync::SyncError::Broken { reason }) => reason,
+        other => panic!("unexpected error {other:?}"),
+    };
+    let source = match reason {
+        config::Reason::Unreadable { source } => source,
+        other => panic!("unexpected reason {other:?}"),
+    };
+
+    assert_eq!(source.kind(), io::ErrorKind::PermissionDenied);
+    assert_eq!(source.to_string(), DENIED_READ);
+    assert!(root.path().join("stomme.toml").is_file());
+    assert!(!root.path().join("docs/stomme").exists());
+    assert!(!root.path().join(crate::sync::RECORD_FILE).exists());
 }
 
 #[test]
@@ -330,7 +433,13 @@ fn run_pins_the_style_package() {
     let root = empty_folder();
     let request = request(Language::TypeScript, &[], &[]);
 
-    run(root.path(), layer::catalog(), &request).expect("init succeeds");
+    run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect("init succeeds");
 
     let text = fs::read_to_string(root.path().join("package.json")).expect("read package.json");
     let manifest: serde_json::Value = serde_json::from_str(&text).expect("package.json is JSON");
@@ -347,7 +456,13 @@ fn plan_rejects_a_typescript_role() {
     let root = empty_folder();
     let request = request(Language::TypeScript, &[], &["core"]);
 
-    let error = run(root.path(), layer::catalog(), &request).expect_err("the role is unknown");
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("the role is unknown");
 
     assert!(
         matches!(

@@ -157,7 +157,12 @@ fn run_init(arguments: &[String]) -> ExitCode {
         }
     };
 
-    match init::run(&root, layer::catalog(), &request) {
+    match init::run(
+        &root,
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("stomme: {error}");

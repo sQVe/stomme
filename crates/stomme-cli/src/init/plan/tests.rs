@@ -150,8 +150,14 @@ fn run_writes_nested_files_and_merge_targets() {
     let root = empty_folder();
     let request = request(Language::Rust, &[], &[]);
 
-    run_with_sources(root.path(), layer::catalog(), &request, &[&BASE, &LAYER])
-        .expect("init succeeds");
+    run_with_sources(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &[&BASE, &LAYER],
+        &crate::config::FileRead::filesystem(),
+    )
+    .expect("init succeeds");
 
     let crate_folder = root.path().join("crates/demo");
     assert!(crate_folder.join("src").is_dir());
