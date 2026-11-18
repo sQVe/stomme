@@ -21,7 +21,13 @@ fn target() -> TargetBranch {
 }
 
 fn check_project(root: &Path) -> Vec<Problem> {
-    run(root, layer::catalog(), &target()).expect("check the project")
+    run(
+        root,
+        layer::catalog(),
+        &target(),
+        &config::FileRead::filesystem(),
+    )
+    .expect("check the project")
 }
 
 #[test]
@@ -43,7 +49,13 @@ fn run_reports_a_conflicting_pair_in_either_order() {
             ),
         );
 
-        let problems = run(root.path(), &catalog, &target()).expect("check the project");
+        let problems = run(
+            root.path(),
+            &catalog,
+            &target(),
+            &config::FileRead::filesystem(),
+        )
+        .expect("check the project");
 
         assert_eq!(problems.len(), 1, "{listed}: {problems:?}");
         assert_eq!(problems[0].path, CONFIG_FILE, "{listed}");
@@ -95,7 +107,13 @@ fn run_requires_gpui_bans_only_when_stomme_toml_selects_gpui() {
         );
         crate::sync_project(root.path());
 
-        let problems = run(root.path(), &catalog, &target()).expect("check the project");
+        let problems = run(
+            root.path(),
+            &catalog,
+            &target(),
+            &config::FileRead::filesystem(),
+        )
+        .expect("check the project");
         let rules: Vec<Rule> = problems.iter().map(|problem| problem.rule).collect();
 
         assert_eq!(rules, expected, "{case}: {problems:?}");
@@ -137,7 +155,13 @@ fn run_checks_rust_files_only_for_a_valid_rust_installation() {
 
         fs::remove_file(root.path().join("Cargo.toml")).expect("remove Cargo.toml");
 
-        let problems = run(root.path(), layer::catalog(), &target()).expect("check the project");
+        let problems = run(
+            root.path(),
+            layer::catalog(),
+            &target(),
+            &config::FileRead::filesystem(),
+        )
+        .expect("check the project");
         let rules: Vec<Rule> = problems.iter().map(|problem| problem.rule).collect();
 
         assert_eq!(rules, expected, "{case}: {problems:?}");
@@ -344,8 +368,13 @@ fn unreadable_package_json_is_an_error() {
 
     fs::create_dir(root.path().join("package.json")).expect("make package.json a folder");
 
-    let error = run(root.path(), layer::catalog(), &target())
-        .expect_err("a folder named package.json cannot be read");
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &target(),
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("a folder named package.json cannot be read");
 
     assert_eq!(error.to_string(), "Could not read package.json");
 }

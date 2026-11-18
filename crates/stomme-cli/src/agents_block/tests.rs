@@ -35,7 +35,11 @@ fn project(agents: Option<&str>) -> TempDir {
 }
 
 fn sync_project(root: &Path) -> Result<(), SyncError> {
-    sync::run(root, crate::layer::catalog())
+    sync::run(
+        root,
+        crate::layer::catalog(),
+        &crate::config::FileRead::filesystem(),
+    )
 }
 
 fn read_agents(root: &Path) -> String {

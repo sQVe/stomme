@@ -20,6 +20,7 @@ pub(crate) enum Outcome {
 struct Runner {
     run: fn(binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<Output>,
     inspect: fn(path: &Path) -> io::Result<fs::Metadata>,
+    read: fn(path: &Path) -> io::Result<String>,
 }
 
 #[derive(Debug, Error)]
@@ -30,6 +31,10 @@ enum ConfigError {
         #[source]
         source: io::Error,
     },
+    #[error("{} is a symbolic link; use a regular file", path.display())]
+    SymbolicLink { path: PathBuf },
+    #[error("{} is not a regular file", path.display())]
+    NotRegularFile { path: PathBuf },
     #[error("Could not read {}", path.display())]
     Read {
         path: PathBuf,
@@ -69,6 +74,7 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     let runner = Runner {
         run: run_command,
         inspect: inspect_entry,
+        read: read_entry,
     };
 
     match gate(&runner, &binary, &arguments.version, &folder) {
@@ -93,7 +99,7 @@ fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow:
         });
     }
 
-    rewrite_pinned_version(&config, folder, version)?;
+    rewrite_pinned_version(runner, &config, folder, version)?;
 
     let sync = run_tool(runner, binary, folder, &["sync"])?;
 
@@ -117,18 +123,38 @@ fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow:
 }
 
 fn is_adopted(runner: &Runner, config: &Path) -> Result<bool, ConfigError> {
-    match (runner.inspect)(config) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(source) => Err(ConfigError::Inspect {
+    let metadata = match (runner.inspect)(config) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => {
+            return Err(ConfigError::Inspect {
+                path: config.to_path_buf(),
+                source,
+            });
+        }
+    };
+
+    if metadata.file_type().is_symlink() {
+        return Err(ConfigError::SymbolicLink {
             path: config.to_path_buf(),
-            source,
-        }),
+        });
     }
+
+    if !metadata.file_type().is_file() {
+        return Err(ConfigError::NotRegularFile {
+            path: config.to_path_buf(),
+        });
+    }
+
+    Ok(true)
 }
 
 fn inspect_entry(path: &Path) -> io::Result<fs::Metadata> {
     fs::symlink_metadata(path)
+}
+
+fn read_entry(path: &Path) -> io::Result<String> {
+    fs::read_to_string(path)
 }
 
 fn exit_code(outcome: &Outcome) -> ExitCode {
@@ -174,8 +200,13 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-fn rewrite_pinned_version(config: &Path, folder: &Path, version: &str) -> anyhow::Result<()> {
-    let text = fs::read_to_string(config).map_err(|source| ConfigError::Read {
+fn rewrite_pinned_version(
+    runner: &Runner,
+    config: &Path,
+    folder: &Path,
+    version: &str,
+) -> anyhow::Result<()> {
+    let text = (runner.read)(config).map_err(|source| ConfigError::Read {
         path: config.to_path_buf(),
         source,
     })?;

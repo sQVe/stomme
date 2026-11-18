@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io;
 use std::path::Path;
 
 use tempfile::TempDir;
@@ -17,7 +19,15 @@ fn installation(text: &str) -> Installation {
 
     fs::write(root.path().join(CONFIG_FILE), text).expect("write stomme.toml");
 
-    read(root.path(), layer::catalog())
+    read_filesystem(root.path())
+}
+
+fn read_filesystem(root: &Path) -> Installation {
+    read_with(root, &FileRead::filesystem())
+}
+
+fn read_with(root: &Path, file: &FileRead) -> Installation {
+    super::read(root, layer::catalog(), file)
 }
 
 fn project_with(files: &[(&str, &str)]) -> TempDir {
@@ -37,7 +47,7 @@ fn project_with(files: &[(&str, &str)]) -> TempDir {
 fn installation_in(root: &Path, text: &str) -> Installation {
     fs::write(root.join(CONFIG_FILE), text).expect("write stomme.toml");
 
-    read(root, layer::catalog())
+    read_filesystem(root)
 }
 
 fn exceptions(paths: &[&str]) -> String {
@@ -63,28 +73,228 @@ fn read_reports_a_layer_of_another_language_as_broken() {
         "language = \"typescript\"\nlayers = [\"gpui\"]\n",
     ));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("`gpui`"), "{reason}");
     assert!(reason.contains("rust"), "{reason}");
 }
 
-#[test]
-fn read_reports_a_missing_file_as_no_stomme() {
-    let root = tempfile::tempdir().expect("create a temporary directory");
+thread_local! {
+    static READS: RefCell<usize> = const { RefCell::new(0) };
+}
 
-    assert_eq!(read(root.path(), layer::catalog()), Installation::NoStomme);
+fn read_count() -> usize {
+    READS.with(|reads| *reads.borrow())
+}
+
+fn recording_read(path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+
+    fs::read_to_string(path)
+}
+
+fn spy_read(_path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+
+    Ok(with_version("language = \"typescript\"\n"))
+}
+
+fn denied_inspect(_path: &Path) -> io::Result<fs::Metadata> {
+    Err(io::Error::from(io::ErrorKind::PermissionDenied))
+}
+
+fn denied_read(_path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+
+    Err(io::Error::from(io::ErrorKind::PermissionDenied))
+}
+
+fn removed_read(_path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+
+    Err(io::Error::from(io::ErrorKind::NotFound))
+}
+
+#[cfg(unix)]
+#[test]
+fn read_classifies_the_config_entry() {
+    use std::os::unix::fs::symlink;
+    use std::process::Command;
+
+    #[derive(Clone, Copy)]
+    enum Entry {
+        Missing,
+        Regular,
+        LinkInside,
+        LinkOutside,
+        DanglingLink,
+        LinkLoop,
+        LinkThroughFile,
+        Fifo,
+        Directory,
+        InspectDenied,
+        ReadDenied,
+        RemovedAfterInspect,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Expected {
+        NoStomme,
+        Valid,
+        SymbolicLink,
+        NotRegularFile,
+        Unreadable(io::ErrorKind),
+    }
+
+    fn write_entry(root: &TempDir, outside: &TempDir, text: &str, entry: Entry) {
+        let path = root.path().join(CONFIG_FILE);
+
+        match entry {
+            Entry::Missing | Entry::InspectDenied => {}
+            Entry::Regular | Entry::ReadDenied | Entry::RemovedAfterInspect => {
+                fs::write(path, text).expect("write stomme.toml");
+            }
+            Entry::LinkInside => {
+                fs::write(root.path().join("shared.toml"), text).expect("write the target");
+                symlink("shared.toml", path).expect("create the link");
+            }
+            Entry::LinkOutside => {
+                fs::write(outside.path().join(CONFIG_FILE), text).expect("write the target");
+                symlink(outside.path().join(CONFIG_FILE), path).expect("create the link");
+            }
+            Entry::DanglingLink => symlink("missing.toml", path).expect("create the link"),
+            Entry::LinkLoop => symlink(CONFIG_FILE, path).expect("create the link loop"),
+            Entry::LinkThroughFile => {
+                fs::write(root.path().join("regular"), "contents").expect("write the file");
+                symlink("regular/child.toml", path).expect("create the link");
+            }
+            Entry::Fifo => {
+                let status = Command::new("mkfifo")
+                    .arg(&path)
+                    .status()
+                    .expect("run mkfifo");
+
+                assert!(status.success(), "mkfifo: {status:?}");
+            }
+            Entry::Directory => fs::create_dir(path).expect("create the directory"),
+        }
+    }
+
+    fn file_read(entry: Entry) -> FileRead {
+        match entry {
+            Entry::Regular => FileRead {
+                inspect: inspect_entry,
+                read: recording_read,
+            },
+            Entry::InspectDenied => FileRead {
+                inspect: denied_inspect,
+                read: spy_read,
+            },
+            Entry::ReadDenied => FileRead {
+                inspect: inspect_entry,
+                read: denied_read,
+            },
+            Entry::RemovedAfterInspect => FileRead {
+                inspect: inspect_entry,
+                read: removed_read,
+            },
+            _ => FileRead {
+                inspect: inspect_entry,
+                read: spy_read,
+            },
+        }
+    }
+
+    let cases = [
+        ("missing entry", Entry::Missing, Expected::NoStomme, 0),
+        ("regular file", Entry::Regular, Expected::Valid, 1),
+        (
+            "link inside the project",
+            Entry::LinkInside,
+            Expected::SymbolicLink,
+            0,
+        ),
+        (
+            "link outside the project",
+            Entry::LinkOutside,
+            Expected::SymbolicLink,
+            0,
+        ),
+        (
+            "dangling link",
+            Entry::DanglingLink,
+            Expected::SymbolicLink,
+            0,
+        ),
+        ("link loop", Entry::LinkLoop, Expected::SymbolicLink, 0),
+        (
+            "link through a file",
+            Entry::LinkThroughFile,
+            Expected::SymbolicLink,
+            0,
+        ),
+        ("fifo", Entry::Fifo, Expected::NotRegularFile, 0),
+        ("directory", Entry::Directory, Expected::NotRegularFile, 0),
+        (
+            "inspect denied",
+            Entry::InspectDenied,
+            Expected::Unreadable(io::ErrorKind::PermissionDenied),
+            0,
+        ),
+        (
+            "read denied",
+            Entry::ReadDenied,
+            Expected::Unreadable(io::ErrorKind::PermissionDenied),
+            1,
+        ),
+        (
+            "entry removed after inspect",
+            Entry::RemovedAfterInspect,
+            Expected::Unreadable(io::ErrorKind::NotFound),
+            1,
+        ),
+    ];
+
+    for (name, entry, expected, reads) in cases {
+        let root = tempfile::tempdir().expect("create a temporary directory");
+        let outside = tempfile::tempdir().expect("create an outside directory");
+        let text = with_version("language = \"typescript\"\n");
+
+        write_entry(&root, &outside, &text, entry);
+        READS.with(|count| *count.borrow_mut() = 0);
+
+        let installation = read_with(root.path(), &file_read(entry));
+        let actual_reads = read_count();
+        let actual = match installation {
+            Installation::NoStomme => Expected::NoStomme,
+            Installation::Valid(_) => Expected::Valid,
+            Installation::Broken(Reason::SymbolicLink) => Expected::SymbolicLink,
+            Installation::Broken(Reason::NotRegularFile) => Expected::NotRegularFile,
+            Installation::Broken(Reason::Unreadable { source }) => {
+                Expected::Unreadable(source.kind())
+            }
+            Installation::Broken(Reason::Invalid(reason)) => {
+                panic!("{name}: unexpected invalid config: {reason}");
+            }
+        };
+
+        assert_eq!(actual, expected, "{name}");
+        assert_eq!(actual_reads, reads, "{name}");
+    }
 }
 
 #[test]
 fn read_accepts_a_schema_one_file() {
     let text =
         with_version("language = \"rust\"\nlayers = [\"gpui\"]\n\n[roles]\ncli = \"crates/cli\"\n");
+    let Installation::Valid(selection) = installation(&text) else {
+        panic!("expected a valid installation");
+    };
 
     assert_eq!(
-        installation(&text),
-        Installation::Valid(Selection {
+        selection,
+        Selection {
             version: VERSION.to_string(),
             language: Language::Rust,
             layers: BTreeSet::from(["gpui".to_string()]),
@@ -92,15 +302,20 @@ fn read_accepts_a_schema_one_file() {
             violations: Vec::new(),
             extra_docs: Vec::new(),
             modules: BTreeMap::new(),
-        })
+        }
     );
 }
 
 #[test]
 fn read_defaults_to_no_layers_and_no_roles() {
+    let Installation::Valid(selection) = installation(&with_version("language = \"typescript\"\n"))
+    else {
+        panic!("expected a valid installation");
+    };
+
     assert_eq!(
-        installation(&with_version("language = \"typescript\"\n")),
-        Installation::Valid(Selection {
+        selection,
+        Selection {
             version: VERSION.to_string(),
             language: Language::TypeScript,
             layers: BTreeSet::new(),
@@ -108,7 +323,7 @@ fn read_defaults_to_no_layers_and_no_roles() {
             violations: Vec::new(),
             extra_docs: Vec::new(),
             modules: BTreeMap::new(),
-        })
+        }
     );
 }
 
@@ -121,7 +336,13 @@ fn read_gives_the_same_selection_for_layers_in_either_order() {
         "language = \"rust\"\nlayers = [\"gpui-component\", \"gpui\"]\n",
     ));
 
-    assert!(matches!(forward, Installation::Valid(_)), "{forward:?}");
+    let Installation::Valid(forward) = forward else {
+        panic!("expected a valid installation, got {forward:?}");
+    };
+    let Installation::Valid(backward) = backward else {
+        panic!("expected a valid installation, got {backward:?}");
+    };
+
     assert_eq!(forward, backward);
 }
 
@@ -129,7 +350,7 @@ fn read_gives_the_same_selection_for_layers_in_either_order() {
 fn read_reports_a_leftover_kind_with_the_fields_that_replace_it() {
     let installation = installation(&with_version("kind = \"rust-cli\"\n"));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     for field in ["`language`", "`layers`", "`[roles]`"] {
@@ -160,7 +381,7 @@ fn read_reports_a_bad_layer_set_naming_the_layer() {
     for (case, text, layer) in cases {
         let installation = installation(&with_version(text));
 
-        let Installation::Broken(reason) = installation else {
+        let Installation::Broken(Reason::Invalid(reason)) = installation else {
             panic!("{case}: expected a broken installation, got {installation:?}");
         };
         assert!(reason.contains(layer), "{case}: {reason}");
@@ -171,7 +392,7 @@ fn read_reports_a_bad_layer_set_naming_the_layer() {
 fn read_reports_a_version_other_than_the_binary_version_as_broken() {
     let installation = installation("schema = 1\nversion = \"9.9.9\"\nlanguage = \"rust\"\n");
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("9.9.9"), "{reason}");
@@ -222,25 +443,16 @@ fn read_reports_a_file_that_does_not_match_schema_one_as_broken() {
 }
 
 #[test]
-fn read_reports_a_file_it_cannot_read_as_broken() {
-    let root = tempfile::tempdir().expect("create a temporary directory");
-
-    fs::create_dir(root.path().join(CONFIG_FILE)).expect("create a stomme.toml directory");
-
-    assert!(matches!(
-        read(root.path(), layer::catalog()),
-        Installation::Broken(_)
-    ));
-}
-
-#[test]
 fn read_accepts_extra_docs_under_docs() {
     let root = project_with(&[("docs/development.md", "# Development\n")]);
     let installation = installation_in(root.path(), &exceptions(&["docs/development.md"]));
+    let Installation::Valid(selection) = installation else {
+        panic!("expected a valid installation");
+    };
 
     assert_eq!(
-        installation,
-        Installation::Valid(Selection {
+        selection,
+        Selection {
             version: VERSION.to_string(),
             language: Language::Rust,
             layers: BTreeSet::new(),
@@ -248,7 +460,7 @@ fn read_accepts_extra_docs_under_docs() {
             violations: Vec::new(),
             extra_docs: vec!["docs/development.md".to_string()],
             modules: BTreeMap::new(),
-        })
+        }
     );
 }
 
@@ -257,7 +469,7 @@ fn read_reports_an_extra_doc_that_does_not_exist() {
     let root = project_with(&[]);
     let installation = installation_in(root.path(), &exceptions(&["docs/missing.md"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("docs/missing.md"), "{reason}");
@@ -268,7 +480,7 @@ fn read_reports_an_extra_doc_inside_docs_stomme() {
     let root = project_with(&[("docs/stomme/guide.md", "# Guide\n")]);
     let installation = installation_in(root.path(), &exceptions(&["docs/stomme/guide.md"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("docs/stomme/guide.md"), "{reason}");
@@ -279,7 +491,7 @@ fn read_reports_an_extra_doc_outside_docs() {
     let root = project_with(&[("README.md", "# Readme\n")]);
     let installation = installation_in(root.path(), &exceptions(&["README.md"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("README.md"), "{reason}");
@@ -290,7 +502,7 @@ fn read_reports_an_absolute_extra_doc() {
     let root = project_with(&[]);
     let installation = installation_in(root.path(), &exceptions(&["/etc/passwd"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("/etc/passwd"), "{reason}");
@@ -301,7 +513,7 @@ fn read_reports_an_extra_doc_with_a_parent_part() {
     let root = project_with(&[("README.md", "# Readme\n")]);
     let installation = installation_in(root.path(), &exceptions(&["docs/../README.md"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("docs/../README.md"), "{reason}");
@@ -321,7 +533,7 @@ fn read_reports_an_extra_doc_that_resolves_outside_docs() {
 
     let installation = installation_in(root.path(), &exceptions(&["docs/link.md"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("docs/link.md"), "{reason}");
@@ -333,7 +545,7 @@ fn read_reports_an_extra_doc_that_aliases_docs_stomme_with_a_dot() {
     let path = "docs/./stomme/shared/coding.md";
     let installation = installation_in(root.path(), &exceptions(&[path]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains(path), "{reason}");
@@ -354,7 +566,7 @@ fn read_reports_an_extra_doc_symlinked_into_docs_stomme() {
 
     let installation = installation_in(root.path(), &exceptions(&["docs/link.md"]));
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("docs/link.md"), "{reason}");
@@ -366,7 +578,7 @@ fn read_reports_an_unknown_exception_field() {
     let text = with_version("language = \"rust\"\n\n[exceptions]\nother = []\n");
     let installation = installation_in(root.path(), &text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("other"), "{reason}");
@@ -451,7 +663,7 @@ fn read_rejects_bad_violation_entries() {
         let text = with_version(&format!("language = \"rust\"\n\n{entry}"));
         let installation = installation(&text);
 
-        let Installation::Broken(reason) = installation else {
+        let Installation::Broken(Reason::Invalid(reason)) = installation else {
             panic!("{case}: expected a broken installation, got {installation:?}");
         };
         assert!(reason.contains(named), "{case}: {reason}");
@@ -465,7 +677,7 @@ fn read_reports_an_import_of_a_module_without_a_row() {
     );
     let installation = installation(&text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("`config`"), "{reason}");
@@ -486,7 +698,7 @@ fn read_reports_an_absolute_module_path() {
     let text = with_version("language = \"typescript\"\n\n[modules.a]\nentry = \"/src/a.ts\"\n");
     let installation = installation(&text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("/src/a.ts"), "{reason}");
@@ -499,7 +711,7 @@ fn read_reports_a_module_path_with_a_parent_part() {
     );
     let installation = installation(&text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("src/../a.ts"), "{reason}");
@@ -512,7 +724,7 @@ fn read_reports_an_unknown_module_row_field() {
     );
     let installation = installation(&text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("exports"), "{reason}");
@@ -534,7 +746,7 @@ fn shared_module_table_fixtures_accept_and_reject_by_folder() {
 
             fs::write(root.path().join(CONFIG_FILE), config).expect("write stomme.toml");
 
-            let installation = read(root.path(), layer::catalog());
+            let installation = read_filesystem(root.path());
             let case = case.display();
 
             if accepts {
@@ -566,7 +778,7 @@ fn read_reports_a_rust_module_path_that_is_not_a_rust_file() {
     let text = with_version("language = \"rust\"\n\n[modules.a]\nentry = \"src/a.txt\"\n");
     let installation = installation_in(root.path(), &text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("src/a.txt"), "{reason}");
@@ -579,7 +791,7 @@ fn read_reports_a_rust_module_path_without_a_src_folder() {
     let text = with_version("language = \"rust\"\n\n[modules.a]\nentry = \"a.rs\"\n");
     let installation = installation_in(root.path(), &text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("a.rs"), "{reason}");
@@ -592,7 +804,7 @@ fn read_reports_a_rust_module_path_that_is_not_a_file() {
     let text = with_version("language = \"rust\"\n\n[modules.a]\nentry = \"src/a.rs\"\n");
     let installation = installation_in(root.path(), &text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("src/a.rs"), "{reason}");
@@ -607,7 +819,7 @@ fn read_reports_two_modules_with_the_same_entry() {
     );
     let installation = installation_in(root.path(), &text);
 
-    let Installation::Broken(reason) = installation else {
+    let Installation::Broken(Reason::Invalid(reason)) = installation else {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("`a`"), "{reason}");

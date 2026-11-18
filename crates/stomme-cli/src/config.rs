@@ -4,6 +4,7 @@ use std::io;
 use std::path::Path;
 
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::layer::{self, Catalog, Language};
 use crate::rule::Rule;
@@ -11,11 +12,48 @@ use crate::rule::Rule;
 pub(crate) const CONFIG_FILE: &str = "stomme.toml";
 pub(crate) const SCHEMA: i64 = 1;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) enum Installation {
     NoStomme,
     Valid(Selection),
-    Broken(String),
+    Broken(Reason),
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum Reason {
+    #[error("is a symbolic link; use a regular file")]
+    SymbolicLink,
+    #[error("is not a regular file")]
+    NotRegularFile,
+    #[error("could not read the file: {source}")]
+    Unreadable {
+        #[source]
+        source: io::Error,
+    },
+    #[error("{0}")]
+    Invalid(String),
+}
+
+pub(crate) struct FileRead {
+    pub(crate) inspect: fn(&Path) -> io::Result<fs::Metadata>,
+    pub(crate) read: fn(&Path) -> io::Result<String>,
+}
+
+impl FileRead {
+    pub(crate) fn filesystem() -> Self {
+        Self {
+            inspect: inspect_entry,
+            read: read_text,
+        }
+    }
+}
+
+fn inspect_entry(path: &Path) -> io::Result<fs::Metadata> {
+    fs::symlink_metadata(path)
+}
+
+fn read_text(path: &Path) -> io::Result<String> {
+    fs::read_to_string(path)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -68,11 +106,13 @@ pub(crate) struct ModuleRow {
     pub(crate) imports: Vec<String>,
 }
 
-pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
-    let text = match fs::read_to_string(root.join(CONFIG_FILE)) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Installation::NoStomme,
-        Err(error) => return Installation::Broken(format!("could not read the file: {error}")),
+pub(crate) fn read(root: &Path, catalog: &Catalog, file: &FileRead) -> Installation {
+    let path = root.join(CONFIG_FILE);
+
+    let text = match read_entry(&path, file) {
+        Entry::Missing => return Installation::NoStomme,
+        Entry::Broken(reason) => return Installation::Broken(reason),
+        Entry::Text(text) => text,
     };
 
     match parse(&text, catalog)
@@ -80,7 +120,35 @@ pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
         .and_then(|selection| validate_exceptions(root, selection))
     {
         Ok(selection) => Installation::Valid(selection),
-        Err(reason) => Installation::Broken(reason),
+        Err(reason) => Installation::Broken(Reason::Invalid(reason)),
+    }
+}
+
+enum Entry {
+    Missing,
+    Broken(Reason),
+    Text(String),
+}
+
+fn read_entry(path: &Path, file: &FileRead) -> Entry {
+    let metadata = match (file.inspect)(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Entry::Missing,
+        Err(source) => return Entry::Broken(Reason::Unreadable { source }),
+    };
+    let file_type = metadata.file_type();
+
+    if file_type.is_symlink() {
+        return Entry::Broken(Reason::SymbolicLink);
+    }
+
+    if !file_type.is_file() {
+        return Entry::Broken(Reason::NotRegularFile);
+    }
+
+    match (file.read)(path) {
+        Ok(text) => Entry::Text(text),
+        Err(source) => Entry::Broken(Reason::Unreadable { source }),
     }
 }
 

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use thiserror::Error;
 
+use crate::config::FileRead;
 use crate::layer::{Catalog, Language, SelectionError};
 use crate::sync::{self, SyncError};
 use assets::Source;
@@ -127,11 +128,16 @@ pub(crate) fn parse_arguments(arguments: &[String]) -> Result<Request, InitError
     })
 }
 
-pub(crate) fn run(root: &Path, catalog: &Catalog, request: &Request) -> Result<(), InitError> {
+pub(crate) fn run(
+    root: &Path,
+    catalog: &Catalog,
+    request: &Request,
+    file: &FileRead,
+) -> Result<(), InitError> {
     let sources = assets::sources(request, catalog)?;
     let sources: Vec<&Source> = sources.iter().collect();
 
-    run_with_sources(root, catalog, request, &sources)
+    run_with_sources(root, catalog, request, &sources, file)
 }
 
 pub(crate) fn run_with_sources(
@@ -139,13 +145,14 @@ pub(crate) fn run_with_sources(
     catalog: &Catalog,
     request: &Request,
     sources: &[&Source],
+    file: &FileRead,
 ) -> Result<(), InitError> {
     plan::validate(root, catalog, request)?;
 
     let plan = plan::plan(request, sources)?;
 
     plan::execute(root, &plan)?;
-    sync::run(root, catalog)?;
+    sync::run(root, catalog, file)?;
 
     Ok(())
 }

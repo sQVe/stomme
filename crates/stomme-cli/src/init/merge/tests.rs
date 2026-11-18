@@ -30,8 +30,14 @@ fn run_fails_before_writing_when_two_layers_set_one_key_differently() {
     let request = request(Language::Rust, &[], &[]);
     let sources = [&BASE, &FIRST_LAYER, &MIDDLE_LAYER, &SECOND_LAYER];
 
-    let error = run_with_sources(root.path(), layer::catalog(), &request, &sources)
-        .expect_err("the layers clash");
+    let error = run_with_sources(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &sources,
+        &crate::config::FileRead::filesystem(),
+    )
+    .expect_err("the layers clash");
 
     assert!(
         matches!(

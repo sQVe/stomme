@@ -20,7 +20,8 @@ mod test_support;
 
 #[cfg(test)]
 fn sync_project(root: &std::path::Path) {
-    sync::run(root, layer::catalog()).expect("sync the fixture project");
+    sync::run(root, layer::catalog(), &config::FileRead::filesystem())
+        .expect("sync the fixture project");
 }
 
 const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]>\n\nCheck or sync the project in the current directory, write the guides to a folder, or create a project.";
@@ -83,8 +84,9 @@ fn run_check(target: check::TargetBranch) -> ExitCode {
 
 fn check_current_directory(target: check::TargetBranch) -> anyhow::Result<Vec<check::Problem>> {
     let root = env::current_dir().context("Could not read the current directory")?;
+    let file = config::FileRead::filesystem();
 
-    check::run(&root, layer::catalog(), &target)
+    check::run(&root, layer::catalog(), &target, &file)
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
@@ -97,7 +99,7 @@ fn run_sync() -> ExitCode {
         }
     };
 
-    match sync::run(&root, layer::catalog()) {
+    match sync::run(&root, layer::catalog(), &config::FileRead::filesystem()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("stomme: {error}");
@@ -155,7 +157,12 @@ fn run_init(arguments: &[String]) -> ExitCode {
         }
     };
 
-    match init::run(&root, layer::catalog(), &request) {
+    match init::run(
+        &root,
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+    ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("stomme: {error}");

@@ -165,8 +165,13 @@ fn sync_writes_pins_and_a_second_sync_changes_nothing() {
     crate::sync_project(root.path());
 
     let target = crate::check::TargetBranch::git("origin/main".to_string());
-    let problems = crate::check::run(root.path(), crate::layer::catalog(), &target)
-        .expect("check the project");
+    let problems = crate::check::run(
+        root.path(),
+        crate::layer::catalog(),
+        &target,
+        &crate::config::FileRead::filesystem(),
+    )
+    .expect("check the project");
 
     assert!(
         !problems
@@ -201,7 +206,12 @@ fn sync_with_an_invalid_package_json_writes_nothing() {
     write_file(root.path(), "stomme.toml", &config);
     write_file(root.path(), PACKAGE_JSON, "{ not json");
 
-    let error = crate::sync::run(root.path(), crate::layer::catalog()).expect_err("sync refuses");
+    let error = crate::sync::run(
+        root.path(),
+        crate::layer::catalog(),
+        &crate::config::FileRead::filesystem(),
+    )
+    .expect_err("sync refuses");
 
     assert!(
         matches!(error, SyncError::PackageManifest { .. }),
