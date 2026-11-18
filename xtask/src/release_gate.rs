@@ -142,28 +142,37 @@ fn rewrite_pinned_version(config: &Path, folder: &Path, version: &str) -> anyhow
     let text = fs::read_to_string(config)
         .with_context(|| format!("Could not read {}", config.display()))?;
 
-    let rewritten = rewrite_top_level_version(&text, version)
-        .map_err(|error| anyhow::anyhow!("stomme.toml in {} {error:#}", folder.display()))?;
+    let rewritten = rewrite_top_level_version(&text, folder, version)?;
 
     fs::write(config, rewritten).with_context(|| format!("Could not write {}", config.display()))
 }
 
-fn rewrite_top_level_version(text: &str, version: &str) -> anyhow::Result<String> {
-    let mut document: toml_edit::DocumentMut = text.parse().context("does not parse as TOML")?;
+fn rewrite_top_level_version(text: &str, folder: &Path, version: &str) -> anyhow::Result<String> {
+    let document = toml_edit::Document::parse(text)
+        .with_context(|| format!("stomme.toml in {} does not parse as TOML", folder.display()))?;
 
-    let Some(item) = document.get_mut("version") else {
-        anyhow::bail!("has no top-level version line");
+    let Some(item) = document.get("version") else {
+        anyhow::bail!(
+            "stomme.toml in {} has no top-level version line",
+            folder.display()
+        );
     };
 
-    let Some(value) = item.as_value_mut().filter(|value| value.is_str()) else {
-        anyhow::bail!("has a version that is not a string");
+    let Some(value) = item.as_value().filter(|value| value.is_str()) else {
+        anyhow::bail!(
+            "stomme.toml in {} has a version that is not a string",
+            folder.display()
+        );
     };
 
-    let mut replacement = toml_edit::Value::from(version);
-    *replacement.decor_mut() = value.decor().clone();
-    *value = replacement;
+    let span = value.span().expect("a parsed value has a source span");
+    let replacement = toml_edit::Value::from(version).to_string();
 
-    Ok(document.to_string())
+    Ok(format!(
+        "{}{replacement}{}",
+        &text[..span.start],
+        &text[span.end..]
+    ))
 }
 
 fn report(folder: &Path, outcome: &Outcome) -> String {
