@@ -17,7 +17,18 @@
    The init tests also need `herdr-app` on `PATH`, at the version pinned by the `http:herdr-app`
    table in
    [foundation/layers/herdr/skeleton/merge/mise.toml](../foundation/layers/herdr/skeleton/merge/mise.toml).
-   Install it with `mise install http:herdr-app` run in that folder, or with the Herdr app installer.
+   Install [mise](https://mise.jdx.dev). Then run these commands in the repository root. They trust
+   the mise file, install `herdr-app`, and add its folder to `PATH`, as CI does:
+
+   ```sh
+   (cd foundation/layers/herdr/skeleton/merge && mise trust && mise install http:herdr-app)
+   export PATH="$(cd foundation/layers/herdr/skeleton/merge && mise where http:herdr-app)/herdr-app:$PATH"
+   herdr-app --version
+   ```
+
+   `herdr-app --version` prints `herdr-app 0.1.16`. Add the `export` line to your shell profile to
+   keep it. On macOS, mise skips this tool. Install the Herdr app with
+   `curl -fsSL https://releases.herdr.dev/app/install.sh | sh` instead.
 4. Install JavaScript dependencies from the repository root:
 
    ```sh
