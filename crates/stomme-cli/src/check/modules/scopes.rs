@@ -111,11 +111,7 @@ fn is_public_use<'source>(token: &Token<'source>, tokens: &mut TokenStream<'sour
         .peek()
         .is_some_and(|next| next.kind == TokenKind::OpenParen)
     {
-        let restriction_end = lookahead.position(|next| next.kind == TokenKind::CloseParen);
-
-        if restriction_end.is_none() {
-            return false;
-        }
+        lookahead.position(|next| next.kind == TokenKind::CloseParen);
     }
 
     let is_use = lookahead

@@ -354,7 +354,7 @@ fn combine(prefixes: Vec<Leaf>, alternatives: Vec<Leaf>) -> Vec<Leaf> {
             };
 
             combined.push(Leaf {
-                absolute: prefix.absolute || alternative.absolute,
+                absolute: alternative.absolute,
                 segments,
                 alias: alternative.alias.clone(),
                 line,

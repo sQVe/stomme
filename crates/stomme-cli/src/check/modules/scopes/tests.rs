@@ -49,13 +49,15 @@ fn target_forms_map_to_their_kind() {
             "pub use attention as a;\n\
              pub use super::fact::attention as b;\n\
              pub use crate::fact::attention as c;\n\
-             pub use ::std::mem as d;\n"
+             pub use ::std::mem as d;\n\
+             pub use super::super::a as e;\n"
         ),
         [
             named("a", Target::Bare(strings(&["attention"]))),
             named("b", relative(1, &["fact", "attention"])),
             named("c", Target::Crate(strings(&["fact", "attention"]))),
             named("d", Target::External),
+            named("e", relative(2, &["a"])),
         ]
     );
 }
@@ -89,6 +91,19 @@ fn an_export_without_an_alias_takes_its_last_segment() {
 #[test]
 fn underscore_and_glob_exports_bind_no_name() {
     assert_eq!(file_exports("pub use a as _;\npub use a::*;\n"), []);
+}
+
+#[test]
+fn a_self_leaf_without_a_prefix_exports_nothing() {
+    assert_eq!(file_exports("pub use {self as x};\npub use {self};\n"), []);
+}
+
+#[test]
+fn a_leading_colon_before_a_prefixed_group_marks_its_leaves() {
+    assert_eq!(
+        file_exports("pub use ::std::{mem as r};"),
+        [named("r", Target::External)]
+    );
 }
 
 #[test]
@@ -162,6 +177,7 @@ fn exports_inside_functions_impls_attributes_and_macros_are_skipped() {
         "fn f() { pub use a as b; mod hidden { pub use a as h; } }\n\
          discard!(pub use a as c;);\n\
          discard![pub use a as d;];\n\
+         #[doc(pub use a as e;)]\n\
          impl X { }\n",
     );
 
