@@ -1,5 +1,14 @@
 # @sqve/seam
 
+## 0.4.0
+
+### Minor Changes
+
+- [#20](https://github.com/sQVe/stomme/pull/20)
+  [`fcfa0f4`](https://github.com/sQVe/stomme/commit/fcfa0f472af39398e0076fc11405e3c630f95dae) Thanks
+  [@sQVe](https://github.com/sQVe)! - Turn off `react/react-in-jsx-scope` in the React preset,
+  because the automatic JSX runtime puts no `React` in scope.
+
 ## 0.3.0
 
 ### Minor Changes
