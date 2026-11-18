@@ -470,13 +470,23 @@ impl Catalog {
 
 #[cfg(test)]
 pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalog {
-    let sources: Vec<Source> = manifests
+    let guided: Vec<(&'static str, &'static str, &'static str)> = manifests
         .iter()
-        .map(|&(name, manifest)| Source {
+        .map(|&(name, manifest)| (name, manifest, ""))
+        .collect();
+
+    test_guide_catalog(&guided)
+}
+
+#[cfg(test)]
+pub(crate) fn test_guide_catalog(layers: &[(&'static str, &'static str, &'static str)]) -> Catalog {
+    let sources: Vec<Source> = layers
+        .iter()
+        .map(|&(name, manifest, guide)| Source {
             name,
             manifest,
             bans: None,
-            guide: "",
+            guide,
             refinements: &[],
             detection: Detection::PackageField(name),
             starter: None,

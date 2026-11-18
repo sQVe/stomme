@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::layer::Catalog;
 
 fn foundation_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../foundation")
@@ -401,6 +402,131 @@ fn a_closing_fence_needs_at_least_the_opening_length() {
 }
 
 #[test]
+fn a_fence_line_with_trailing_text_does_not_close_a_fence_for_headings() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#hidden)\n"),
+        file(
+            "docs/stomme/shared/two.md",
+            "```\n```not a closer\n## Hidden\n```\n",
+        ),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#hidden".to_string(),
+            anchor: "hidden".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn a_fence_line_with_trailing_text_does_not_close_a_fence_for_links() {
+    let text = "```\n```not a closer\n[inside](./inside.md)\n```\n";
+
+    assert_eq!(link_targets(text), Vec::<String>::new());
+}
+
+#[test]
+fn validate_links_accepts_a_setext_heading() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[a](./two.md#test-placement) [b](./two.md#second-part)\n",
+        ),
+        file(
+            "docs/stomme/shared/two.md",
+            "Test placement\n==============\n\nSecond part\n-----------\n",
+        ),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_ignores_a_heading_inside_an_html_comment() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#hidden)\n"),
+        file(
+            "docs/stomme/shared/two.md",
+            "<!--\n## Hidden\n-->\n\n## Shown\n",
+        ),
+    ];
+
+    assert_eq!(
+        validate_links(&files),
+        Err(LinkError::MissingAnchor {
+            path: "docs/stomme/shared/one.md".to_string(),
+            target: "./two.md#hidden".to_string(),
+            anchor: "hidden".to_string(),
+            resolved: "docs/stomme/shared/two.md".to_string(),
+        })
+    );
+}
+
+#[test]
+fn validate_links_accepts_a_heading_after_a_closed_fence() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#after)\n"),
+        file(
+            "docs/stomme/shared/two.md",
+            "```\n## Inside\n```\n## After\n",
+        ),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_accepts_an_empty_fragment() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md#)\n"),
+        file("docs/stomme/shared/two.md", "# Two\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_skips_suffixes_that_other_headings_already_use() {
+    let files = [
+        file(
+            "docs/stomme/shared/one.md",
+            "[a](./two.md#setup) [b](./two.md#setup-1) [c](./two.md#setup-2)\n",
+        ),
+        file("docs/stomme/shared/two.md", "# Setup\n# Setup-1\n# Setup\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn a_balanced_paren_destination_resolves_in_full() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two_(draft).md)\n"),
+        file("docs/stomme/shared/two_(draft).md", "# Two\n"),
+    ];
+
+    assert_eq!(
+        link_targets("[two](./two_(draft).md)\n"),
+        vec!["./two_(draft).md"]
+    );
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_drops_a_link_title() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md \"Two\")\n"),
+        file("docs/stomme/shared/two.md", "# Two\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
 fn owned_set_reads_the_given_catalog() {
     let catalog = crate::layer::test_catalog(&[("one", "language = \"rust\"\n")]);
     let selection = Selection {
@@ -422,31 +548,53 @@ fn owned_set_reads_the_given_catalog() {
     );
 }
 
+fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkError> {
+    let (language, layers) = catalog
+        .smallest_selection(name)
+        .expect("a registered layer has a language and requirements");
+    let layers = crate::layer::select(catalog, language, layers.into_iter().collect())
+        .expect("the smallest selection passes the real selection rules");
+    let selection = Selection {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        language,
+        layers,
+        roles: BTreeMap::new(),
+        violations: Vec::new(),
+        extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
+    };
+
+    validate_links(&owned_set(&selection, catalog))
+}
+
 #[test]
 fn every_layer_passes_links_in_its_smallest_selection() {
     let catalog = crate::layer::catalog();
 
     for (name, _) in catalog.guides() {
-        let (language, layers) = catalog
-            .smallest_selection(name)
-            .expect("a registered layer has a language and requirements");
-        let selection = Selection {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            language,
-            layers,
-            roles: BTreeMap::new(),
-            violations: Vec::new(),
-            extra_docs: Vec::new(),
-            modules: BTreeMap::new(),
-        };
-        let files = owned_set(&selection, catalog);
-
         assert_eq!(
-            validate_links(&files),
+            smallest_selection_links(catalog, name),
             Ok(()),
             "layer `{name}` fails links in its smallest selection"
         );
     }
+}
+
+#[test]
+fn a_layer_guide_linking_outside_its_smallest_selection_fails() {
+    let catalog = crate::layer::test_guide_catalog(&[
+        ("one", "language = \"rust\"\n", "[other](../two/guide.md)\n"),
+        ("two", "language = \"rust\"\n", "# Two\n"),
+    ]);
+
+    assert_eq!(
+        smallest_selection_links(&catalog, "one"),
+        Err(LinkError::Broken {
+            path: "docs/stomme/layers/one/guide.md".to_string(),
+            target: "../two/guide.md".to_string(),
+        })
+    );
+    assert_eq!(smallest_selection_links(&catalog, "two"), Ok(()));
 }
 
 #[test]

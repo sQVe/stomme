@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+pulldown-cmark.workspace = true
 ra-ap-rustc_lexer.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use thiserror::Error;
 
 use crate::config::Selection;
@@ -239,8 +240,6 @@ pub(crate) struct RelativeLink<'a> {
 }
 
 pub(crate) fn relative_link(target: &str) -> Option<RelativeLink<'_>> {
-    let target = target.split_whitespace().next()?;
-
     if target.is_empty() || is_external(target) {
         return None;
     }
@@ -260,84 +259,42 @@ pub(crate) fn relative_link(target: &str) -> Option<RelativeLink<'_>> {
 
 fn heading_slugs(text: &str) -> BTreeSet<String> {
     let mut slugs = BTreeSet::new();
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut next_suffix: BTreeMap<String, usize> = BTreeMap::new();
 
     for heading in headings(text) {
-        let base = slug(heading);
-        let count = counts.entry(base.clone()).or_default();
-        let unique = if *count == 0 {
-            base
-        } else {
-            format!("{base}-{}", *count)
-        };
+        let base = slug(&heading);
+        let suffix = next_suffix.entry(base.clone()).or_default();
+        let mut unique = base.clone();
 
-        *count += 1;
+        while slugs.contains(&unique) {
+            *suffix += 1;
+            unique = format!("{base}-{suffix}");
+        }
+
         slugs.insert(unique);
     }
 
     slugs
 }
 
-fn headings(text: &str) -> Vec<&str> {
+fn headings(text: &str) -> Vec<String> {
     let mut headings = Vec::new();
-    let mut fence: Option<(u8, usize)> = None;
+    let mut current: Option<String> = None;
 
-    for line in text.lines() {
-        let bytes = line.as_bytes();
-
-        if let Some((marker, length)) = fence {
-            if let Some((found_marker, found_length, _)) = fence_start(bytes, 0)
-                && found_marker == marker
-                && found_length >= length
-            {
-                fence = None;
+    for event in Parser::new(text) {
+        match event {
+            Event::Start(Tag::Heading { .. }) => current = Some(String::new()),
+            Event::End(TagEnd::Heading(_)) => headings.extend(current.take()),
+            Event::Text(part) | Event::Code(part) => {
+                if let Some(heading) = current.as_mut() {
+                    heading.push_str(&part);
+                }
             }
-
-            continue;
-        }
-
-        if let Some((marker, length, _)) = fence_start(bytes, 0) {
-            fence = Some((marker, length));
-            continue;
-        }
-
-        if let Some(heading) = heading_text(line) {
-            headings.push(heading);
+            _ => {}
         }
     }
 
     headings
-}
-
-fn heading_text(line: &str) -> Option<&str> {
-    let indent = line.len() - line.trim_start_matches(' ').len();
-
-    if indent > 3 {
-        return None;
-    }
-
-    let rest = &line[indent..];
-    let level = rest.bytes().take_while(|&byte| byte == b'#').count();
-
-    if !(1..=6).contains(&level) {
-        return None;
-    }
-
-    let after = &rest[level..];
-
-    if !after.is_empty() && !after.starts_with(' ') {
-        return None;
-    }
-
-    let text = after.trim();
-    let without_closing = text.trim_end_matches('#');
-    let text = if without_closing.len() < text.len() && without_closing.ends_with(' ') {
-        without_closing.trim_end()
-    } else {
-        text
-    };
-
-    (!text.is_empty()).then_some(text)
 }
 
 fn slug(heading: &str) -> String {
@@ -388,132 +345,15 @@ pub(crate) fn resolve(base: &str, target: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-#[derive(Clone, Copy)]
-enum State {
-    Normal,
-    CodeSpan { ticks: usize },
-    Fence { marker: u8, length: usize },
-    Comment,
-}
-
 pub(crate) fn link_targets(text: &str) -> Vec<String> {
-    let bytes = text.as_bytes();
-    let mut targets = Vec::new();
-    let mut index = 0;
-    let mut at_line_start = true;
-    let mut state = State::Normal;
-
-    while index < bytes.len() {
-        match state {
-            State::Normal => {
-                if at_line_start && let Some((marker, length, end)) = fence_start(bytes, index) {
-                    state = State::Fence { marker, length };
-                    index = end;
-                    at_line_start = false;
-                    continue;
-                }
-
-                if bytes[index] == b'`' {
-                    let ticks = run_length(bytes, index, b'`');
-
-                    state = State::CodeSpan { ticks };
-                    index += ticks;
-                    at_line_start = false;
-                    continue;
-                }
-
-                if bytes[index..].starts_with(b"<!--") {
-                    state = State::Comment;
-                    index += 4;
-                    at_line_start = false;
-                    continue;
-                }
-
-                if bytes[index..].starts_with(b"](") {
-                    let start = index + 2;
-
-                    if let Some(end) = bytes[start..].iter().position(|&byte| byte == b')') {
-                        targets.push(text[start..start + end].to_string());
-                        index = start + end + 1;
-                        at_line_start = false;
-                        continue;
-                    }
-                }
-
-                at_line_start = bytes[index] == b'\n';
-                index += 1;
+    Parser::new(text)
+        .filter_map(|event| match event {
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                Some(dest_url.to_string())
             }
-            State::CodeSpan { ticks } => {
-                if bytes[index] == b'`' {
-                    let length = run_length(bytes, index, b'`');
-
-                    if length == ticks {
-                        state = State::Normal;
-                    }
-
-                    index += length;
-                    at_line_start = false;
-                } else {
-                    at_line_start = bytes[index] == b'\n';
-                    index += 1;
-                }
-            }
-            State::Fence { marker, length } => {
-                if at_line_start
-                    && let Some((found_marker, found_length, end)) = fence_start(bytes, index)
-                    && found_marker == marker
-                    && found_length >= length
-                {
-                    state = State::Normal;
-                    index = end;
-                    at_line_start = false;
-                    continue;
-                }
-
-                at_line_start = bytes[index] == b'\n';
-                index += 1;
-            }
-            State::Comment => {
-                if bytes[index..].starts_with(b"-->") {
-                    state = State::Normal;
-                    index += 3;
-                    at_line_start = false;
-                } else {
-                    at_line_start = bytes[index] == b'\n';
-                    index += 1;
-                }
-            }
-        }
-    }
-
-    targets
-}
-
-fn fence_start(bytes: &[u8], index: usize) -> Option<(u8, usize, usize)> {
-    let mut cursor = index;
-    let mut spaces = 0;
-
-    while cursor < bytes.len() && bytes[cursor] == b' ' && spaces < 3 {
-        cursor += 1;
-        spaces += 1;
-    }
-
-    let marker = *bytes.get(cursor)?;
-
-    if marker != b'`' && marker != b'~' {
-        return None;
-    }
-
-    let length = run_length(bytes, cursor, marker);
-
-    (length >= 3).then_some((marker, length, cursor + length))
-}
-
-fn run_length(bytes: &[u8], index: usize, marker: u8) -> usize {
-    bytes[index..]
-        .iter()
-        .take_while(|&&byte| byte == marker)
-        .count()
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
