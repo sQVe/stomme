@@ -30,9 +30,11 @@
 
 - `crates/stomme-cli` is the `stomme` binary. `stomme check` checks the project in the current
   directory and prints each problem to stderr as `stomme: <path>: <message> [<rule>]`. It exits 1
-  on any problem. `stomme guides <dir>` writes every shared file and guide, plus `.sync-record.toml`,
-  to `<dir>` for a consumer without a project. Run it on this repository with
-  `cargo run -q -p stomme -- check`.
+  on any problem. Without `--base`, it compares recorded violations with `origin/<GITHUB_BASE_REF>`
+  in a pull request and with `origin/main` otherwise; see
+  [ADR 0010](./stomme/shared/adr/0010-recorded-violations.md). `stomme guides <dir>` writes every
+  shared file and guide, plus `.sync-record.toml`, to `<dir>` for a consumer without a project. Run
+  it on this repository with `cargo run -q -p stomme -- check`.
   `stomme init` creates a project in the current directory, which must be empty apart from `.git`:
 
   ```sh
