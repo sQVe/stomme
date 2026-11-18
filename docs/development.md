@@ -14,6 +14,10 @@
    [CI](../.github/workflows/ci.yml), and the pnpm version in
    [package.json](../package.json). The package's `engines` field sets the minimum Node and Bun
    versions. Bun is needed for the packed package tests, even when developing with Node.
+   The init tests also need `herdr-app` on `PATH`, at the version pinned by the `http:herdr-app`
+   table in
+   [foundation/layers/herdr/skeleton/merge/mise.toml](../foundation/layers/herdr/skeleton/merge/mise.toml).
+   Install it with `mise install http:herdr-app` run in that folder, or with the Herdr app installer.
 4. Install JavaScript dependencies from the repository root:
 
    ```sh
