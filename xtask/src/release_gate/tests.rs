@@ -89,6 +89,10 @@ fn project(config: &str) -> tempfile::TempDir {
     folder
 }
 
+fn config_text(folder: &tempfile::TempDir) -> String {
+    std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml")
+}
+
 #[test]
 fn gate_fails_an_adopted_project_whose_check_fails() {
     let folder = project(CONFIG);
@@ -217,6 +221,81 @@ fn gate_refuses_a_stomme_toml_without_a_version_line() {
         message.contains(&folder.path().display().to_string()),
         "{message}"
     );
+    assert!(
+        message.contains("has no top-level version line"),
+        "{message}"
+    );
+    assert_eq!(config_text(&folder), "schema = 1\nlanguage = \"rust\"\n");
+    assert!(calls().is_empty());
+}
+
+#[test]
+fn gate_rewrites_a_commented_version_pin_and_keeps_the_comment() {
+    let config = "schema = 1\nversion = \"0.2.0\" # candidate pin\nlanguage = \"rust\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let outcome =
+        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    assert_eq!(outcome, Outcome::Passed);
+    assert_eq!(
+        config_text(&folder),
+        "schema = 1\nversion = \"1.2.3\" # candidate pin\nlanguage = \"rust\"\n"
+    );
+}
+
+#[test]
+fn gate_rewrites_a_literal_string_version_pin() {
+    let config = "schema = 1\nversion = '0.2.0'\nlanguage = \"rust\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let outcome =
+        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+
+    assert_eq!(outcome, Outcome::Passed);
+    assert_eq!(
+        config_text(&folder),
+        "schema = 1\nversion = \"1.2.3\"\nlanguage = \"rust\"\n"
+    );
+}
+
+#[test]
+fn gate_refuses_a_stomme_toml_that_does_not_parse() {
+    let config = "schema = 1\nversion = \"0.0.0\"\nlanguage = [rust\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
+        .expect_err("refuse the config");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&folder.path().display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("does not parse as TOML"), "{message}");
+    assert_eq!(config_text(&folder), config);
+    assert!(calls().is_empty());
+}
+
+#[test]
+fn gate_refuses_a_non_string_version() {
+    let config = "schema = 1\nversion = 1\nlanguage = \"rust\"\n";
+    let folder = project(config);
+    install(Response::default(), Response::default());
+
+    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
+        .expect_err("refuse the config");
+
+    let message = format!("{error:#}");
+    assert!(
+        message.contains(&folder.path().display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("not a string"), "{message}");
+    assert_eq!(config_text(&folder), config);
     assert!(calls().is_empty());
 }
 
