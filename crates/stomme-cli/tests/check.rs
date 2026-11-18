@@ -210,6 +210,30 @@ fn check_reports_an_unknown_exception_field() {
 
 #[cfg(unix)]
 #[test]
+fn check_reports_a_dangling_stomme_toml_link() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+
+    fs::remove_file(root.path().join("stomme.toml")).expect("remove stomme.toml");
+    symlink("missing.toml", root.path().join("stomme.toml")).expect("create the link");
+
+    let output = stomme(root.path(), &["check"]);
+
+    assert_single_problem(
+        &output,
+        "stomme.toml",
+        "broken-installation",
+        "dangling stomme.toml link",
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("target cannot be read"),
+        "{output:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn check_reports_a_symlinked_docs_folder() {
     use std::os::unix::fs::symlink;
 

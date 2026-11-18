@@ -69,9 +69,13 @@ pub(crate) struct ModuleRow {
 }
 
 pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
-    let text = match fs::read_to_string(root.join(CONFIG_FILE)) {
+    let path = root.join(CONFIG_FILE);
+
+    let text = match fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Installation::NoStomme,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return unreadable_entry(&path, &error);
+        }
         Err(error) => return Installation::Broken(format!("could not read the file: {error}")),
     };
 
@@ -82,6 +86,21 @@ pub(crate) fn read(root: &Path, catalog: &Catalog) -> Installation {
         Ok(selection) => Installation::Valid(selection),
         Err(reason) => Installation::Broken(reason),
     }
+}
+
+fn unreadable_entry(path: &Path, error: &io::Error) -> Installation {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Installation::Broken(format!("is a link whose target cannot be read: {error}")),
+        Err(metadata_error) => absent_entry(&metadata_error),
+    }
+}
+
+fn absent_entry(error: &io::Error) -> Installation {
+    if error.kind() == io::ErrorKind::NotFound {
+        return Installation::NoStomme;
+    }
+
+    Installation::Broken(format!("could not inspect the file: {error}"))
 }
 
 fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {

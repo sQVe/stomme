@@ -77,6 +77,71 @@ fn read_reports_a_missing_file_as_no_stomme() {
     assert_eq!(read(root.path(), layer::catalog()), Installation::NoStomme);
 }
 
+#[cfg(unix)]
+#[test]
+fn read_reports_a_dangling_link_as_broken() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    symlink("missing.toml", root.path().join(CONFIG_FILE)).expect("create the link");
+
+    let installation = read(root.path(), layer::catalog());
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("target cannot be read"), "{reason}");
+    assert!(reason.contains("os error 2"), "{reason}");
+}
+
+#[test]
+fn absent_entry_reports_an_error_other_than_missing_as_broken() {
+    let error = io::Error::from(io::ErrorKind::PermissionDenied);
+
+    let installation = absent_entry(&error);
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("could not inspect the file"), "{reason}");
+    assert!(reason.contains(&error.to_string()), "{reason}");
+}
+
+#[cfg(unix)]
+#[test]
+fn read_reports_a_link_loop_as_broken() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    symlink(CONFIG_FILE, root.path().join(CONFIG_FILE)).expect("create the link loop");
+
+    let installation = read(root.path(), layer::catalog());
+
+    let Installation::Broken(reason) = installation else {
+        panic!("expected a broken installation, got {installation:?}");
+    };
+    assert!(reason.contains("could not read the file"), "{reason}");
+    assert!(reason.contains("os error"), "{reason}");
+}
+
+#[cfg(unix)]
+#[test]
+fn read_accepts_a_resolvable_link() {
+    use std::os::unix::fs::symlink;
+
+    let text = with_version("language = \"typescript\"\n");
+    let root = project_with(&[("shared/stomme.toml", &text)]);
+
+    symlink("shared/stomme.toml", root.path().join(CONFIG_FILE)).expect("create the link");
+
+    assert!(matches!(
+        read(root.path(), layer::catalog()),
+        Installation::Valid(_)
+    ));
+}
+
 #[test]
 fn read_accepts_a_schema_one_file() {
     let text =
