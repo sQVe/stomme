@@ -9,6 +9,7 @@ use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
 const NUMBER_LENGTH: usize = 4;
+const MAX_BLOCK_INDENT: usize = 3;
 const BULLETS: [&str; 3] = ["- ", "* ", "+ "];
 
 struct AdrFile {
@@ -32,25 +33,32 @@ pub(super) fn check(root: &Path, folder: &str) -> anyhow::Result<Vec<Problem>> {
 
     let index = fs::read_to_string(&index_path)
         .with_context(|| format!("Could not read {}", index_path.display()))?;
-    let adrs = read_adrs(root, folder)?;
+    let (adrs, mut problems) = read_adrs(root, folder)?;
 
-    Ok(find_problems(folder, &adrs, &index))
+    problems.extend(find_problems(folder, &adrs, &index));
+
+    Ok(problems)
 }
 
-fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<Vec<AdrFile>> {
+fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<(Vec<AdrFile>, Vec<Problem>)> {
     let directory = root.join(folder);
     let entries = fs::read_dir(&directory)
         .with_context(|| format!("Could not list {}", directory.display()))?;
     let mut adrs = Vec::new();
+    let mut problems = Vec::new();
 
     for entry in entries {
         let entry = entry.with_context(|| format!("Could not list {}", directory.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
+        let file_path = entry.path();
         let Some(number) = adr_number(&name) else {
+            if file_path.is_file() {
+                problems.extend(file_name_problem(folder, &name));
+            }
+
             continue;
         };
         let number = number.to_string();
-        let file_path = entry.path();
         let text = fs::read_to_string(&file_path)
             .with_context(|| format!("Could not read {}", file_path.display()))?;
         let path = format!("{folder}/{name}");
@@ -65,7 +73,7 @@ fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<Vec<AdrFile>> {
 
     adrs.sort_by(|left, right| left.name.cmp(&right.name));
 
-    Ok(adrs)
+    Ok((adrs, problems))
 }
 
 fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
@@ -80,7 +88,10 @@ fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
             problems.push(adr_problem(
                 adr,
                 Rule::AdrHeading,
-                format!("the first heading must be `# ADR {}: Title`", adr.number),
+                format!(
+                    "the first heading must be `# ADR {}: Title`, indented by at most 3 spaces",
+                    adr.number
+                ),
             ));
         }
 
@@ -131,7 +142,9 @@ fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
         problems.push(index_problem(
             folder,
             Rule::AdrIndexEntry,
-            format!("has an index line that is not `- [NNNN: Title](./NNNN-slug.md)`: {line}"),
+            format!(
+                "has an index line that is not a `-`, `*`, or `+` list entry `[NNNN: Title](./NNNN-slug.md)`: {line}"
+            ),
         ));
     }
 
@@ -210,15 +223,108 @@ fn adr_number(name: &str) -> Option<&str> {
     }
 }
 
+fn file_name_problem(folder: &str, name: &str) -> Option<Problem> {
+    if !has_empty_slug(name) {
+        return None;
+    }
+
+    Some(Problem {
+        path: format!("{folder}/{name}"),
+        rule: Rule::AdrFileName,
+        message: format!(
+            "`{name}` has no slug; name an ADR file `NNNN-slug.md` with a non-empty slug"
+        ),
+        key: None,
+    })
+}
+
+fn has_empty_slug(name: &str) -> bool {
+    let Some(number) = name.get(..NUMBER_LENGTH) else {
+        return false;
+    };
+    let Some(stem) = name[NUMBER_LENGTH..].strip_suffix(".md") else {
+        return false;
+    };
+    let slug = stem.strip_prefix('-').unwrap_or(stem);
+    let is_number = number.bytes().all(|byte| byte.is_ascii_digit());
+
+    is_number && slug.is_empty()
+}
+
 fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
-    let heading = text
-        .lines()
-        .map(str::trim_start)
-        .find(|line| line.starts_with('#'))?;
+    let heading = heading_line(text)?;
     let prefix = format!("# ADR {number}: ");
     let title = heading.strip_prefix(&prefix)?.trim();
 
     if title.is_empty() { None } else { Some(title) }
+}
+
+// Fences are tracked without Markdown containers, so a fence opened inside a list item is not
+// closed when the item ends.
+fn heading_line(text: &str) -> Option<&str> {
+    let mut fence: Option<Fence> = None;
+
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        let content = &line[indent..];
+
+        if let Some(open) = &fence {
+            if indent <= MAX_BLOCK_INDENT && closes_fence(content, open) {
+                fence = None;
+            }
+
+            continue;
+        }
+
+        if indent <= MAX_BLOCK_INDENT
+            && let Some(open) = opening_fence(content)
+        {
+            fence = Some(open);
+            continue;
+        }
+
+        let is_heading = content.starts_with('#') && indent <= MAX_BLOCK_INDENT;
+
+        if is_heading {
+            return Some(content);
+        }
+    }
+
+    None
+}
+
+struct Fence {
+    marker: u8,
+    length: usize,
+}
+
+fn opening_fence(content: &str) -> Option<Fence> {
+    let marker = *content.as_bytes().first()?;
+    let is_fence = marker == b'`' || marker == b'~';
+
+    if !is_fence {
+        return None;
+    }
+
+    let length = content.bytes().take_while(|byte| *byte == marker).count();
+    let info = &content[length..];
+    let has_backtick = marker == b'`' && info.contains('`');
+
+    if length < 3 || has_backtick {
+        return None;
+    }
+
+    Some(Fence { marker, length })
+}
+
+fn closes_fence(content: &str, fence: &Fence) -> bool {
+    let length = content
+        .bytes()
+        .take_while(|byte| *byte == fence.marker)
+        .count();
+    let rest = &content[length..];
+
+    length >= fence.length && rest.trim().is_empty()
 }
 
 fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
@@ -231,18 +337,44 @@ fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
 fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
     let mut entries = Vec::new();
     let mut unparsed = Vec::new();
+    let mut list_open = false;
 
-    for line in section(index, "## Index") {
-        let line = line.trim();
+    for raw_line in section(index, "## Index") {
+        let line = raw_line.trim();
 
-        if let Some(entry) = index_entry(line) {
-            entries.push(entry);
-        } else if looks_like_a_link(line) {
-            unparsed.push(line);
+        if line.is_empty() {
+            continue;
+        }
+
+        let is_list = list_item(line).is_some();
+        let is_code_block = is_indented_code(raw_line) && !list_open;
+
+        if !is_code_block {
+            if let Some(entry) = index_entry(line) {
+                entries.push(entry);
+            } else if looks_like_a_link(line) {
+                unparsed.push(line);
+            }
+        }
+
+        let is_unindented = !raw_line.starts_with(' ') && !raw_line.starts_with('\t');
+        let ends_list = is_unindented && !is_list;
+
+        if ends_list {
+            list_open = false;
+        } else if is_list && !is_code_block {
+            list_open = true;
         }
     }
 
     (entries, unparsed)
+}
+
+fn is_indented_code(line: &str) -> bool {
+    let without_spaces = line.trim_start_matches(' ');
+    let spaces = line.len() - without_spaces.len();
+
+    without_spaces.starts_with('\t') || spaces >= 4
 }
 
 fn index_entry(line: &str) -> Option<IndexEntry<'_>> {

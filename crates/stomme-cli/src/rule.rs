@@ -237,6 +237,17 @@ rules! {
             fixtures: "tests/fixtures/rules/tau-full-check",
         }),
     },
+    AdrFileName => Metadata {
+        id: "adr-file-name",
+        summary: "An ADR file is named `NNNN-slug.md` with a non-empty slug.",
+        owner: Owner::Common,
+        applies: "`docs/adr/README.md` exists",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/adr_index.rs",
+            fixtures: "tests/fixtures/rules/adr-file-name",
+        }),
+    },
     AdrDuplicateNumber => Metadata {
         id: "adr-duplicate-number",
         summary: "No two ADR files share a number.",
@@ -250,7 +261,7 @@ rules! {
     },
     AdrHeading => Metadata {
         id: "adr-heading",
-        summary: "An ADR's first heading is `# ADR NNNN: Title` with its own number.",
+        summary: "An ADR's first heading is `# ADR NNNN: Title` with its own number, indented by at most 3 spaces.",
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],
@@ -305,7 +316,7 @@ rules! {
     },
     AdrIndexEntry => Metadata {
         id: "adr-index-entry",
-        summary: "Every link line in the ADR index is `- [NNNN: Title](./NNNN-slug.md)`.",
+        summary: "Every link line in the ADR index is a `-`, `*`, or `+` list entry `[NNNN: Title](./NNNN-slug.md)`.",
         owner: Owner::Common,
         applies: "`docs/adr/README.md` exists",
         fields: &[],

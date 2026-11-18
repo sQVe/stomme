@@ -50,7 +50,7 @@ fn check_skips_a_project_without_an_index() {
 
 #[test]
 fn check_ignores_files_that_are_not_numbered_adrs() {
-    let names = ["abcd-title.md", "0001-.md", "0001.md", "0001-scope.txt"];
+    let names = ["abcd-title.md", "0001-scope.txt", "x", "猫猫.md", "abcd.md"];
 
     for name in names {
         let root = complete_project();
@@ -63,6 +63,15 @@ fn check_ignores_files_that_are_not_numbered_adrs() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn check_ignores_a_directory_named_like_an_adr_file() {
+    let root = complete_project();
+
+    fs::create_dir(root.path().join("docs/adr/0001-.md")).expect("create the directory");
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
 }
 
 #[test]
@@ -106,13 +115,39 @@ fn check_reports_a_first_heading_that_does_not_match_the_file() {
 }
 
 #[test]
-fn check_accepts_a_heading_after_text_and_with_indentation() {
+fn check_accepts_a_heading_after_text_and_with_up_to_three_spaces() {
     let cases = [
-        "Draft notes\n\n# ADR 0001: Documentation scope",
-        "  # ADR 0001: Documentation scope  ",
+        ("no indent", "# ADR 0001: Documentation scope"),
+        ("two spaces", "  # ADR 0001: Documentation scope  "),
+        ("three spaces", "   # ADR 0001: Documentation scope"),
+        (
+            "after text",
+            "Draft notes\n\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "backtick fence",
+            "```md\n# ADR 0001: Other\n```\n\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "short fence run",
+            "```md\n``\n# ADR 0001: Other\n```\n# ADR 0001: Documentation scope",
+        ),
+        ("short backticks", "``\n# ADR 0001: Documentation scope"),
+        (
+            "backtick in a backtick info string",
+            "``` `code`\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "backticks in a tilde info string",
+            "~~~ `code`\n# ADR 0001: Other\n~~~\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "tilde fence",
+            "~~~\n# ADR 0001: Other\n~~~\n\n# ADR 0001: Documentation scope",
+        ),
     ];
 
-    for text in cases {
+    for (case, text) in cases {
         let root = complete_project();
 
         write_file(root.path(), ADR, &format!("{text}\n"));
@@ -120,8 +155,51 @@ fn check_accepts_a_heading_after_text_and_with_indentation() {
         assert_eq!(
             check(root.path(), "docs/adr").expect("read the ADRs"),
             [],
-            "{text}"
+            "{case}"
         );
+    }
+}
+
+#[test]
+fn check_reports_a_heading_that_is_a_code_block() {
+    let cases = [
+        ("four spaces", "    # ADR 0001: Documentation scope"),
+        ("tab", "\t# ADR 0001: Documentation scope"),
+    ];
+
+    for (case, text) in cases {
+        let root = complete_project();
+
+        write_file(root.path(), ADR, &format!("{text}\n"));
+
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+        assert_eq!(found(&problems), [(ADR, Rule::AdrHeading)], "{case}");
+    }
+}
+
+#[test]
+fn check_reports_a_numbered_adr_file_without_a_slug() {
+    let cases = ["0001-.md", "0001.md"];
+
+    for name in cases {
+        let root = complete_project();
+        let path = format!("docs/adr/{name}");
+
+        write_file(root.path(), &path, "# ADR 0001: Documentation scope\n");
+
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+        assert_eq!(
+            found(&problems),
+            [(path.as_str(), Rule::AdrFileName)],
+            "{name}"
+        );
+
+        let message = &problems[0].message;
+
+        assert!(message.contains(name), "{name}: {message}");
+        assert!(message.contains("NNNN-slug.md"), "{name}: {message}");
     }
 }
 
@@ -195,8 +273,10 @@ fn check_reports_an_index_entry_for_a_missing_file() {
 }
 
 #[test]
-fn check_reads_star_and_plus_bullets() {
-    for bullet in ["*", "+"] {
+fn check_accepts_each_bullet() {
+    let cases = [("dash", "-"), ("star", "*"), ("plus", "+")];
+
+    for (case, bullet) in cases {
         let root = complete_project();
 
         replace_in_index(root.path(), "- [0001", &format!("{bullet} [0001"));
@@ -204,8 +284,78 @@ fn check_reads_star_and_plus_bullets() {
         assert_eq!(
             check(root.path(), "docs/adr").expect("read the ADRs"),
             [],
-            "{bullet}"
+            "{case}"
         );
+    }
+}
+
+#[test]
+fn check_accepts_a_nested_indented_index_entry() {
+    let cases = [
+        (
+            "two spaces",
+            "  - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "four spaces",
+            "- Topic\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "tab",
+            "- Topic\n\t- [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "after a blank line",
+            "- Topic\n\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "after an indented continuation",
+            "- Topic\n\n  Details\n\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+    ];
+
+    for (case, replacement) in cases {
+        let root = complete_project();
+
+        replace_in_index(root.path(), ENTRY.trim_end(), replacement);
+
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn check_reports_a_standalone_indented_index_link_as_not_listed() {
+    let cases = [
+        (
+            "four spaces at the start of the section",
+            "    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "tab at the start of the section",
+            "\t- [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "after plain text",
+            "Plain text\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "after a code block",
+            "    - Topic\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+    ];
+
+    for (case, replacement) in cases {
+        let root = complete_project();
+
+        replace_in_index(root.path(), ENTRY.trim_end(), replacement);
+
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+        assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexCount)], "{case}");
     }
 }
 
