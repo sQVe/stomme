@@ -598,6 +598,50 @@ fn fan_in_alias_chains_resolve_without_exponential_work() {
     }
 }
 
+#[test]
+fn a_use_after_an_exhausted_use_resolves_as_if_it_ran_alone() {
+    let levels = 16;
+    let mut fact_entry = "pub mod attention;\n".to_string();
+
+    for prefix in ["x", "y"] {
+        fact_entry.push_str(&format!(
+            "pub use ::std::mem as {prefix}a0;\npub use ::std::mem as {prefix}b0;\n"
+        ));
+
+        for level in 1..=levels {
+            let previous = level - 1;
+            fact_entry.push_str(&format!(
+                "pub use self::{prefix}b{previous} as {prefix}a{level};\npub use self::{prefix}b{previous} as {prefix}b{level};\npub use self::{prefix}a{previous} as {prefix}b{level};\n"
+            ));
+        }
+
+        fact_entry.push_str(&format!("pub use self::{prefix}b{levels} as {prefix}b0;\n"));
+    }
+
+    fact_entry.push_str(&format!(
+        "pub use self::xb{levels} as top;\npub use self::late as top;\npub use self::yb{levels} as late;\npub use self::attention as late;\n"
+    ));
+
+    let exhausting = "use crate::fact::top::helper;\n";
+    let second = "use crate::fact::late::helper;\n";
+    let cases = [
+        ("exhausting use alone", exhausting.to_string(), Vec::new()),
+        ("second use alone", second.to_string(), vec![ATTENTION]),
+        (
+            "second use after the exhausting use",
+            format!("{exhausting}{second}"),
+            vec![ATTENTION],
+        ),
+    ];
+
+    for (name, ticket, keys) in cases {
+        let root = alias_project(&fact_entry, &[], "", &ticket);
+        let problems = problems(root.path());
+
+        assert_keys(&problems, &keys, name);
+    }
+}
+
 fn assert_keys(problems: &[Problem], keys: &[&str], name: &str) {
     let found: Vec<_> = problems
         .iter()
