@@ -212,3 +212,11 @@ fn a_leading_colon_in_one_group_leaf_marks_only_that_leaf() {
         ]
     );
 }
+
+#[test]
+fn an_identifier_other_than_pub_before_use_exports_nothing() {
+    assert_eq!(
+        file_exports("crate use self::attention as renamed;"),
+        Vec::new()
+    );
+}

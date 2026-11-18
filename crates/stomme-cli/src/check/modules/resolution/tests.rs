@@ -497,6 +497,60 @@ fn nested_reexport_project(
     project(&project_files, &table)
 }
 
+#[test]
+fn a_long_chain_of_bare_aliases_resolves_without_repeating_work() {
+    let links = 26;
+    let mut fact_entry = "pub mod attention;\npub use attention as a1;\n".to_string();
+
+    for link in 2..=links {
+        fact_entry.push_str(&format!("pub use a{} as a{link};\n", link - 1));
+    }
+
+    let ticket = format!("use crate::fact::a{links}::helper;\n");
+    let root = alias_project(&fact_entry, &[], "", &ticket);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "bare chain");
+}
+
+#[test]
+fn super_past_the_crate_root_reaches_no_file() {
+    let root = alias_project(
+        "pub mod attention;\npub use super::super::attention as renamed;\n",
+        &[],
+        "",
+        RENAMED_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[], "super past the crate root");
+}
+
+#[test]
+fn an_alias_to_another_row_is_not_walked_from_the_entry() {
+    let root = alias_project(
+        "pub use crate::other::attention as renamed;\n",
+        &[("src/other.rs", "pub fn attention() {}\n")],
+        "\n[modules.other]\nentry = \"src/other.rs\"\n",
+        RENAMED_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    let found: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.path.as_str(), problem.rule, problem.key.as_deref()))
+        .collect();
+
+    assert_eq!(
+        found,
+        [("src/fact.rs", Rule::ModuleImports, Some("fact:other"))],
+        "alias to another row"
+    );
+}
+
 fn assert_keys(problems: &[Problem], keys: &[&str], name: &str) {
     let found: Vec<_> = problems
         .iter()

@@ -179,17 +179,7 @@ impl<'a> Resolver<'a> {
 
         match target {
             Target::External => item,
-            Target::Bare(segments) => {
-                let Some(first) = segments.first() else {
-                    return item;
-                };
-
-                if self.lookup(module, place, first, in_progress).is_empty() {
-                    return item;
-                }
-
-                self.walk_target(module, place, segments, in_progress)
-            }
+            Target::Bare(segments) => self.walk_target(module, place, segments, in_progress),
             Target::Relative {
                 supers: 0,
                 segments,
