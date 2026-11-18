@@ -840,7 +840,7 @@ rules! {
     },
     HerdrModFiles => Metadata {
         id: "herdr-mod-files",
-        summary: "A mod keeps the fixed names `main.js` and `mod.json`, and the build copies non-TypeScript files unchanged.",
+        summary: "A mod keeps the fixed names `main.js` and `mod.json`, and its install script copies every file Herdr needs at run time.",
         owner: Owner::Layer("herdr"),
         applies: "always",
         fields: &[],

@@ -1,8 +1,8 @@
 {
-  "main": "main.js",
   "scripts": {
     "postinstall": "herdr-app types mods/{{name}}",
     "build": "bun build mods/{{name}}/main.ts --outfile mods/{{name}}/main.js --external gpui-kit --external gpui --external gpui-base --external gpui-component --external gpui-shell --external gpui-fps --external buffer --external path --external url --external crypto --external zlib --external console --external process --external os --external fs/promises --external net --external websocket --external herdr",
+    "mod:install": "pnpm run build && dest=\"${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/{{name}}\" && mkdir -p \"$dest\" && cp mods/{{name}}/main.js mods/{{name}}/mod.json \"$dest\"",
     "check:layer:herdr": "pnpm run build && herdr-app check mods/{{name}}"
   }
 }
