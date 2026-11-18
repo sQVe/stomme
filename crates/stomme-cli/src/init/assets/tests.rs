@@ -178,11 +178,7 @@ fn parsed_json(plan: &super::super::plan::InitPlan, path: &str) -> serde_json::V
         .unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
 }
 
-fn full_check_steps(development: &str) -> Vec<&str> {
-    let section = development
-        .split("## Run the full check")
-        .nth(1)
-        .expect("the development guide describes the full check");
+fn numbered_steps(section: &str) -> Vec<&str> {
     let steps = section
         .lines()
         .take_while(|line| !line.starts_with('#'))
@@ -193,6 +189,104 @@ fn full_check_steps(development: &str) -> Vec<&str> {
         });
 
     steps.collect()
+}
+
+fn full_check_steps(development: &str) -> Vec<&str> {
+    let section = development
+        .split("## Run the full check")
+        .nth(1)
+        .expect("the development guide describes the full check");
+
+    numbered_steps(section)
+}
+
+fn setup_steps(development: &str) -> Vec<&str> {
+    let section = development
+        .split("## Set up")
+        .nth(1)
+        .expect("the development guide describes the set up");
+
+    numbered_steps(section)
+}
+
+fn step_running(steps: &[&str], command: &str) -> Option<usize> {
+    let instruction = format!("Run `{command}`");
+
+    steps.iter().position(|step| step.starts_with(&instruction))
+}
+
+fn step_position(language: Language, steps: &[&str], command: &str) -> usize {
+    let missing = || {
+        panic!(
+            "the {language} starter guide docs/development.md has no step that starts with Run `{command}`"
+        )
+    };
+
+    step_running(steps, command).unwrap_or_else(missing)
+}
+
+fn next_language(language: Language) -> Option<Language> {
+    match language {
+        Language::Rust => Some(Language::TypeScript),
+        Language::TypeScript => None,
+    }
+}
+
+fn supported_languages() -> Vec<Language> {
+    std::iter::successors(Some(Language::Rust), |language| next_language(*language)).collect()
+}
+
+fn development_guide(language: Language) -> String {
+    let request = request(language, &[], &[]);
+    let sources = super::sources(&request, layer::catalog()).expect("the sources resolve");
+    let refs: Vec<&Source> = sources.iter().collect();
+    let plan = planned(&request, &refs);
+
+    plan.files["docs/development.md"].clone()
+}
+
+#[test]
+fn language_starters_trust_mise_before_installing() {
+    for language in supported_languages() {
+        let guide = development_guide(language);
+        let steps = setup_steps(&guide);
+        let trust = step_position(language, &steps, "mise trust mise.toml");
+        let install = step_position(language, &steps, "mise install");
+
+        assert!(
+            trust < install,
+            "the {language} starter guide docs/development.md runs `mise install` before `mise trust mise.toml`"
+        );
+    }
+}
+
+#[test]
+fn step_running_accepts_only_an_affirmative_exact_command() {
+    let cases: [(&str, [&str; 2], Option<usize>); 3] = [
+        (
+            "negated",
+            ["Do not run `mise trust mise.toml`.", "Run `mise install`."],
+            None,
+        ),
+        (
+            "bare command",
+            ["Run `mise trust`.", "Run `mise install`."],
+            None,
+        ),
+        (
+            "affirmative",
+            ["Run `mise trust mise.toml` first.", "Run `mise install`."],
+            Some(0),
+        ),
+    ];
+
+    for (name, steps, expected) in cases {
+        assert_eq!(
+            step_running(&steps, "mise trust mise.toml"),
+            expected,
+            "{name}"
+        );
+    }
 }
 
 #[test]
