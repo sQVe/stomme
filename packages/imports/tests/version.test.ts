@@ -28,3 +28,11 @@ it('matches the version in crates/stomme-cli/Cargo.toml', async () => {
   expect(own.version).toBeDefined();
   expect(own.version).toBe(packageTable.version);
 });
+
+it('is pinned at its own version in the repository packages.toml', async () => {
+  const own = await readJson('../package.json');
+  const pins = await readToml('../../../packages.toml');
+
+  expect(own.version).toBeDefined();
+  expect(pins['@sqve/stomme-ts-imports']).toBe(own.version);
+});

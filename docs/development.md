@@ -172,6 +172,17 @@ The Package release workflow uses Changesets on `main`. It opens a version pull 
 `pnpm changeset:version`. Merging that pull request runs `pnpm run release`, which checks the
 package before publishing. Do not publish from your local checkout.
 
+`@sqve/stomme-ts-imports` has no changeset. Its version equals the binary's, so the release pull
+request that bumps the crate also bumps the package and its entry in `packages.toml`. The Package
+release workflow publishes it once its version is missing on npm.
+
+The first publish is the one exception to "Do not publish from your local checkout". npm trusted
+publishing cannot create a new package. Someone with npm access publishes the first version by hand
+from a commit on `main` where the package is public. Do not use the 0.2.1 release commit, because
+the package is still private there. Then they add the `sQVe/stomme` trusted publisher for workflow
+`package-release.yml` on npmjs.com. Until that first publish, the Package release run on `main`
+fails at the publish step, because it cannot create the package.
+
 ## Binary releases
 
 A `v<version>` tag builds `stomme` with cargo-dist and publishes a GitHub Release. `CHANGELOG.md`

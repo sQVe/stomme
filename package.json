@@ -6,7 +6,7 @@
     "changeset": "changeset",
     "changeset:check": "changeset status --since=origin/main",
     "changeset:version": "changeset version && pnpm --filter @sqve/stomme-ts-style format",
-    "release": "pnpm --filter @sqve/stomme-ts-style run check && changeset publish"
+    "release": "pnpm --filter @sqve/stomme-ts-style run check && pnpm --filter @sqve/stomme-ts-imports run check && changeset publish"
   },
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
