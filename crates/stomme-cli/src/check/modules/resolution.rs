@@ -349,6 +349,7 @@ fn read_scopes(
     for mut scope in scopes::scopes(source) {
         if !keep_exports {
             scope.exports.clear();
+            scope.globs.clear();
         }
 
         let mut scope_path = file_path.clone();
@@ -360,7 +361,9 @@ fn read_scopes(
             Entry::Occupied(mut occupied) => {
                 let stored = occupied.get_mut();
                 stored.exports.append(&mut scope.exports);
+                stored.globs.append(&mut scope.globs);
                 stored.inline_modules.append(&mut scope.inline_modules);
+                stored.public_modules.append(&mut scope.public_modules);
             }
         }
     }

@@ -10,7 +10,9 @@ use super::use_paths::{
 pub(super) struct Scope {
     pub(super) inline_path: Vec<String>,
     pub(super) inline_modules: BTreeSet<String>,
+    pub(super) public_modules: BTreeSet<String>,
     pub(super) exports: Vec<Export>,
+    pub(super) globs: Vec<Target>,
 }
 
 impl Scope {
@@ -22,7 +24,9 @@ impl Scope {
         Self {
             inline_path,
             inline_modules: BTreeSet::new(),
+            public_modules: BTreeSet::new(),
             exports: Vec::new(),
+            globs: Vec::new(),
         }
     }
 }
@@ -63,6 +67,11 @@ pub(super) fn scopes(source: &str) -> Vec<Scope> {
             .all(|frame| matches!(frame, Frame::InlineModule));
 
         if at_item_level {
+            if let Some(name) = public_module_name(token, &tokens) {
+                let current = *open_scopes.last().expect("the file scope stays open");
+                scopes[current].public_modules.insert(name.to_string());
+            }
+
             if let Some(Declaration { name, inline: true }) = module_declaration(token, &tokens) {
                 tokens.next().expect("a checked module has its name");
                 tokens.next().expect("a checked module has its brace");
@@ -78,8 +87,14 @@ pub(super) fn scopes(source: &str) -> Vec<Scope> {
 
             if is_public_use(token, &mut tokens) {
                 let current = *open_scopes.last().expect("the file scope stays open");
-                let exports = read_use_tree(&mut tokens).into_iter().filter_map(export);
-                scopes[current].exports.extend(exports);
+
+                for leaf in read_use_tree(&mut tokens) {
+                    if is_glob(&leaf) {
+                        scopes[current].globs.push(glob_target(leaf));
+                    } else if let Some(export) = export(leaf) {
+                        scopes[current].exports.push(export);
+                    }
+                }
                 continue;
             }
         }
@@ -100,11 +115,14 @@ pub(super) fn scopes(source: &str) -> Vec<Scope> {
     scopes
 }
 
-fn is_public_use<'source>(token: &Token<'source>, tokens: &mut TokenStream<'source>) -> bool {
+fn after_visibility<'source>(
+    token: &Token<'source>,
+    tokens: &TokenStream<'source>,
+) -> Option<TokenStream<'source>> {
     let is_public = token.kind == TokenKind::Ident && token.text == "pub";
 
     if !is_public {
-        return false;
+        return None;
     }
 
     let mut lookahead = tokens.clone();
@@ -116,6 +134,14 @@ fn is_public_use<'source>(token: &Token<'source>, tokens: &mut TokenStream<'sour
         lookahead.position(|next| next.kind == TokenKind::CloseParen);
     }
 
+    Some(lookahead)
+}
+
+fn is_public_use<'source>(token: &Token<'source>, tokens: &mut TokenStream<'source>) -> bool {
+    let Some(mut lookahead) = after_visibility(token, tokens) else {
+        return false;
+    };
+
     let is_use = lookahead
         .next_if(|next| next.kind == TokenKind::Ident && next.text == "use")
         .is_some();
@@ -125,6 +151,27 @@ fn is_public_use<'source>(token: &Token<'source>, tokens: &mut TokenStream<'sour
     }
 
     is_use
+}
+
+fn public_module_name<'source>(
+    token: &Token<'source>,
+    tokens: &TokenStream<'source>,
+) -> Option<&'source str> {
+    let mut lookahead = after_visibility(token, tokens)?;
+    let module_token = lookahead.next()?;
+    let declaration = module_declaration(module_token, &lookahead)?;
+
+    Some(declaration.name)
+}
+
+fn is_glob(leaf: &UseLeaf) -> bool {
+    leaf.segments.last().is_some_and(|last| last == "*")
+}
+
+fn glob_target(mut leaf: UseLeaf) -> Target {
+    leaf.segments.pop();
+
+    target(leaf)
 }
 
 fn export(leaf: UseLeaf) -> Option<Export> {
