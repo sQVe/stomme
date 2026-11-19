@@ -301,32 +301,97 @@ fn module_aliases_into_private_file_inline_modules_decide_the_reached_file() {
                 "N7 inline module, terminal use of the alias",
                 PRIVATE_INNER,
                 RENAMED,
-                &[],
+                &[ATTENTION],
             )
         },
     ];
 
-    let mut mismatches = Vec::new();
+    assert_cases(cases);
+}
 
-    for case in cases {
-        let root = alias_project(
-            case.fact_entry,
-            case.extra_files,
-            case.extra_rows,
-            case.ticket,
-        );
-        let found: Vec<_> = problems(root.path())
-            .into_iter()
-            .map(|problem| problem.key)
-            .collect();
-        let expected: Vec<_> = case.keys.iter().map(|key| Some(key.to_string())).collect();
+const MODE_ENTRY: &str = "mod attention;\npub use attention::Mode;\n";
+const MODE_FILE: &str = "pub enum Mode { A, B }\n";
+const CONFIG_ENTRY: &str = "mod attention;\npub use attention::Config;\n";
+const CONFIG_FILE: &str =
+    "pub struct Config;\nimpl Config { pub fn default() -> Self { Config } }\n";
+const INNER_MODE_ENTRY: &str = "mod attention;\npub use attention::inner::Mode;\n";
+const INNER_MODE_FILE: &str = "pub mod inner { pub enum Mode { A, B } }\n";
+const NESTED_ENTRY: &str = "mod attention;\npub use attention::outer::inner as renamed;\n";
 
-        if found != expected {
-            mismatches.push(format!("{}: found {found:?}", case.name));
-        }
-    }
+#[test]
+fn a_re_exported_enum_variant_path_is_not_a_private_file_use() {
+    let root = alias_project(
+        MODE_ENTRY,
+        &[("src/fact/attention.rs", MODE_FILE)],
+        "",
+        "use crate::fact::Mode::A;\n",
+    );
 
-    assert!(mismatches.is_empty(), "{mismatches:#?}");
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[], "variant path through a re-exported enum");
+}
+
+#[test]
+fn re_exported_items_and_inline_modules_of_private_files_decide_the_reached_file() {
+    let cases = [
+        Case {
+            extra_files: &[("src/fact/attention.rs", MODE_FILE)],
+            ..case(
+                "V1 re-exported enum, variant path",
+                MODE_ENTRY,
+                "use crate::fact::Mode::A;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", MODE_FILE)],
+            ..case(
+                "V2 re-exported enum, renamed",
+                MODE_ENTRY,
+                "use crate::fact::Mode as M;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", MODE_FILE)],
+            ..case(
+                "V3 re-exported enum, group",
+                MODE_ENTRY,
+                "use crate::fact::Mode::{A, B};\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", CONFIG_FILE)],
+            ..case(
+                "V4 re-exported struct, associated item",
+                CONFIG_ENTRY,
+                "use crate::fact::Config::default;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", INNER_MODE_FILE)],
+            ..case(
+                "V5 enum inside an inline module",
+                INNER_MODE_ENTRY,
+                "use crate::fact::Mode::A;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", NESTED_INLINE)],
+            ..case(
+                "V6 two-level inline module, terminal use",
+                NESTED_ENTRY,
+                RENAMED,
+                &[ATTENTION],
+            )
+        },
+    ];
+
+    assert_cases(cases);
 }
 
 #[test]
@@ -776,6 +841,30 @@ fn a_use_after_an_exhausted_use_resolves_as_if_it_ran_alone() {
 
         assert_keys(&problems, &keys, name);
     }
+}
+
+fn assert_cases<const COUNT: usize>(cases: [Case; COUNT]) {
+    let mut mismatches = Vec::new();
+
+    for case in cases {
+        let root = alias_project(
+            case.fact_entry,
+            case.extra_files,
+            case.extra_rows,
+            case.ticket,
+        );
+        let found: Vec<_> = problems(root.path())
+            .into_iter()
+            .map(|problem| problem.key)
+            .collect();
+        let expected: Vec<_> = case.keys.iter().map(|key| Some(key.to_string())).collect();
+
+        if found != expected {
+            mismatches.push(format!("{}: found {found:?}", case.name));
+        }
+    }
+
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
 }
 
 fn assert_keys(problems: &[Problem], keys: &[&str], name: &str) {

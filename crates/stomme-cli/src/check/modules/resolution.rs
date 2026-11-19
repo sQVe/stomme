@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::scopes::{self, Scope, Target};
-use super::{Module, module_path};
+use super::{Module, is_crate_root, is_under_bin, module_path, owner_module};
 use crate::check::source_files::Tree;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -70,16 +70,20 @@ pub(super) struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     pub(super) fn new(tree: &'a Tree, modules: &'a [Module]) -> anyhow::Result<Self> {
         let mut scopes = BTreeMap::new();
-        let mut read = BTreeSet::new();
 
-        for module in modules {
-            let entry = std::iter::once(&module.entry);
+        for file in &tree.files {
+            let Some(module) = owner_module(modules, &file.path) else {
+                continue;
+            };
+            let keep_exports = file.path == module.entry || module.public.contains(&file.path);
+            let skipped = is_crate_root(&file.path, &module.src_folder)
+                || is_under_bin(&file.path, &module.src_folder);
 
-            for path in entry.chain(&module.public) {
-                if read.insert(path) {
-                    read_scopes(tree, module, path, &mut scopes)?;
-                }
+            if skipped && !keep_exports {
+                continue;
             }
+
+            read_scopes(tree, module, &file.path, keep_exports, &mut scopes)?;
         }
 
         Ok(Self {
@@ -302,15 +306,13 @@ impl<'a> Resolver<'a> {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.lookup(module, place, segment, walk);
-                let modules = module_meanings(&found);
+                let found = self.module_places(module, place, segment, walk);
 
-                if modules.is_empty() {
+                if found.is_empty() {
                     meanings.insert(Meaning::Item);
                 }
 
-                next.extend(modules);
-                next.extend(inline_fallback(place, segment, &found));
+                next.extend(found);
             }
 
             places = next;
@@ -323,7 +325,6 @@ impl<'a> Resolver<'a> {
                 meanings.insert(Meaning::Item);
             }
 
-            meanings.extend(inline_fallback(place, last, &found).map(Meaning::Module));
             meanings.extend(found);
         }
 
@@ -331,38 +332,11 @@ impl<'a> Resolver<'a> {
     }
 }
 
-fn module_meanings(meanings: &BTreeSet<Meaning>) -> Vec<Place> {
-    meanings
-        .iter()
-        .filter_map(|meaning| match meaning {
-            Meaning::Module(found) => Some(found.clone()),
-            Meaning::Item => None,
-        })
-        .collect()
-}
-
-/// A private file has no scope table, so an empty lookup in it may name an inline module.
-fn inline_fallback(place: &Place, segment: &str, found: &BTreeSet<Meaning>) -> Option<Place> {
-    let file = place.file.as_ref()?;
-
-    if !found.is_empty() {
-        return None;
-    }
-
-    let mut path = place.path.clone();
-    path.push(segment.to_string());
-
-    Some(Place {
-        path,
-        folder: format!("{}/{segment}", place.folder),
-        file: Some(file.clone()),
-    })
-}
-
 fn read_scopes(
     tree: &Tree,
     module: &Module,
     path: &str,
+    keep_exports: bool,
     table: &mut BTreeMap<ScopeKey, Scope>,
 ) -> anyhow::Result<()> {
     let Some(file) = tree.files.iter().find(|file| file.path == path) else {
@@ -371,7 +345,11 @@ fn read_scopes(
     let source = tree.read(file)?;
     let file_path = module_path(path, &module.src_folder);
 
-    for scope in scopes::scopes(&source) {
+    for mut scope in scopes::scopes(&source) {
+        if !keep_exports {
+            scope.exports.clear();
+        }
+
         let mut scope_path = file_path.clone();
         scope_path.extend(scope.inline_path.iter().cloned());
         table.insert((module.src_folder.clone(), scope_path), scope);
