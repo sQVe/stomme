@@ -3,11 +3,14 @@ use std::slice::Iter;
 
 use ra_ap_rustc_lexer::{FrontmatterAllowed, TokenKind, strip_shebang, tokenize};
 
+use super::test_code::{InlineModules, test_modules};
+
 pub(super) type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
 
 pub(super) struct Token<'a> {
     pub(super) kind: TokenKind,
     pub(super) text: &'a str,
+    pub(super) index: usize,
     line: usize,
 }
 
@@ -15,6 +18,12 @@ pub(super) struct UsePath {
     pub(super) segments: Vec<String>,
     pub(super) line: usize,
     pub(super) inline_modules: Vec<String>,
+    pub(super) in_test_module: bool,
+}
+
+pub(super) struct Declaration<'source> {
+    pub(super) name: &'source str,
+    pub(super) inline: bool,
 }
 
 pub(super) struct UseLeaf {
@@ -55,6 +64,7 @@ pub(super) fn code_tokens(source: &str) -> Vec<Token<'_>> {
             tokens.push(Token {
                 kind: token.kind,
                 text,
+                index: tokens.len(),
                 line,
             });
         }
@@ -82,33 +92,23 @@ pub(super) fn read_use_tree(tokens: &mut TokenStream<'_>) -> Vec<UseLeaf> {
 
 pub(super) fn paths(source: &str) -> Vec<UsePath> {
     let tokens = code_tokens(source);
+    let test_modules = test_modules(&tokens);
     let mut tokens = tokens.iter().peekable();
     let mut paths = Vec::new();
-    let mut inline_modules: Vec<(usize, String)> = Vec::new();
-    let mut depth = 0;
+    let mut inline_modules = InlineModules::default();
 
     while let Some(token) = tokens.next() {
-        if let Some(name) = module_name(token, &tokens) {
-            inline_modules.push((depth + 1, name.to_string()));
+        if let Some(declaration) = module_declaration(token, &tokens)
+            && declaration.inline
+        {
+            inline_modules.open(declaration.name, test_modules.contains(&token.index));
         }
 
-        match token.kind {
-            TokenKind::OpenBrace => depth += 1,
-            TokenKind::CloseBrace => {
-                depth = depth.saturating_sub(1);
-                let last_kept = inline_modules
-                    .iter()
-                    .rposition(|(open_depth, _)| *open_depth <= depth);
-                inline_modules.truncate(last_kept.map_or(0, |position| position + 1));
-            }
-            _ => {}
-        }
+        inline_modules.advance(token);
 
         if is_path_start(token, &tokens) {
-            let modules: Vec<String> = inline_modules
-                .iter()
-                .map(|(_, name)| name.clone())
-                .collect();
+            let modules = inline_modules.names();
+            let in_test_module = inline_modules.in_test();
             tokens
                 .next()
                 .expect("a checked path start has its first colon");
@@ -127,6 +127,7 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
                     segments,
                     line: leaf.line,
                     inline_modules: modules.clone(),
+                    in_test_module,
                 });
             }
         }
@@ -135,24 +136,33 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
     paths
 }
 
-pub(super) fn module_name<'source>(
+pub(super) fn module_declaration<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
-) -> Option<&'source str> {
+) -> Option<Declaration<'source>> {
     if token.kind != TokenKind::Ident || token.text != "mod" {
         return None;
     }
 
     let mut lookahead = tokens.clone();
     let name = lookahead.next()?;
-    let brace = lookahead.next()?;
+    let end = lookahead.next()?;
     let is_name = matches!(name.kind, TokenKind::Ident | TokenKind::RawIdent);
 
-    if !is_name || brace.kind != TokenKind::OpenBrace {
+    if !is_name {
         return None;
     }
 
-    item_name(name)
+    let inline = match end.kind {
+        TokenKind::OpenBrace => true,
+        TokenKind::Semi => false,
+        _ => return None,
+    };
+
+    Some(Declaration {
+        name: item_name(name)?,
+        inline,
+    })
 }
 
 fn is_path_start<'source>(token: &Token<'source>, tokens: &TokenStream<'source>) -> bool {

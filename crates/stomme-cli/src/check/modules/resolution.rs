@@ -3,7 +3,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::scopes::{self, Scope, Target};
-use super::{Module, is_crate_root, is_under_bin, module_path, owner_module};
+use super::{Module, is_crate_root, is_under_bin, keeps_exports, module_path, owner_module};
 use crate::check::source_files::{SourceFile, Tree};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -69,14 +69,18 @@ pub(super) struct Resolver<'a> {
 }
 
 impl<'a> Resolver<'a> {
-    pub(super) fn new(tree: &'a Tree, modules: &'a [Module]) -> anyhow::Result<Self> {
+    pub(super) fn new(
+        tree: &'a Tree,
+        modules: &'a [Module],
+        sources: &[(&SourceFile, String)],
+    ) -> Self {
         let mut scopes = BTreeMap::new();
 
-        for file in &tree.files {
+        for (file, source) in sources {
             let Some(module) = owner_module(modules, &file.path) else {
                 continue;
             };
-            let keep_exports = file.path == module.entry || module.public.contains(&file.path);
+            let keep_exports = keeps_exports(module, &file.path);
             let skipped = is_crate_root(&file.path, &module.src_folder)
                 || is_under_bin(&file.path, &module.src_folder);
 
@@ -84,15 +88,15 @@ impl<'a> Resolver<'a> {
                 continue;
             }
 
-            read_scopes(tree, module, file, keep_exports, &mut scopes)?;
+            read_scopes(module, file, source, keep_exports, &mut scopes);
         }
 
-        Ok(Self {
+        Self {
             tree,
             modules,
             scopes,
             memo: RefCell::new(BTreeMap::new()),
-        })
+        }
     }
 
     pub(super) fn reached_files(&self, module: &Module, resolved: &[String]) -> BTreeSet<String> {
@@ -334,16 +338,15 @@ impl<'a> Resolver<'a> {
 }
 
 fn read_scopes(
-    tree: &Tree,
     module: &Module,
     file: &SourceFile,
+    source: &str,
     keep_exports: bool,
     table: &mut BTreeMap<ScopeKey, Scope>,
-) -> anyhow::Result<()> {
-    let source = tree.read(file)?;
+) {
     let file_path = module_path(&file.path, &module.src_folder);
 
-    for mut scope in scopes::scopes(&source) {
+    for mut scope in scopes::scopes(source) {
         if !keep_exports {
             scope.exports.clear();
         }
@@ -361,8 +364,6 @@ fn read_scopes(
             }
         }
     }
-
-    Ok(())
 }
 
 fn entry_place(module: &Module) -> Place {

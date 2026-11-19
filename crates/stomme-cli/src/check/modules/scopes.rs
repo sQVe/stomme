@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 
 use ra_ap_rustc_lexer::TokenKind;
 
-use super::use_paths::{Token, TokenStream, UseLeaf, code_tokens, module_name, read_use_tree};
+use super::use_paths::{
+    Declaration, Token, TokenStream, UseLeaf, code_tokens, module_declaration, read_use_tree,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Scope {
@@ -61,7 +63,7 @@ pub(super) fn scopes(source: &str) -> Vec<Scope> {
             .all(|frame| matches!(frame, Frame::InlineModule));
 
         if at_item_level {
-            if let Some(name) = module_name(token, &tokens) {
+            if let Some(Declaration { name, inline: true }) = module_declaration(token, &tokens) {
                 tokens.next().expect("a checked module has its name");
                 tokens.next().expect("a checked module has its brace");
                 let parent = *open_scopes.last().expect("the file scope stays open");

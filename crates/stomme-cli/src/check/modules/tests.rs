@@ -452,7 +452,7 @@ fn a_private_file_use_from_a_test_file_is_allowed() {
         &[
             ("src/config.rs", "pub mod parse;\n"),
             ("src/config/parse.rs", "pub fn read() {}\n"),
-            ("src/store.rs", ""),
+            ("src/store.rs", "#[cfg(test)]\nmod tests;\n"),
             ("src/store/tests.rs", "use crate::config::parse::read;\n"),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
@@ -469,7 +469,7 @@ fn a_private_file_use_from_an_inline_test_module_is_allowed() {
             ("src/config/parse.rs", "pub fn read() {}\n"),
             (
                 "src/store.rs",
-                "mod tests {\n    use crate::config::parse::read;\n}\n",
+                "#[cfg(test)]\nmod tests {\n    use crate::config::parse::read;\n}\n",
             ),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
@@ -506,7 +506,7 @@ fn a_test_file_still_reports_an_unlisted_module() {
         &[
             ("src/config.rs", "pub mod parse;\n"),
             ("src/config/parse.rs", "pub fn read() {}\n"),
-            ("src/store.rs", ""),
+            ("src/store.rs", "#[cfg(test)]\nmod tests;\n"),
             ("src/store/tests.rs", "use crate::config::parse::read;\n"),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n",

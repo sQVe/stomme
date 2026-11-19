@@ -1,5 +1,6 @@
 mod resolution;
 mod scopes;
+mod test_code;
 mod use_paths;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,6 +12,7 @@ use crate::config::ModuleRow;
 use crate::layer::Language;
 use crate::rule::Rule;
 use resolution::Resolver;
+use test_code::test_files;
 use use_paths::{UsePath, paths};
 
 struct Module {
@@ -33,14 +35,16 @@ pub(super) fn check(
 
     let tree = source_files::walk(root, Language::Rust)?;
     let modules = read_modules(modules);
-    let resolver = Resolver::new(&tree, &modules)?;
     let src_folders: BTreeSet<String> = modules
         .iter()
         .map(|module| module.src_folder.clone())
         .collect();
+    let sources = read_sources(&tree, &modules, &src_folders)?;
+    let resolver = Resolver::new(&tree, &modules, &sources);
+    let test_files = test_files(&sources, &src_folders);
     let mut problems = Vec::new();
 
-    for file in &tree.files {
+    for (file, source) in &sources {
         let owner = owner_module(&modules, &file.path);
 
         let Some(owner) = owner else {
@@ -60,11 +64,35 @@ pub(super) fn check(
             continue;
         }
 
-        let source = tree.read(file)?;
-        problems.extend(check_file(&resolver, owner, file, &source));
+        let file_is_test = test_files.contains(&file.path);
+        problems.extend(check_file(&resolver, owner, file, source, file_is_test));
     }
 
     Ok(problems)
+}
+
+fn read_sources<'tree>(
+    tree: &'tree Tree,
+    modules: &[Module],
+    src_folders: &BTreeSet<String>,
+) -> anyhow::Result<Vec<(&'tree SourceFile, String)>> {
+    let mut sources = Vec::new();
+
+    for file in &tree.files {
+        let Some(src_folder) = src_folder_for_file(src_folders, &file.path) else {
+            continue;
+        };
+        let keeps_exports =
+            owner_module(modules, &file.path).is_some_and(|owner| keeps_exports(owner, &file.path));
+
+        if is_under_bin(&file.path, &src_folder) && !keeps_exports {
+            continue;
+        }
+
+        sources.push((file, tree.read(file)?));
+    }
+
+    Ok(sources)
 }
 
 fn read_modules(rows: &BTreeMap<String, ModuleRow>) -> Vec<Module> {
@@ -128,6 +156,10 @@ fn owner_module<'a>(modules: &'a [Module], path: &str) -> Option<&'a Module> {
         .max_by_key(|module| module.path.len())
 }
 
+fn keeps_exports(module: &Module, path: &str) -> bool {
+    path == module.entry || module.public.contains(path)
+}
+
 fn owns(module: &Module, path: &str) -> bool {
     let folder_prefix = format!("{}/", module.owner_folder);
 
@@ -148,6 +180,7 @@ fn check_file(
     module: &Module,
     file: &SourceFile,
     source: &str,
+    file_is_test: bool,
 ) -> Vec<Problem> {
     let file_path = module_path(&file.path, &module.src_folder);
     let mut problems = Vec::new();
@@ -156,7 +189,7 @@ fn check_file(
     for use_path in paths(source) {
         let mut current = file_path.clone();
         current.extend(use_path.inline_modules.iter().cloned());
-        let in_test_module = current.iter().any(|segment| segment == "tests");
+        let in_test_module = file_is_test || use_path.in_test_module;
         let Some(resolved) = resolve(&use_path, &current) else {
             continue;
         };
