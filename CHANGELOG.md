@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.2
+
+- `stomme` 0.2.2.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.2.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Follow glob re-exports and crate root and parent aliases when `stomme check` resolves a Rust
+  module path for `module-private-file`.
+- Make `@sqve/stomme-ts-imports` public, with the same publish config as the style package. Its
+  version equals the binary's, and the release script checks it before publishing.
+- Say in the rules table that the TypeScript module table is recorded but its rules are not checked
+  yet.
+
 ## 0.2.1
 
 - `stomme` 0.2.1.

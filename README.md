@@ -34,13 +34,13 @@ Pin the binary in `mise.toml`:
 
 ```toml
 [tools]
-"github:sQVe/stomme" = "0.2.1"
+"github:sQVe/stomme" = "0.2.2"
 ```
 
 Set the same version in `stomme.toml`:
 
 ```toml
-version = "0.2.1"
+version = "0.2.2"
 ```
 
 Extend the Renovate preset in `renovate.json`:
@@ -65,7 +65,7 @@ permissions:
 
 jobs:
   sync:
-    uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.1
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.2
     secrets:
       app-id: ${{ secrets.STOMME_APP_ID }}
       app-private-key: ${{ secrets.STOMME_APP_PRIVATE_KEY }}
