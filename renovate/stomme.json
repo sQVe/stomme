@@ -30,6 +30,12 @@
       "enabled": false
     },
     {
+      "matchManagers": ["mise"],
+      "matchDepNames": ["github:sQVe/stomme"],
+      "matchPackageNames": ["sQVe/stomme"],
+      "extractVersion": "^v(?<version>.*)$"
+    },
+    {
       "matchPackageNames": ["sQVe/stomme"],
       "groupName": "stomme",
       "groupSlug": "stomme",
