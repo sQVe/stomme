@@ -986,6 +986,15 @@ fn glob_reexport_use_reports_the_private_file_it_reaches() {
 fn glob_reexport_cases_decide_the_reached_private_file() {
     assert_cases([
         Case {
+            extra_files: &[("src/fact/attention.rs", "pub fn attention() {}\n")],
+            ..case(
+                "E1 name bound only by an export of the glob target",
+                "mod attention;\nmod hub { pub use super::attention as inner; }\npub use hub::*;\n",
+                INNER_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
             extra_files: INNER_FILES,
             ..case(
                 "G2 terminal glob name",
@@ -1176,7 +1185,7 @@ fn glob_reexport_cycles_terminate() {
             vec![INNER],
         ),
         (
-            "Y5 cycle that binds, two uses reuse the glob targets",
+            "Y5 cycle that binds, repeated uses",
             "mod attention;\npub mod first { pub use super::second::*; pub use super::attention::*; }\npub mod second { pub use super::first::*; }\n",
             INNER_FILES,
             "use crate::fact::second::inner::helper;\nuse crate::fact::first::inner::helper as again;\nuse crate::fact::second::inner;\n",
@@ -1227,6 +1236,25 @@ fn fan_in_glob_chains_resolve_without_exponential_work() {
 
         assert_keys(&problems, &keys, name);
     }
+}
+
+#[test]
+fn globs_of_modules_that_bind_nothing_do_not_spend_the_lookup_budget() {
+    let mut fact_entry = "mod attention;\nmod empty;\npub use attention::*;\n".to_string();
+
+    for _ in 0..6_000 {
+        fact_entry.push_str("pub use empty::*;\n");
+    }
+
+    let files: &'static [(&'static str, &'static str)] = &[
+        ("src/fact/attention.rs", "pub mod inner;\n"),
+        ("src/fact/attention/inner.rs", "pub fn helper() {}\n"),
+        ("src/fact/empty.rs", "fn private() {}\n"),
+    ];
+    let name = "bound-nothing globs";
+    let problems = problems_within_timeout(name, fact_entry, files, INNER_HELPER);
+
+    assert_keys(&problems, &[INNER], name);
 }
 
 fn problems_within_timeout(

@@ -70,17 +70,6 @@ impl<'a> Walk<'a> {
         open_cut.is_none()
     }
 
-    pub(super) fn begin_nested(&mut self) -> Option<usize> {
-        self.lowest_cut.take()
-    }
-
-    pub(super) fn end_nested(&mut self, outer_cut: Option<usize>) -> bool {
-        let nested_cut = self.lowest_cut;
-        self.lowest_cut = [outer_cut, nested_cut].into_iter().flatten().min();
-
-        nested_cut.is_none()
-    }
-
     fn record_cut(&mut self, index: usize) {
         self.lowest_cut = Some(self.lowest_cut.map_or(index, |lowest| lowest.min(index)));
     }

@@ -3,7 +3,6 @@ mod walk;
 use std::cell::RefCell;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
-use std::rc::Rc;
 
 use super::scopes::{self, Scope, Target};
 use super::{Module, is_crate_root, is_under_bin, keeps_exports, module_path, owner_module};
@@ -36,7 +35,6 @@ pub(super) struct Resolver<'a> {
     pub(super) modules: &'a [Module],
     scopes: ScopeTable,
     file_paths: BTreeSet<&'a str>,
-    glob_targets: RefCell<BTreeMap<Place, Rc<BTreeSet<Place>>>>,
     memo: RefCell<BTreeMap<(Place, String, Visibility), BTreeSet<Meaning>>>,
 }
 
@@ -70,7 +68,6 @@ impl<'a> Resolver<'a> {
             modules,
             scopes,
             file_paths,
-            glob_targets: RefCell::new(BTreeMap::new()),
             memo: RefCell::new(BTreeMap::new()),
         }
     }
@@ -205,45 +202,19 @@ impl<'a> Resolver<'a> {
     ) -> BTreeSet<Meaning> {
         let mut meanings = BTreeSet::new();
 
-        for target in self.glob_targets(place, scope, walk).iter() {
-            if !self.binds_publicly(walk.module, target, name) {
-                continue;
-            }
-
-            meanings.extend(self.lookup(target, name, Visibility::Public, walk));
-        }
-
-        meanings
-    }
-
-    fn glob_targets(&self, place: &Place, scope: &Scope, walk: &mut Walk) -> Rc<BTreeSet<Place>> {
-        let remembered = self.glob_targets.borrow().get(place).cloned();
-
-        if let Some(targets) = remembered {
-            return targets;
-        }
-
-        let outer_cut = walk.begin_nested();
-        let mut targets = BTreeSet::new();
-
         for glob in &scope.globs {
             for meaning in self.resolve_target(place, glob, walk) {
-                if let Meaning::Module(target) = meaning {
-                    targets.insert(target);
+                let Meaning::Module(target) = meaning else {
+                    continue;
+                };
+
+                if self.binds_publicly(walk.module, &target, name) {
+                    meanings.extend(self.lookup(&target, name, Visibility::Public, walk));
                 }
             }
         }
 
-        let cacheable = walk.end_nested(outer_cut);
-        let targets = Rc::new(targets);
-
-        if cacheable && !walk.exhausted {
-            self.glob_targets
-                .borrow_mut()
-                .insert(place.clone(), Rc::clone(&targets));
-        }
-
-        targets
+        meanings
     }
 
     fn child_meanings(&self, module: &Module, place: &Place, name: &str) -> BTreeSet<Meaning> {
