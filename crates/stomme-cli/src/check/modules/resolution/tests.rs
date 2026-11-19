@@ -214,6 +214,142 @@ fn module_alias_cases_decide_the_reached_private_file() {
     }
 }
 
+const PRIVATE_INNER: &str = "mod attention;\npub use attention::inner as renamed;\n";
+const INLINE_INNER: &str = "pub mod inner { pub fn helper() {} }\n";
+const NESTED_INLINE: &str = "pub mod outer { pub mod inner { pub fn helper() {} } }\n";
+
+#[test]
+fn module_alias_into_a_private_file_inline_module_reports_the_file() {
+    let root = alias_project(
+        PRIVATE_INNER,
+        &[("src/fact/attention.rs", INLINE_INNER)],
+        "",
+        RENAMED_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "alias to an inline module");
+}
+
+#[test]
+fn module_aliases_into_private_file_inline_modules_decide_the_reached_file() {
+    let cases = [
+        Case {
+            extra_files: &[("src/fact/attention.rs", INLINE_INNER)],
+            ..case(
+                "N1 inline module in a private file",
+                PRIVATE_INNER,
+                RENAMED_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", NESTED_INLINE)],
+            ..case(
+                "N2 two-level inline nesting",
+                "mod attention;\npub use attention::outer::inner as renamed;\n",
+                RENAMED_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", NESTED_INLINE)],
+            ..case(
+                "N3 alias to the outer inline module",
+                "mod attention;\npub use attention::outer as renamed;\n",
+                "use crate::fact::renamed::inner::helper;\n",
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[
+                ("src/fact/attention.rs", "pub mod inner { pub mod deep; }\n"),
+                ("src/fact/attention/inner/deep.rs", "pub fn helper() {}\n"),
+            ],
+            ..case(
+                "N4 file module inside an inline module",
+                PRIVATE_INNER,
+                "use crate::fact::renamed::deep::helper;\n",
+                &["ticket:src/fact/attention/inner/deep.rs"],
+            )
+        },
+        Case {
+            extra_files: &[(
+                "src/fact/attention.rs",
+                "pub mod inner { pub use super::super::score as deeper; }\n",
+            )],
+            ..case(
+                "N5 pub use inside the inline module is not followed",
+                "mod attention;\nmod score;\npub use attention::inner as renamed;\n",
+                "use crate::fact::renamed::deeper::rank;\n",
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", "pub fn inner() {}\n")],
+            ..case(
+                "N6 item with the inline name, terminal",
+                PRIVATE_INNER,
+                RENAMED,
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", INLINE_INNER)],
+            ..case(
+                "N7 inline module, terminal use of the alias",
+                PRIVATE_INNER,
+                RENAMED,
+                &[],
+            )
+        },
+    ];
+
+    let mut mismatches = Vec::new();
+
+    for case in cases {
+        let root = alias_project(
+            case.fact_entry,
+            case.extra_files,
+            case.extra_rows,
+            case.ticket,
+        );
+        let found: Vec<_> = problems(root.path())
+            .into_iter()
+            .map(|problem| problem.key)
+            .collect();
+        let expected: Vec<_> = case.keys.iter().map(|key| Some(key.to_string())).collect();
+
+        if found != expected {
+            mismatches.push(format!("{}: found {found:?}", case.name));
+        }
+    }
+
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
+}
+
+#[test]
+fn reexport_from_a_private_file_keeps_the_item_file_as_the_result() {
+    let files = [
+        (
+            "src/config/models.rs",
+            "pub mod internal;\npub use internal::X;\n",
+        ),
+        ("src/config/models/internal.rs", "pub struct X;\n"),
+        ("src/config/models/X.rs", "pub struct X;\n"),
+    ];
+    let root = nested_reexport_project(&[], &files, "use crate::config::models::X;\n");
+
+    let problems = problems(root.path());
+
+    assert_reexport(
+        &problems,
+        Some("ticket:src/config/models/X.rs"),
+        "N8 private-file result kept",
+    );
+}
+
 #[test]
 fn alias_cycles_terminate_without_a_problem() {
     let cases = [

@@ -302,13 +302,15 @@ impl<'a> Resolver<'a> {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.module_places(module, place, segment, walk);
+                let found = self.lookup(module, place, segment, walk);
+                let modules = module_meanings(&found);
 
-                if found.is_empty() {
+                if modules.is_empty() {
                     meanings.insert(Meaning::Item);
                 }
 
-                next.extend(found);
+                next.extend(modules);
+                next.extend(inline_fallback(place, segment, &found));
             }
 
             places = next;
@@ -321,11 +323,40 @@ impl<'a> Resolver<'a> {
                 meanings.insert(Meaning::Item);
             }
 
+            meanings.extend(inline_fallback(place, last, &found).map(Meaning::Module));
             meanings.extend(found);
         }
 
         meanings
     }
+}
+
+fn module_meanings(meanings: &BTreeSet<Meaning>) -> Vec<Place> {
+    meanings
+        .iter()
+        .filter_map(|meaning| match meaning {
+            Meaning::Module(found) => Some(found.clone()),
+            Meaning::Item => None,
+        })
+        .collect()
+}
+
+/// A private file has no scope table, so an empty lookup in it may name an inline module.
+fn inline_fallback(place: &Place, segment: &str, found: &BTreeSet<Meaning>) -> Option<Place> {
+    let file = place.file.as_ref()?;
+
+    if !found.is_empty() {
+        return None;
+    }
+
+    let mut path = place.path.clone();
+    path.push(segment.to_string());
+
+    Some(Place {
+        path,
+        folder: format!("{}/{segment}", place.folder),
+        file: Some(file.clone()),
+    })
 }
 
 fn read_scopes(
