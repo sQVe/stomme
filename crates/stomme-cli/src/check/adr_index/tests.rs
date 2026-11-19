@@ -204,6 +204,45 @@ fn check_reports_a_numbered_adr_file_without_a_slug() {
 }
 
 #[test]
+fn check_reports_files_without_a_slug_sorted_by_path() {
+    let creation_orders = [
+        [
+            "0007-.md", "0003.md", "0009-.md", "0002-.md", "0005.md", "0004-.md",
+        ],
+        [
+            "0002-.md", "0003.md", "0004-.md", "0005.md", "0007-.md", "0009-.md",
+        ],
+        [
+            "0009-.md", "0007-.md", "0005.md", "0004-.md", "0003.md", "0002-.md",
+        ],
+    ];
+    let expected = [
+        "docs/adr/0002-.md",
+        "docs/adr/0003.md",
+        "docs/adr/0004-.md",
+        "docs/adr/0005.md",
+        "docs/adr/0007-.md",
+        "docs/adr/0009-.md",
+    ];
+
+    for names in creation_orders {
+        let root = complete_project();
+
+        for name in names {
+            write_file(root.path(), &format!("docs/adr/{name}"), "");
+        }
+
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+        let paths: Vec<&str> = problems
+            .iter()
+            .map(|problem| problem.path.as_str())
+            .collect();
+
+        assert_eq!(paths, expected, "created in the order {names:?}");
+    }
+}
+
+#[test]
 fn check_reports_an_adr_that_reuses_a_retired_number() {
     let root = complete_project();
 

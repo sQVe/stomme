@@ -72,6 +72,7 @@ fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<(Vec<AdrFile>, Vec<Pro
     }
 
     adrs.sort_by(|left, right| left.name.cmp(&right.name));
+    problems.sort_by(|left, right| left.path.cmp(&right.path));
 
     Ok((adrs, problems))
 }
