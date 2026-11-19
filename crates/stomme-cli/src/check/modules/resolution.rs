@@ -20,12 +20,18 @@ enum Meaning {
     Item,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Visibility {
+    All,
+    Public,
+}
+
 type ScopeKey = (String, Vec<String>);
 pub(super) struct Resolver<'a> {
     pub(super) tree: &'a Tree,
     pub(super) modules: &'a [Module],
     scopes: BTreeMap<ScopeKey, Scope>,
-    memo: RefCell<BTreeMap<(Place, String), BTreeSet<Meaning>>>,
+    memo: RefCell<BTreeMap<(Place, String, Visibility), BTreeSet<Meaning>>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -85,7 +91,7 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let meanings = self.lookup(place, last, &mut walk);
+            let meanings = self.lookup(place, last, Visibility::All, &mut walk);
             reached.extend(terminal_files(place, &meanings));
         }
 
@@ -96,7 +102,13 @@ impl<'a> Resolver<'a> {
         reached
     }
 
-    fn lookup(&self, place: &Place, name: &str, walk: &mut Walk) -> BTreeSet<Meaning> {
+    fn lookup(
+        &self,
+        place: &Place,
+        name: &str,
+        visibility: Visibility,
+        walk: &mut Walk,
+    ) -> BTreeSet<Meaning> {
         if !walk.spend() {
             return BTreeSet::new();
         }
@@ -104,35 +116,50 @@ impl<'a> Resolver<'a> {
         let module = walk.module;
 
         if !place.path.starts_with(&module.path) {
-            return ancestor_step(module, place, name);
+            return match visibility {
+                Visibility::All => ancestor_step(module, place, name),
+                Visibility::Public => BTreeSet::new(),
+            };
         }
 
-        let memo_key = (place.clone(), name.to_string());
+        let memo_key = (place.clone(), name.to_string(), visibility);
         let remembered = self.memo.borrow().get(&memo_key).cloned();
 
         if let Some(meanings) = remembered {
             return meanings;
         }
 
-        let mut meanings = self.child_meanings(module, place, name);
+        let children = self.child_meanings(module, place, name);
         let Some(scope) = self.scope(module, &place.path) else {
-            return meanings;
+            return match visibility {
+                Visibility::All => children,
+                Visibility::Public => BTreeSet::new(),
+            };
         };
         let pair = (place.path.clone(), name.to_string());
 
         if let Some(&index) = walk.open.get(&pair) {
             walk.record_cut(index);
 
-            return meanings;
+            return visible_children(scope, name, children, visibility);
         }
 
         let index = walk.open.len();
         let outer_cut = walk.lowest_cut.take();
         walk.open.insert(pair.clone(), index);
+        let mut meanings = BTreeSet::new();
+        let mut exported = false;
 
         for export in scope.exports.iter().filter(|export| export.name == name) {
+            exported = true;
             meanings.extend(self.resolve_target(place, &export.target, walk));
         }
+
+        if children.is_empty() && !exported {
+            meanings.extend(self.glob_meanings(place, scope, name, walk));
+        }
+
+        meanings.extend(visible_children(scope, name, children, visibility));
 
         walk.open.remove(&pair);
         let open_cut = walk.lowest_cut.filter(|cut| *cut < index);
@@ -140,6 +167,26 @@ impl<'a> Resolver<'a> {
 
         if open_cut.is_none() && !walk.exhausted {
             self.memo.borrow_mut().insert(memo_key, meanings.clone());
+        }
+
+        meanings
+    }
+
+    fn glob_meanings(
+        &self,
+        place: &Place,
+        scope: &Scope,
+        name: &str,
+        walk: &mut Walk,
+    ) -> BTreeSet<Meaning> {
+        let mut meanings = BTreeSet::new();
+
+        for glob in &scope.globs {
+            for meaning in self.resolve_target(place, glob, walk) {
+                if let Meaning::Module(target) = meaning {
+                    meanings.extend(self.lookup(&target, name, Visibility::Public, walk));
+                }
+            }
         }
 
         meanings
@@ -189,7 +236,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn module_places(&self, place: &Place, segment: &str, walk: &mut Walk) -> BTreeSet<Place> {
-        let meanings = self.lookup(place, segment, walk);
+        let meanings = self.lookup(place, segment, Visibility::All, walk);
 
         meanings
             .into_iter()
@@ -272,7 +319,7 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let found = self.lookup(place, last, walk);
+            let found = self.lookup(place, last, Visibility::All, walk);
 
             if found.is_empty() {
                 meanings.insert(Meaning::Item);
@@ -338,6 +385,21 @@ fn ancestor_step(module: &Module, place: &Place, name: &str) -> BTreeSet<Meaning
     }
 
     BTreeSet::from([Meaning::Item])
+}
+
+fn visible_children(
+    scope: &Scope,
+    name: &str,
+    children: BTreeSet<Meaning>,
+    visibility: Visibility,
+) -> BTreeSet<Meaning> {
+    let hidden = visibility == Visibility::Public && !scope.public_modules.contains(name);
+
+    if hidden {
+        return BTreeSet::new();
+    }
+
+    children
 }
 
 fn terminal_files(place: &Place, meanings: &BTreeSet<Meaning>) -> Vec<String> {
