@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::scopes::{self, Scope, Target};
@@ -349,7 +350,16 @@ fn read_scopes(
 
         let mut scope_path = file_path.clone();
         scope_path.extend(scope.inline_path.iter().cloned());
-        table.insert((module.src_folder.clone(), scope_path), scope);
+        match table.entry((module.src_folder.clone(), scope_path)) {
+            Entry::Vacant(vacant) => {
+                vacant.insert(scope);
+            }
+            Entry::Occupied(mut occupied) => {
+                let stored = occupied.get_mut();
+                stored.exports.append(&mut scope.exports);
+                stored.inline_modules.append(&mut scope.inline_modules);
+            }
+        }
     }
 
     Ok(())

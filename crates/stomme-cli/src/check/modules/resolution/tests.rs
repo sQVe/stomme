@@ -457,6 +457,49 @@ fn cfg_selected_module_and_alias_of_one_name_report_both_files() {
     );
 }
 
+const CFG_INNER_ALIAS: &str = "use crate::fact::inner::renamed::helper;\n";
+
+const CFG_ALIAS_FIRST: &str = "pub mod attention;\n#[cfg(a)]\npub mod inner { pub use super::attention as renamed; }\n#[cfg(not(a))]\npub mod inner { pub fn other() {} }\n";
+
+#[test]
+fn cfg_selected_inline_modules_of_one_name_merge_their_exports() {
+    let root = alias_project(CFG_ALIAS_FIRST, &[], "", CFG_INNER_ALIAS);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "B1 alias in the first branch");
+}
+
+#[test]
+fn cfg_selected_inline_modules_of_one_name_decide_the_reached_private_file() {
+    assert_cases([
+        case(
+            "B1 alias in the first branch",
+            CFG_ALIAS_FIRST,
+            CFG_INNER_ALIAS,
+            &[ATTENTION],
+        ),
+        case(
+            "B2 alias in the last branch",
+            "pub mod attention;\n#[cfg(not(a))]\npub mod inner { pub fn other() {} }\n#[cfg(a)]\npub mod inner { pub use super::attention as renamed; }\n",
+            CFG_INNER_ALIAS,
+            &[ATTENTION],
+        ),
+        case(
+            "B3 nested inline module in the first branch",
+            "pub mod attention;\n#[cfg(a)]\npub mod inner { pub mod nested { pub use super::super::attention as renamed; } }\n#[cfg(not(a))]\npub mod inner {}\n",
+            "use crate::fact::inner::nested::renamed::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "B4 different aliases of one name",
+            "pub mod attention;\npub mod score;\n#[cfg(a)]\npub mod inner { pub use super::attention as renamed; }\n#[cfg(not(a))]\npub mod inner { pub use super::score as renamed; }\n",
+            CFG_INNER_ALIAS,
+            &[ATTENTION, "ticket:src/fact/score.rs"],
+        ),
+    ]);
+}
+
 #[test]
 fn item_with_its_file_name_reexported_by_the_entry_is_not_a_private_file() {
     let root = alias_project(
