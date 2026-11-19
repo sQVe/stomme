@@ -859,6 +859,31 @@ fn crate_root_and_parent_alias_cases_decide_the_reached_private_file() {
 }
 
 #[test]
+fn an_alias_to_a_shorter_path_outside_a_nested_row_is_not_an_ancestor() {
+    let files = [
+        ("src/fact/attention.rs", "pub mod inner;\n"),
+        (
+            "src/fact/attention/inner.rs",
+            "mod secret;\npub use crate::other as secret;\n",
+        ),
+        ("src/fact/attention/inner/secret.rs", "pub fn helper() {}\n"),
+        (
+            "src/ticket.rs",
+            "use crate::fact::attention::inner::secret;\n",
+        ),
+    ];
+    let table = "[modules.attention]\nentry = \"src/fact/attention.rs\"\npublic = [\"src/fact/attention/inner.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"attention\"]\n";
+    let root = project(&files, table);
+
+    let private_files: Vec<_> = problems(root.path())
+        .into_iter()
+        .filter(|problem| problem.rule == Rule::ModulePrivateFile)
+        .collect();
+
+    assert_keys(&private_files, &[], "alias to a path outside the row");
+}
+
+#[test]
 fn fan_in_alias_chains_resolve_without_exponential_work() {
     let mut fan_in =
         "pub mod attention;\npub use self::attention as a0;\npub use self::attention as b0;\n"
