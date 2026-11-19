@@ -103,6 +103,10 @@ impl<'a> Resolver<'a> {
 
         let module = walk.module;
 
+        if !place.path.starts_with(&module.path) {
+            return ancestor_step(module, place, name);
+        }
+
         let memo_key = (place.clone(), name.to_string());
         let remembered = self.memo.borrow().get(&memo_key).cloned();
 
@@ -221,6 +225,11 @@ impl<'a> Resolver<'a> {
 
     fn resolve_absolute(&self, absolute: &[String], walk: &mut Walk) -> BTreeSet<Meaning> {
         let module = walk.module;
+
+        if absolute.len() < module.path.len() && module.path.starts_with(absolute) {
+            return BTreeSet::from([Meaning::Module(ancestor_place(module, absolute))]);
+        }
+
         let inside_row =
             absolute.starts_with(&module.path) && !self.in_deeper_row(module, absolute);
 
@@ -316,6 +325,21 @@ fn entry_place(module: &Module) -> Place {
     }
 }
 
+fn ancestor_step(module: &Module, place: &Place, name: &str) -> BTreeSet<Meaning> {
+    let mut path = place.path.clone();
+    path.push(name.to_string());
+
+    if path == module.path {
+        return BTreeSet::from([Meaning::Module(entry_place(module))]);
+    }
+
+    if module.path.starts_with(&path) {
+        return BTreeSet::from([Meaning::Module(ancestor_place(module, &path))]);
+    }
+
+    BTreeSet::from([Meaning::Item])
+}
+
 fn terminal_files(place: &Place, meanings: &BTreeSet<Meaning>) -> Vec<String> {
     let names_item = meanings.is_empty() || meanings.contains(&Meaning::Item);
 
@@ -330,6 +354,20 @@ fn terminal_files(place: &Place, meanings: &BTreeSet<Meaning>) -> Vec<String> {
             Meaning::Item => None,
         })
         .collect()
+}
+
+fn ancestor_place(module: &Module, path: &[String]) -> Place {
+    let folder = if path.is_empty() {
+        module.src_folder.clone()
+    } else {
+        format!("{}/{}", module.src_folder, path.join("/"))
+    };
+
+    Place {
+        path: path.to_vec(),
+        folder,
+        file: None,
+    }
 }
 
 mod walk;

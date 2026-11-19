@@ -795,6 +795,69 @@ fn an_alias_to_another_row_is_not_walked_from_the_entry() {
     );
 }
 
+const CRATE_ROOT_ALIAS: &str = "pub(crate) use crate as renamed;\nmod attention;\n";
+const CRATE_ROOT_ALIAS_HELPER: &str = "use crate::fact::renamed::fact::attention::helper;\n";
+
+#[test]
+fn crate_root_alias_use_reports_the_private_file_it_reaches() {
+    let root = alias_project(CRATE_ROOT_ALIAS, &[], "", CRATE_ROOT_ALIAS_HELPER);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "crate root alias");
+}
+
+#[test]
+fn crate_root_and_parent_alias_cases_decide_the_reached_private_file() {
+    assert_cases([
+        case(
+            "super alias",
+            "pub use super as up;\nmod attention;\n",
+            "use crate::fact::up::fact::attention::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "super::super from an inline module",
+            "mod attention;\npub mod inner { pub use super::super as up; }\n",
+            "use crate::fact::inner::up::fact::attention::helper;\n",
+            &["fact:crate", ATTENTION],
+        ),
+        case(
+            "twice around",
+            CRATE_ROOT_ALIAS,
+            "use crate::fact::renamed::fact::renamed::fact::attention::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "bare target through the alias",
+            "pub(crate) use crate as root;\nmod attention;\npub use root::fact::attention as renamed;\n",
+            "use crate::fact::renamed::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "leaves the row",
+            CRATE_ROOT_ALIAS,
+            "use crate::fact::renamed::other::helper;\n",
+            &[],
+        ),
+        case(
+            "terminal alias",
+            CRATE_ROOT_ALIAS,
+            "use crate::fact::renamed;\n",
+            &[],
+        ),
+        Case {
+            extra_rows: "\n[modules.attention]\nentry = \"src/fact/attention.rs\"\n",
+            ..case(
+                "into a deeper row",
+                CRATE_ROOT_ALIAS,
+                CRATE_ROOT_ALIAS_HELPER,
+                &[],
+            )
+        },
+    ]);
+}
+
 #[test]
 fn fan_in_alias_chains_resolve_without_exponential_work() {
     let mut fan_in =
