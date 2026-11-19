@@ -208,3 +208,14 @@ fn uses_in_comments_and_strings_are_ignored() {
         Vec::<Vec<String>>::new()
     );
 }
+
+#[test]
+fn in_test_module_follows_cfg_test_attributes_and_nesting() {
+    let paths = paths(
+        "#[cfg(test)]\nmod a {\n    mod b {\n        use crate::x;\n    }\n}\nuse crate::y;\n",
+    );
+
+    assert_eq!(paths.len(), 2);
+    assert!(paths[0].in_test_module);
+    assert!(!paths[1].in_test_module);
+}

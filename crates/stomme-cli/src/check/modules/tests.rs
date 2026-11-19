@@ -253,6 +253,27 @@ fn an_unreadable_bin_file_owned_by_a_module_does_not_stop_the_check() {
 }
 
 #[test]
+fn an_unreadable_file_no_module_owns_stops_the_check_and_names_the_file() {
+    let root = project(
+        &[("src/store.rs", "")],
+        "[modules.store]\nentry = \"src/store.rs\"\n",
+    );
+    std::fs::write(root.path().join("src/stray.rs"), [0xff, 0xfe, 0xfd])
+        .expect("write a non-UTF-8 file");
+    let Installation::Valid(selection) = config::read(
+        root.path(),
+        layer::catalog(),
+        &config::FileRead::filesystem(),
+    ) else {
+        panic!("expected a valid installation");
+    };
+
+    let error = check(root.path(), &selection.modules).expect_err("an unreadable file");
+
+    assert_eq!(error.to_string(), "Could not read src/stray.rs");
+}
+
+#[test]
 fn a_crate_root_file_owned_by_a_module_is_not_checked() {
     let root = project(
         &[
@@ -452,7 +473,7 @@ fn a_private_file_use_from_a_test_file_is_allowed() {
         &[
             ("src/config.rs", "pub mod parse;\n"),
             ("src/config/parse.rs", "pub fn read() {}\n"),
-            ("src/store.rs", ""),
+            ("src/store.rs", "#[cfg(test)]\nmod tests;\n"),
             ("src/store/tests.rs", "use crate::config::parse::read;\n"),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
@@ -469,7 +490,7 @@ fn a_private_file_use_from_an_inline_test_module_is_allowed() {
             ("src/config/parse.rs", "pub fn read() {}\n"),
             (
                 "src/store.rs",
-                "mod tests {\n    use crate::config::parse::read;\n}\n",
+                "#[cfg(test)]\nmod tests {\n    use crate::config::parse::read;\n}\n",
             ),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\nimports = [\"config\"]\n",
@@ -506,7 +527,7 @@ fn a_test_file_still_reports_an_unlisted_module() {
         &[
             ("src/config.rs", "pub mod parse;\n"),
             ("src/config/parse.rs", "pub fn read() {}\n"),
-            ("src/store.rs", ""),
+            ("src/store.rs", "#[cfg(test)]\nmod tests;\n"),
             ("src/store/tests.rs", "use crate::config::parse::read;\n"),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n",
