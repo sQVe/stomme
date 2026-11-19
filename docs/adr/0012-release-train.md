@@ -30,7 +30,8 @@ release notes, so a project's pinned stomme version identifies one tested packag
 Every release runs the candidate binary against each adopted project's `main` and a fresh consumer
 fixture. An adopted project that fails stops the release. A project that has not adopted stomme is
 reported without blocking. The gate runs before hosting, so a GitHub Release is created only after
-every gate job passes.
+every gate job passes. The gate's credential holds read access to the adopted projects only and
+requests no write permission, because the gate only checks those projects out.
 
 ### Retrying and rolling back
 
