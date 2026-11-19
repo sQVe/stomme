@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { it } from 'vitest';
 
 import type { Runtime } from '../../style/tests/consumer.ts';
@@ -21,6 +24,18 @@ const linesWith = (output: string, text: string) =>
 const diagnostics = (output: string) => linesWith(output, 'stomme-imports(module-boundaries)');
 
 export const loadingTests: PackageTests<Consumer> = (context) => {
+  it('installs a public package that ships its built files', async ({ expect }) => {
+    const installed = join(context.consumer.directory, 'node_modules/@sqve/stomme-ts-imports');
+
+    const manifest = JSON.parse(await readFile(join(installed, 'package.json'), 'utf8')) as {
+      private?: boolean;
+    };
+
+    expect(manifest.private).toBeUndefined();
+    await expect(readFile(join(installed, 'dist/plugin.js'), 'utf8')).resolves.not.toBe('');
+    await expect(readFile(join(installed, 'dist/plugin.d.ts'), 'utf8')).resolves.not.toBe('');
+  });
+
   it('loads the plugin by package name and reports a refused import', async ({
     expect,
     onTestFinished,

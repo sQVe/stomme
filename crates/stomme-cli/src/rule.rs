@@ -899,9 +899,11 @@ impl Enforcement {
             Self::Partial { unenforced, .. } => {
                 format!("partial; not enforced: {unenforced}")
             }
-            Self::TypeScriptImports(_) => "enforced by `@sqve/stomme-ts-imports`".to_string(),
+            Self::TypeScriptImports(_) => {
+                "TypeScript module table recorded but not checked".to_string()
+            }
             Self::RustAndTypeScript { .. } => {
-                "enforced; TypeScript by `@sqve/stomme-ts-imports`".to_string()
+                "enforced; TypeScript module table recorded but not checked".to_string()
             }
             Self::GuidanceOnly => "guidance only".to_string(),
             Self::ProjectLocal => "project-local".to_string(),

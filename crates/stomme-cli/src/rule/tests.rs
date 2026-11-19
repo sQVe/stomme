@@ -97,6 +97,31 @@ fn partial_rule_status_names_what_it_cannot_detect() {
 }
 
 #[test]
+fn typescript_module_rows_say_the_module_table_is_recorded_but_not_checked() {
+    let rows = [
+        (
+            "typescript-only",
+            Rule::LiteralImport,
+            "TypeScript module table recorded but not checked",
+        ),
+        (
+            "both-languages",
+            Rule::ModuleImports,
+            "enforced; TypeScript module table recorded but not checked",
+        ),
+    ];
+
+    for (name, rule, status) in rows {
+        let row = table_row(rule.metadata());
+
+        assert!(
+            row.trim_end().ends_with(&format!("| {status} |")),
+            "{name}: {row}"
+        );
+    }
+}
+
+#[test]
 fn compare_or_rewrite_table_rejects_a_stale_table_and_leaves_it_unchanged() {
     let folder = tempfile::tempdir().expect("create a temporary directory");
     let path = folder.path().join("rules.md");
