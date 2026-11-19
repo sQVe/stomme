@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::Module;
 
-type Pair = (Vec<String>, String);
+pub(super) type Pair = (Vec<String>, String);
 
 const LOOKUP_BUDGET: usize = 10_000;
 
@@ -10,9 +10,9 @@ const LOOKUP_BUDGET: usize = 10_000;
 pub(super) struct Walk<'a> {
     pub(super) module: &'a Module,
     /// Open pairs, each with its index on the lookup stack.
-    pub(super) open: BTreeMap<Pair, usize>,
+    open: BTreeMap<Pair, usize>,
     /// Lowest stack index that a lookup cut since its enclosing lookup began.
-    pub(super) lowest_cut: Option<usize>,
+    lowest_cut: Option<usize>,
     remaining: usize,
     pub(super) exhausted: bool,
 }
@@ -40,7 +40,45 @@ impl<'a> Walk<'a> {
         true
     }
 
-    pub(super) fn record_cut(&mut self, index: usize) {
+    /// Records a cut and returns true when the pair is already open.
+    pub(super) fn cut_if_open(&mut self, pair: &Pair) -> bool {
+        let Some(&index) = self.open.get(pair) else {
+            return false;
+        };
+
+        self.record_cut(index);
+
+        true
+    }
+
+    pub(super) fn enter(&mut self, pair: Pair) -> OpenLookup {
+        let index = self.open.len();
+        let outer_cut = self.lowest_cut.take();
+        self.open.insert(pair.clone(), index);
+
+        OpenLookup {
+            pair,
+            index,
+            outer_cut,
+        }
+    }
+
+    /// Returns true when no lookup below this one was cut by an open pair.
+    pub(super) fn leave(&mut self, lookup: OpenLookup) -> bool {
+        self.open.remove(&lookup.pair);
+        let open_cut = self.lowest_cut.filter(|cut| *cut < lookup.index);
+        self.lowest_cut = [lookup.outer_cut, open_cut].into_iter().flatten().min();
+
+        open_cut.is_none()
+    }
+
+    fn record_cut(&mut self, index: usize) {
         self.lowest_cut = Some(self.lowest_cut.map_or(index, |lowest| lowest.min(index)));
     }
+}
+
+pub(super) struct OpenLookup {
+    pair: Pair,
+    index: usize,
+    outer_cut: Option<usize>,
 }

@@ -1,3 +1,5 @@
+mod walk;
+
 use std::cell::RefCell;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,6 +29,7 @@ enum Visibility {
 }
 
 type ScopeKey = (String, Vec<String>);
+
 pub(super) struct Resolver<'a> {
     pub(super) tree: &'a Tree,
     pub(super) modules: &'a [Module],
@@ -138,15 +141,34 @@ impl<'a> Resolver<'a> {
         };
         let pair = (place.path.clone(), name.to_string());
 
-        if let Some(&index) = walk.open.get(&pair) {
-            walk.record_cut(index);
-
+        if walk.cut_if_open(&pair) {
             return visible_children(scope, name, children, visibility);
         }
 
-        let index = walk.open.len();
-        let outer_cut = walk.lowest_cut.take();
-        walk.open.insert(pair.clone(), index);
+        let open = walk.enter(pair);
+        let (mut meanings, exported) = self.export_meanings(place, scope, name, walk);
+
+        if children.is_empty() && !exported {
+            meanings.extend(self.glob_meanings(place, scope, name, walk));
+        }
+
+        meanings.extend(visible_children(scope, name, children, visibility));
+        let cacheable = walk.leave(open);
+
+        if cacheable && !walk.exhausted {
+            self.memo.borrow_mut().insert(memo_key, meanings.clone());
+        }
+
+        meanings
+    }
+
+    fn export_meanings(
+        &self,
+        place: &Place,
+        scope: &Scope,
+        name: &str,
+        walk: &mut Walk,
+    ) -> (BTreeSet<Meaning>, bool) {
         let mut meanings = BTreeSet::new();
         let mut exported = false;
 
@@ -155,21 +177,7 @@ impl<'a> Resolver<'a> {
             meanings.extend(self.resolve_target(place, &export.target, walk));
         }
 
-        if children.is_empty() && !exported {
-            meanings.extend(self.glob_meanings(place, scope, name, walk));
-        }
-
-        meanings.extend(visible_children(scope, name, children, visibility));
-
-        walk.open.remove(&pair);
-        let open_cut = walk.lowest_cut.filter(|cut| *cut < index);
-        walk.lowest_cut = [outer_cut, open_cut].into_iter().flatten().min();
-
-        if open_cut.is_none() && !walk.exhausted {
-            self.memo.borrow_mut().insert(memo_key, meanings.clone());
-        }
-
-        meanings
+        (meanings, exported)
     }
 
     fn glob_meanings(
@@ -273,7 +281,7 @@ impl<'a> Resolver<'a> {
     fn resolve_absolute(&self, absolute: &[String], walk: &mut Walk) -> BTreeSet<Meaning> {
         let module = walk.module;
 
-        if absolute.len() < module.path.len() && module.path.starts_with(absolute) {
+        if is_strict_ancestor(module, absolute) {
             return BTreeSet::from([Meaning::Module(ancestor_place(module, absolute))]);
         }
 
@@ -380,11 +388,15 @@ fn ancestor_step(module: &Module, place: &Place, name: &str) -> BTreeSet<Meaning
         return BTreeSet::from([Meaning::Module(entry_place(module))]);
     }
 
-    if module.path.starts_with(&path) {
+    if is_strict_ancestor(module, &path) {
         return BTreeSet::from([Meaning::Module(ancestor_place(module, &path))]);
     }
 
     BTreeSet::from([Meaning::Item])
+}
+
+fn is_strict_ancestor(module: &Module, path: &[String]) -> bool {
+    path.len() < module.path.len() && module.path.starts_with(path)
 }
 
 fn visible_children(
@@ -431,8 +443,6 @@ fn ancestor_place(module: &Module, path: &[String]) -> Place {
         file: None,
     }
 }
-
-mod walk;
 
 #[cfg(test)]
 mod tests;

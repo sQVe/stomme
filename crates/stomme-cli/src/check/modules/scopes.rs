@@ -181,10 +181,6 @@ fn export(leaf: UseLeaf) -> Option<Export> {
 
     let last = leaf.segments.last()?;
 
-    if last == "*" {
-        return None;
-    }
-
     let name = leaf.alias.clone().unwrap_or_else(|| last.clone());
 
     Some(Export {

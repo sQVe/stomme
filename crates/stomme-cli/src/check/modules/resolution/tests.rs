@@ -914,17 +914,8 @@ fn fan_in_alias_chains_resolve_without_exponential_work() {
     ];
 
     for (name, fact_entry, keys) in cases {
-        let (sender, receiver) = std::sync::mpsc::channel();
-
-        std::thread::spawn(move || {
-            let root = alias_project(&fact_entry, &[], "", "use crate::fact::b64::helper;\n");
-
-            sender.send(problems(root.path())).ok();
-        });
-
-        let problems = receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .unwrap_or_else(|_| panic!("{name}: the check did not finish in 10 seconds"));
+        let ticket = "use crate::fact::b64::helper;\n";
+        let problems = problems_within_timeout(name, fact_entry, &[], ticket);
 
         assert_keys(&problems, &keys, name);
     }
