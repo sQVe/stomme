@@ -12,7 +12,7 @@ The package is private and not published yet.
 
 ```toml
 schema = 1
-version = "0.2.0"
+version = "0.2.1"
 language = "typescript"
 
 [modules.errors]

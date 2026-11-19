@@ -1,6 +1,6 @@
 [package]
 name = "stomme"
-version = "0.2.0"
+version = "0.2.1"
 description = "A shared foundation for project structure, coding rules, and documentation."
 repository = "https://github.com/sQVe/stomme"
 edition.workspace = true
