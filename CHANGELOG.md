@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.1
+
+- `stomme` 0.2.1.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Add `stomme init` to create a project that passes `stomme check` and its own full check.
+- Fix the Herdr starter: its mod now passes Herdr's load check, types, and build, and the project
+  has a command that installs the mod and docks it on the right.
+- Tell new developers in the starter guides to trust `mise.toml` before `mise install`.
+- Compare a pull request with its target branch in `stomme check`, not always with `main`.
+- Refuse a `stomme.toml` that is not a regular file.
+- Add the rule `adr-file-name`: reject an ADR file with no slug, and decide the ADR index shapes.
+- Reject in `stomme sync` a relative `.md` guide link whose `#anchor` matches no heading, and test
+  each layer's guide links against the smallest setup that sync accepts.
+- Report `module-private-file` in `stomme check` when a Rust path reaches a private file through an
+  alias of a whole module, such as `pub use self::attention as renamed;`.
+- Exempt only code that compiles under `cfg(test)` from `module-private-file`, found by
+  `#[cfg(test)]` attributes. A production module named `tests` is no longer exempt.
+- Accept every `stomme.toml` version pin the CLI accepts in the release gate, including a trailing
+  comment.
+- Fail the release gate on a broken `stomme.toml` link instead of skipping the project.
+- Give the release gate token read-only access to contents.
+- Write a bare version, such as `0.2.1`, into `mise.toml` from the Renovate preset.
+
 ## 0.2.0
 
 - `stomme` 0.2.0.
