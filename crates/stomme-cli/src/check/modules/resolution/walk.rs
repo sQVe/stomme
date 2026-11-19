@@ -40,7 +40,6 @@ impl<'a> Walk<'a> {
         true
     }
 
-    /// Records a cut and returns true when the pair is already open.
     pub(super) fn cut_if_open(&mut self, pair: &Pair) -> bool {
         let Some(&index) = self.open.get(pair) else {
             return false;
@@ -63,13 +62,23 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Returns true when no lookup below this one was cut by an open pair.
     pub(super) fn leave(&mut self, lookup: OpenLookup) -> bool {
         self.open.remove(&lookup.pair);
         let open_cut = self.lowest_cut.filter(|cut| *cut < lookup.index);
         self.lowest_cut = [lookup.outer_cut, open_cut].into_iter().flatten().min();
 
         open_cut.is_none()
+    }
+
+    pub(super) fn begin_nested(&mut self) -> Option<usize> {
+        self.lowest_cut.take()
+    }
+
+    pub(super) fn end_nested(&mut self, outer_cut: Option<usize>) -> bool {
+        let nested_cut = self.lowest_cut;
+        self.lowest_cut = [outer_cut, nested_cut].into_iter().flatten().min();
+
+        nested_cut.is_none()
     }
 
     fn record_cut(&mut self, index: usize) {

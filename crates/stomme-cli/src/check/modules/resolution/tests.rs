@@ -1176,6 +1176,13 @@ fn glob_reexport_cycles_terminate() {
             vec![INNER],
         ),
         (
+            "Y5 cycle that binds, two uses reuse the glob targets",
+            "mod attention;\npub mod first { pub use super::second::*; pub use super::attention::*; }\npub mod second { pub use super::first::*; }\n",
+            INNER_FILES,
+            "use crate::fact::second::inner::helper;\nuse crate::fact::first::inner::helper as again;\nuse crate::fact::second::inner;\n",
+            vec![INNER],
+        ),
+        (
             "Y4 self glob",
             "pub use self::*;\n",
             &[][..],
