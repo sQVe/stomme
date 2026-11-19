@@ -173,8 +173,8 @@ The Package release workflow uses Changesets on `main`. It opens a version pull 
 package before publishing. Do not publish from your local checkout.
 
 `@sqve/stomme-ts-imports` has no changeset. Its version equals the binary's, so the release pull
-request that bumps the crate also bumps the package. The Package release workflow publishes it once
-its version is missing on npm.
+request that bumps the crate also bumps the package and its entry in `packages.toml`. The Package
+release workflow publishes it once its version is missing on npm.
 
 The first publish is the one exception to "Do not publish from your local checkout". npm trusted
 publishing cannot create a new package. Someone with npm access publishes the first version by hand
