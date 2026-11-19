@@ -3,11 +3,11 @@ use std::slice::Iter;
 
 use ra_ap_rustc_lexer::{FrontmatterAllowed, TokenKind, strip_shebang, tokenize};
 
-type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
+pub(super) type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
 
-struct Token<'a> {
-    kind: TokenKind,
-    text: &'a str,
+pub(super) struct Token<'a> {
+    pub(super) kind: TokenKind,
+    pub(super) text: &'a str,
     line: usize,
 }
 
@@ -17,8 +17,16 @@ pub(super) struct UsePath {
     pub(super) inline_modules: Vec<String>,
 }
 
+pub(super) struct UseLeaf {
+    pub(super) absolute: bool,
+    pub(super) segments: Vec<String>,
+    pub(super) alias: Option<String>,
+}
+
 struct Leaf {
+    absolute: bool,
     segments: Vec<String>,
+    alias: Option<String>,
     line: usize,
 }
 
@@ -26,7 +34,7 @@ struct Parser<'tokens, 'source> {
     tokens: &'tokens mut TokenStream<'source>,
 }
 
-fn code_tokens(source: &str) -> Vec<Token<'_>> {
+pub(super) fn code_tokens(source: &str) -> Vec<Token<'_>> {
     let shebang_end = strip_shebang(source).unwrap_or(0);
     let mut line = 1;
     let mut start = shebang_end;
@@ -56,6 +64,20 @@ fn code_tokens(source: &str) -> Vec<Token<'_>> {
     }
 
     tokens
+}
+
+pub(super) fn read_use_tree(tokens: &mut TokenStream<'_>) -> Vec<UseLeaf> {
+    let mut parser = Parser { tokens };
+
+    parser
+        .read_aliased_segments()
+        .into_iter()
+        .map(|leaf| UseLeaf {
+            absolute: leaf.absolute,
+            segments: leaf.segments,
+            alias: leaf.alias,
+        })
+        .collect()
 }
 
 pub(super) fn paths(source: &str) -> Vec<UsePath> {
@@ -113,7 +135,7 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
     paths
 }
 
-fn module_name<'source>(
+pub(super) fn module_name<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
 ) -> Option<&'source str> {
@@ -155,7 +177,9 @@ fn is_path_start<'source>(token: &Token<'source>, tokens: &TokenStream<'source>)
 impl Parser<'_, '_> {
     fn parse_segments(&mut self) -> Vec<Leaf> {
         let mut leaves = vec![Leaf {
+            absolute: false,
             segments: Vec::new(),
+            alias: None,
             line: 0,
         }];
 
@@ -212,8 +236,7 @@ impl Parser<'_, '_> {
                 break;
             }
 
-            let mut item = self.parse_segments();
-            self.skip_alias();
+            let mut item = self.read_aliased_segments();
 
             for leaf in &mut item {
                 if leaf.segments == ["self"] {
@@ -238,17 +261,46 @@ impl Parser<'_, '_> {
         leaves
     }
 
-    fn skip_alias(&mut self) {
+    fn read_aliased_segments(&mut self) -> Vec<Leaf> {
+        let absolute = self.skip_leading_colon_colon();
+        let mut leaves = self.parse_segments();
+        let alias = self.read_alias();
+
+        for leaf in &mut leaves {
+            leaf.absolute |= absolute;
+
+            if alias.is_some() {
+                leaf.alias.clone_from(&alias);
+            }
+        }
+
+        leaves
+    }
+
+    fn read_alias(&mut self) -> Option<String> {
         let is_alias = self.tokens.peek().is_some_and(|token| token.text == "as");
 
         if !is_alias {
-            return;
+            return None;
         }
 
         self.tokens
             .next()
             .expect("a peeked alias keyword is present");
-        self.tokens.next();
+        let token = self.tokens.next()?;
+
+        item_name(token).map(str::to_string)
+    }
+
+    fn skip_leading_colon_colon(&mut self) -> bool {
+        let absolute = self.colon_colon();
+
+        if absolute {
+            self.tokens.next().expect("a peeked colon is present");
+            self.tokens.next().expect("a peeked colon is present");
+        }
+
+        absolute
     }
 
     fn colon_colon(&self) -> bool {
@@ -287,14 +339,19 @@ fn combine(prefixes: Vec<Leaf>, alternatives: Vec<Leaf>) -> Vec<Leaf> {
                 prefix.line
             };
 
-            combined.push(Leaf { segments, line });
+            combined.push(Leaf {
+                absolute: alternative.absolute,
+                segments,
+                alias: alternative.alias.clone(),
+                line,
+            });
         }
     }
 
     combined
 }
 
-fn item_name<'a>(token: &Token<'a>) -> Option<&'a str> {
+pub(super) fn item_name<'a>(token: &Token<'a>) -> Option<&'a str> {
     match token.kind {
         TokenKind::Ident => Some(token.text),
         TokenKind::RawIdent => token.text.strip_prefix("r#"),

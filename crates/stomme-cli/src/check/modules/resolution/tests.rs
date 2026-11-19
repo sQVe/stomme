@@ -1,0 +1,951 @@
+use crate::check::Problem;
+use crate::check::modules::tests::{assert_problem, problems};
+use crate::check::test_support::project;
+use crate::rule::Rule;
+
+const ATTENTION: &str = "ticket:src/fact/attention.rs";
+const ALIAS_ENTRY: &str = "pub mod attention;\npub use self::attention as renamed;\n";
+const RENAMED_HELPER: &str = "use crate::fact::renamed::helper;\n";
+const RENAMED: &str = "use crate::fact::renamed;\n";
+const ALTERNATE_HELPER: &str = "use crate::fact::alternate::helper;\n";
+const FUNCTION_AND_MODULE: &str = "pub mod attention;\npub use self::attention as renamed;\npub use self::attention::helper as renamed;\n";
+const FUNCTION_THEN_MODULE: &str = "pub mod attention;\npub use self::attention::helper as renamed;\npub use self::attention as renamed;\n";
+
+struct Case {
+    name: &'static str,
+    fact_entry: &'static str,
+    extra_files: &'static [(&'static str, &'static str)],
+    extra_rows: &'static str,
+    ticket: &'static str,
+    keys: &'static [&'static str],
+}
+
+fn case(
+    name: &'static str,
+    fact_entry: &'static str,
+    ticket: &'static str,
+    keys: &'static [&'static str],
+) -> Case {
+    Case {
+        name,
+        fact_entry,
+        extra_files: &[],
+        extra_rows: "",
+        ticket,
+        keys,
+    }
+}
+
+#[test]
+fn module_alias_use_reports_the_private_file_it_reaches() {
+    let root = alias_project(ALIAS_ENTRY, &[], "", RENAMED_HELPER);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModulePrivateFile,
+        ATTENTION,
+        "module alias",
+    );
+}
+
+#[test]
+fn module_alias_cases_decide_the_reached_private_file() {
+    let cases = [
+        case(
+            "bare target",
+            "pub mod attention;\npub use attention as renamed;\n",
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "super target",
+            "pub mod attention;\npub use super::fact::attention as renamed;\n",
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "crate target",
+            "pub mod attention;\npub use crate::fact::attention as renamed;\n",
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "grouped self target",
+            "pub mod attention;\npub use self::{attention as renamed};\n",
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "grouped crate target with a sibling",
+            "pub mod attention;\npub mod score;\npub use crate::fact::{score, attention as renamed};\n",
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "self inside a group",
+            "pub mod attention;\npub use self::attention::{self as renamed};\n",
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "terminal path to a module alias",
+            ALIAS_ENTRY,
+            RENAMED,
+            &[ATTENTION],
+        ),
+        case(
+            "chain",
+            "pub mod attention;\npub use self::attention as renamed;\npub use self::renamed as alternate;\n",
+            ALTERNATE_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "chain declared before its target",
+            "pub mod attention;\npub use self::renamed as alternate;\npub use self::attention as renamed;\n",
+            ALTERNATE_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "self alias of the module",
+            "pub mod attention;\npub use crate::fact as renamed;\n",
+            "use crate::fact::renamed::renamed::attention::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "module then function, terminal",
+            FUNCTION_AND_MODULE,
+            RENAMED,
+            &[],
+        ),
+        case(
+            "function then module, terminal",
+            FUNCTION_THEN_MODULE,
+            RENAMED,
+            &[],
+        ),
+        case(
+            "module then function, deeper path",
+            FUNCTION_AND_MODULE,
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "function then module, deeper path",
+            FUNCTION_THEN_MODULE,
+            RENAMED_HELPER,
+            &[ATTENTION],
+        ),
+        case(
+            "both meanings through a chain, terminal",
+            "pub mod attention;\npub use self::attention as renamed;\npub use self::attention::helper as renamed;\npub use self::renamed as alternate;\n",
+            "use crate::fact::alternate;\n",
+            &[],
+        ),
+        case(
+            "both meanings through a chain, deeper path",
+            "pub mod attention;\npub use self::attention as renamed;\npub use self::attention::helper as renamed;\npub use self::renamed as alternate;\n",
+            ALTERNATE_HELPER,
+            &[ATTENTION],
+        ),
+        Case {
+            extra_files: &[("src/fact/inner/deep.rs", "pub fn helper() {}\n")],
+            ..case(
+                "alias to an inline module, then a private file",
+                "mod inner {\n    pub mod deep;\n}\npub use self::inner as renamed;\n",
+                "use crate::fact::renamed::deep::helper;\n",
+                &["ticket:src/fact/inner/deep.rs"],
+            )
+        },
+        case(
+            "alias declared inside an inline module",
+            "pub mod attention;\npub mod inner {\n    pub use super::attention as renamed;\n}\n",
+            "use crate::fact::inner::renamed::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "item re-exported through an alias",
+            "pub mod attention;\npub use self::attention as renamed;\npub use self::renamed::helper as public_helper;\n",
+            "use crate::fact::public_helper;\n",
+            &[],
+        ),
+        case(
+            "leading colon target",
+            "pub mod attention;\npub use ::std::mem as renamed;\n",
+            "use crate::fact::renamed::drop;\n",
+            &[],
+        ),
+        case(
+            "bare external target",
+            "pub mod attention;\npub use serde::de as renamed;\n",
+            RENAMED_HELPER,
+            &[],
+        ),
+        case(
+            "grouped leading colon target",
+            "pub mod attention;\npub use ::std::{mem as renamed};\n",
+            "use crate::fact::renamed::drop;\n",
+            &[],
+        ),
+        case(
+            "export inside a macro call",
+            "pub mod attention;\ndiscard!(pub use ::std::mem::drop as attention;);\n",
+            "use crate::fact::attention;\n",
+            &[ATTENTION],
+        ),
+        Case {
+            extra_rows: "\n[modules.attention]\nentry = \"src/fact/attention.rs\"\n",
+            ..case("alias into a deeper row", ALIAS_ENTRY, RENAMED_HELPER, &[])
+        },
+    ];
+
+    for case in cases {
+        let root = alias_project(
+            case.fact_entry,
+            case.extra_files,
+            case.extra_rows,
+            case.ticket,
+        );
+        let problems = problems(root.path());
+
+        assert_keys(&problems, case.keys, case.name);
+    }
+}
+
+const PRIVATE_INNER: &str = "mod attention;\npub use attention::inner as renamed;\n";
+const INLINE_INNER: &str = "pub mod inner { pub fn helper() {} }\n";
+const NESTED_INLINE: &str = "pub mod outer { pub mod inner { pub fn helper() {} } }\n";
+
+#[test]
+fn module_alias_into_a_private_file_inline_module_reports_the_file() {
+    let root = alias_project(
+        PRIVATE_INNER,
+        &[("src/fact/attention.rs", INLINE_INNER)],
+        "",
+        RENAMED_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "alias to an inline module");
+}
+
+#[test]
+fn module_aliases_into_private_file_inline_modules_decide_the_reached_file() {
+    let cases = [
+        Case {
+            extra_files: &[("src/fact/attention.rs", INLINE_INNER)],
+            ..case(
+                "N1 inline module in a private file",
+                PRIVATE_INNER,
+                RENAMED_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", NESTED_INLINE)],
+            ..case(
+                "N2 two-level inline nesting",
+                "mod attention;\npub use attention::outer::inner as renamed;\n",
+                RENAMED_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", NESTED_INLINE)],
+            ..case(
+                "N3 alias to the outer inline module",
+                "mod attention;\npub use attention::outer as renamed;\n",
+                "use crate::fact::renamed::inner::helper;\n",
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[
+                ("src/fact/attention.rs", "pub mod inner { pub mod deep; }\n"),
+                ("src/fact/attention/inner/deep.rs", "pub fn helper() {}\n"),
+            ],
+            ..case(
+                "N4 file module inside an inline module",
+                PRIVATE_INNER,
+                "use crate::fact::renamed::deep::helper;\n",
+                &["ticket:src/fact/attention/inner/deep.rs"],
+            )
+        },
+        Case {
+            extra_files: &[(
+                "src/fact/attention.rs",
+                "pub mod inner { pub use super::super::score as deeper; }\n",
+            )],
+            ..case(
+                "N5 pub use inside the inline module is not followed",
+                "mod attention;\nmod score;\npub use attention::inner as renamed;\n",
+                "use crate::fact::renamed::deeper::rank;\n",
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", "pub fn inner() {}\n")],
+            ..case(
+                "N6 item with the inline name, terminal",
+                PRIVATE_INNER,
+                RENAMED,
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", INLINE_INNER)],
+            ..case(
+                "N7 inline module, terminal use of the alias",
+                PRIVATE_INNER,
+                RENAMED,
+                &[ATTENTION],
+            )
+        },
+    ];
+
+    assert_cases(cases);
+}
+
+const MODE_ENTRY: &str = "mod attention;\npub use attention::Mode;\n";
+const MODE_FILE: &str = "pub enum Mode { A, B }\n";
+const CONFIG_ENTRY: &str = "mod attention;\npub use attention::Config;\n";
+const CONFIG_FILE: &str =
+    "pub struct Config;\nimpl Config { pub fn default() -> Self { Config } }\n";
+const INNER_MODE_ENTRY: &str = "mod attention;\npub use attention::inner::Mode;\n";
+const INNER_MODE_FILE: &str = "pub mod inner { pub enum Mode { A, B } }\n";
+const NESTED_ENTRY: &str = "mod attention;\npub use attention::outer::inner as renamed;\n";
+
+#[test]
+fn a_re_exported_enum_variant_path_is_not_a_private_file_use() {
+    let root = alias_project(
+        MODE_ENTRY,
+        &[("src/fact/attention.rs", MODE_FILE)],
+        "",
+        "use crate::fact::Mode::A;\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[], "variant path through a re-exported enum");
+}
+
+#[test]
+fn re_exported_items_and_inline_modules_of_private_files_decide_the_reached_file() {
+    let cases = [
+        Case {
+            extra_files: &[("src/fact/attention.rs", MODE_FILE)],
+            ..case(
+                "V1 re-exported enum, variant path",
+                MODE_ENTRY,
+                "use crate::fact::Mode::A;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", MODE_FILE)],
+            ..case(
+                "V2 re-exported enum, renamed",
+                MODE_ENTRY,
+                "use crate::fact::Mode as M;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", MODE_FILE)],
+            ..case(
+                "V3 re-exported enum, group",
+                MODE_ENTRY,
+                "use crate::fact::Mode::{A, B};\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", CONFIG_FILE)],
+            ..case(
+                "V4 re-exported struct, associated item",
+                CONFIG_ENTRY,
+                "use crate::fact::Config::default;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", INNER_MODE_FILE)],
+            ..case(
+                "V5 enum inside an inline module",
+                INNER_MODE_ENTRY,
+                "use crate::fact::Mode::A;\n",
+                &[],
+            )
+        },
+        Case {
+            extra_files: &[("src/fact/attention.rs", NESTED_INLINE)],
+            ..case(
+                "V6 two-level inline module, terminal use",
+                NESTED_ENTRY,
+                RENAMED,
+                &[ATTENTION],
+            )
+        },
+    ];
+
+    assert_cases(cases);
+}
+
+#[test]
+fn reexport_from_a_private_file_keeps_the_item_file_as_the_result() {
+    let files = [
+        (
+            "src/config/models.rs",
+            "pub mod internal;\npub use internal::X;\n",
+        ),
+        ("src/config/models/internal.rs", "pub struct X;\n"),
+        ("src/config/models/X.rs", "pub struct X;\n"),
+    ];
+    let root = nested_reexport_project(&[], &files, "use crate::config::models::X;\n");
+
+    let problems = problems(root.path());
+
+    assert_reexport(
+        &problems,
+        Some("ticket:src/config/models/X.rs"),
+        "N8 private-file result kept",
+    );
+}
+
+#[test]
+fn alias_cycles_terminate_without_a_problem() {
+    let cases = [
+        (
+            "two-name cycle",
+            "pub mod attention;\npub use self::first as second;\npub use self::second as first;\n",
+            "use crate::fact::first::helper;\n",
+        ),
+        (
+            "self-cycle",
+            "pub mod attention;\npub use self::looped;\n",
+            "use crate::fact::looped::helper;\n",
+        ),
+    ];
+
+    for (name, fact_entry, ticket) in cases {
+        let root = alias_project(fact_entry, &[], "", ticket);
+        let problems = problems(root.path());
+
+        assert_keys(&problems, &[], name);
+    }
+}
+
+#[test]
+fn cfg_selected_module_and_alias_of_one_name_report_both_files() {
+    let fact_entry = "pub mod attention;\n#[cfg(feature = \"split\")]\npub mod renamed;\n#[cfg(not(feature = \"split\"))]\npub use self::attention as renamed;\n";
+    let root = alias_project(
+        fact_entry,
+        &[("src/fact/renamed.rs", "pub fn helper() {}\n")],
+        "",
+        RENAMED,
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(
+        &problems,
+        &[ATTENTION, "ticket:src/fact/renamed.rs"],
+        "cfg selected module and alias",
+    );
+}
+
+const CFG_INNER_ALIAS: &str = "use crate::fact::inner::renamed::helper;\n";
+
+const CFG_ALIAS_FIRST: &str = "pub mod attention;\n#[cfg(a)]\npub mod inner { pub use super::attention as renamed; }\n#[cfg(not(a))]\npub mod inner { pub fn other() {} }\n";
+
+#[test]
+fn cfg_selected_inline_modules_of_one_name_merge_their_exports() {
+    let root = alias_project(CFG_ALIAS_FIRST, &[], "", CFG_INNER_ALIAS);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "B1 alias in the first branch");
+}
+
+#[test]
+fn cfg_selected_inline_modules_of_one_name_decide_the_reached_private_file() {
+    assert_cases([
+        case(
+            "B1 alias in the first branch",
+            CFG_ALIAS_FIRST,
+            CFG_INNER_ALIAS,
+            &[ATTENTION],
+        ),
+        case(
+            "B2 alias in the last branch",
+            "pub mod attention;\n#[cfg(not(a))]\npub mod inner { pub fn other() {} }\n#[cfg(a)]\npub mod inner { pub use super::attention as renamed; }\n",
+            CFG_INNER_ALIAS,
+            &[ATTENTION],
+        ),
+        case(
+            "B3 nested inline module in the first branch",
+            "pub mod attention;\n#[cfg(a)]\npub mod inner { pub mod nested { pub use super::super::attention as renamed; } }\n#[cfg(not(a))]\npub mod inner {}\n",
+            "use crate::fact::inner::nested::renamed::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "B4 different aliases of one name",
+            "pub mod attention;\npub mod score;\n#[cfg(a)]\npub mod inner { pub use super::attention as renamed; }\n#[cfg(not(a))]\npub mod inner { pub use super::score as renamed; }\n",
+            CFG_INNER_ALIAS,
+            &[ATTENTION, "ticket:src/fact/score.rs"],
+        ),
+    ]);
+}
+
+#[test]
+fn item_with_its_file_name_reexported_by_the_entry_is_not_a_private_file() {
+    let root = alias_project(
+        "mod attention;\npub use attention::attention;\n",
+        &[],
+        "",
+        "use crate::fact::attention;\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn entry_reexports_decide_whether_the_child_file_is_private() {
+    let cases = [
+        (
+            "reexported function",
+            "mod attention;\npub use attention::helper;\n",
+            "use crate::fact::helper;\n",
+            None,
+        ),
+        (
+            "reexported type",
+            "mod attention;\npub use attention::Attention;\n",
+            "use crate::fact::Attention;\n",
+            None,
+        ),
+        (
+            "path into the file behind a reexport",
+            "mod attention;\npub use attention::attention;\n",
+            "use crate::fact::attention::helper;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "glob reexport",
+            "mod attention;\npub use attention::*;\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "module reexport",
+            "mod attention;\npub use attention;\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "self module reexport",
+            "mod attention;\npub use self::attention;\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "crate visible reexport",
+            "mod attention;\npub(crate) use attention::attention;\n",
+            "use crate::fact::attention;\n",
+            None,
+        ),
+        (
+            "renamed reexport",
+            "mod attention;\nmod score;\npub use score::rank as attention;\n",
+            "use crate::fact::attention;\n",
+            None,
+        ),
+        (
+            "reexport inside an inline module",
+            "mod attention;\nmod inner {\n    pub use super::attention::attention;\n}\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "private use",
+            "mod attention;\nuse attention::attention;\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "super reexport of an item",
+            "mod attention;\npub use super::fact::attention::attention;\n",
+            "use crate::fact::attention;\n",
+            None,
+        ),
+        (
+            "leading colon reexport",
+            "mod attention;\npub use ::std::mem::drop as attention;\n",
+            "use crate::fact::attention;\n",
+            None,
+        ),
+        (
+            "grouped leading colon reexport",
+            "mod attention;\npub use ::std::mem::{drop as attention};\n",
+            "use crate::fact::attention;\n",
+            None,
+        ),
+        (
+            "external path mirrored by a local file",
+            "mod attention;\npub use ::std::mem::drop as renamed;\n",
+            "use crate::fact::renamed;\n",
+            None,
+        ),
+        (
+            "external crate named like the child file",
+            "mod attention;\npub use ::attention;\n",
+            "use crate::fact::attention;\n",
+            None,
+        ),
+        (
+            "item reexported under an alias through a module name",
+            "mod attention;\npub use self::attention as renamed;\npub use self::renamed::helper as public_helper;\n",
+            "use crate::fact::public_helper;\n",
+            None,
+        ),
+        (
+            "super module reexport",
+            "mod attention;\npub use super::fact::attention;\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "crate module reexport",
+            "mod attention;\npub use crate::fact::attention;\n",
+            "use crate::fact::attention;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+        (
+            "reexport of a deeper name",
+            "mod attention;\npub use attention::attention;\npub use attention::helper;\n",
+            "use crate::fact::attention::helper;\n",
+            Some("ticket:src/fact/attention.rs"),
+        ),
+    ];
+
+    for (case, entry, ticket, key) in cases {
+        let root = alias_project(entry, &[], "", ticket);
+        let problems = problems(root.path());
+
+        assert_reexport(&problems, key, case);
+    }
+}
+
+#[test]
+fn nested_reexports_decide_whether_the_child_file_is_private() {
+    let cases = [
+        (
+            "reexport from a public file",
+            &["src/config/models.rs"][..],
+            &[
+                (
+                    "src/config/models.rs",
+                    "pub mod internal;\npub use internal::X;\n",
+                ),
+                ("src/config/models/internal.rs", "pub struct X;\n"),
+                ("src/config/models/X.rs", "pub struct X;\n"),
+            ][..],
+            "use crate::config::models::X;\n",
+            None,
+        ),
+        (
+            "reexport from a private file",
+            &[][..],
+            &[
+                (
+                    "src/config/models.rs",
+                    "pub mod internal;\npub use internal::X;\n",
+                ),
+                ("src/config/models/internal.rs", "pub struct X;\n"),
+                ("src/config/models/X.rs", "pub struct X;\n"),
+            ][..],
+            "use crate::config::models::X;\n",
+            Some("ticket:src/config/models/X.rs"),
+        ),
+        (
+            "reexport in a non-exporting file",
+            &[][..],
+            &[
+                (
+                    "src/config/models.rs",
+                    "pub mod internal;\npub use internal::X;\n",
+                ),
+                ("src/config/models/internal.rs", "pub struct X;\n"),
+            ][..],
+            "use crate::config::models::internal::X;\n",
+            Some("ticket:src/config/models/internal.rs"),
+        ),
+        (
+            "super module reexport from a public file",
+            &["src/config/models.rs"][..],
+            &[
+                (
+                    "src/config/models.rs",
+                    "pub mod internal;\npub use super::models::internal;\n",
+                ),
+                ("src/config/models/internal.rs", "pub struct X;\n"),
+            ][..],
+            "use crate::config::models::internal;\n",
+            Some("ticket:src/config/models/internal.rs"),
+        ),
+    ];
+
+    for (case, public, files, ticket, key) in cases {
+        let root = nested_reexport_project(public, files, ticket);
+        let problems = problems(root.path());
+
+        assert_reexport(&problems, key, case);
+    }
+}
+
+fn assert_reexport(problems: &[Problem], key: Option<&str>, case: &str) {
+    match key {
+        Some(key) => assert_problem(
+            problems,
+            "src/ticket.rs",
+            Rule::ModulePrivateFile,
+            key,
+            case,
+        ),
+        None => assert!(problems.is_empty(), "{case}: {problems:?}"),
+    }
+}
+
+fn nested_reexport_project(
+    public: &[&str],
+    files: &[(&str, &str)],
+    ticket: &str,
+) -> tempfile::TempDir {
+    let public_row = if public.is_empty() {
+        String::new()
+    } else {
+        let paths: Vec<String> = public.iter().map(|path| format!("\"{path}\"")).collect();
+
+        format!("public = [{}]\n", paths.join(", "))
+    };
+    let table = format!(
+        "[modules.config]\nentry = \"src/config.rs\"\n{public_row}\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n"
+    );
+    let mut project_files: Vec<(&str, &str)> = vec![("src/config.rs", "pub mod models;\n")];
+    project_files.extend(files.iter().copied());
+    project_files.push(("src/ticket.rs", ticket));
+
+    project(&project_files, &table)
+}
+
+#[test]
+fn a_long_chain_of_bare_aliases_resolves_without_repeating_work() {
+    let links = 26;
+    let mut fact_entry = "pub mod attention;\npub use attention as a1;\n".to_string();
+
+    for link in 2..=links {
+        fact_entry.push_str(&format!("pub use a{} as a{link};\n", link - 1));
+    }
+
+    let ticket = format!("use crate::fact::a{links}::helper;\n");
+    let root = alias_project(&fact_entry, &[], "", &ticket);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "bare chain");
+}
+
+#[test]
+fn super_past_the_crate_root_reaches_no_file() {
+    let root = alias_project(
+        "pub mod attention;\npub use super::super::attention as renamed;\n",
+        &[],
+        "",
+        RENAMED_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[], "super past the crate root");
+}
+
+#[test]
+fn an_alias_to_another_row_is_not_walked_from_the_entry() {
+    let root = alias_project(
+        "pub use crate::other::attention as renamed;\n",
+        &[("src/other.rs", "pub fn attention() {}\n")],
+        "\n[modules.other]\nentry = \"src/other.rs\"\n",
+        RENAMED_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    let found: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.path.as_str(), problem.rule, problem.key.as_deref()))
+        .collect();
+
+    assert_eq!(
+        found,
+        [("src/fact.rs", Rule::ModuleImports, Some("fact:other"))],
+        "alias to another row"
+    );
+}
+
+#[test]
+fn fan_in_alias_chains_resolve_without_exponential_work() {
+    let mut fan_in =
+        "pub mod attention;\npub use self::attention as a0;\npub use self::attention as b0;\n"
+            .to_string();
+
+    for level in 1..=64 {
+        let previous = level - 1;
+        fan_in.push_str(&format!(
+            "pub use self::b{previous} as a{level};\npub use self::b{previous} as b{level};\npub use self::a{previous} as b{level};\n"
+        ));
+    }
+
+    let closed = format!("{fan_in}pub use self::b64 as b0;\n");
+    let self_cycles: String = (1..=64)
+        .map(|level| {
+            format!("pub use self::a{level} as a{level};\npub use self::b{level} as b{level};\n")
+        })
+        .collect();
+    let looped = format!("{fan_in}{self_cycles}");
+    let cases = [
+        ("fan-in chain", fan_in, vec![ATTENTION]),
+        ("fan-in chain closed into a cycle", closed, Vec::new()),
+        (
+            "fan-in chain with a self-cycle per level",
+            looped,
+            vec![ATTENTION],
+        ),
+    ];
+
+    for (name, fact_entry, keys) in cases {
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let root = alias_project(&fact_entry, &[], "", "use crate::fact::b64::helper;\n");
+
+            sender.send(problems(root.path())).ok();
+        });
+
+        let problems = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_else(|_| panic!("{name}: the check did not finish in 10 seconds"));
+
+        assert_keys(&problems, &keys, name);
+    }
+}
+
+#[test]
+fn a_use_after_an_exhausted_use_resolves_as_if_it_ran_alone() {
+    let levels = 16;
+    let mut fact_entry = "pub mod attention;\n".to_string();
+
+    for prefix in ["x", "y"] {
+        fact_entry.push_str(&format!(
+            "pub use ::std::mem as {prefix}a0;\npub use ::std::mem as {prefix}b0;\n"
+        ));
+
+        for level in 1..=levels {
+            let previous = level - 1;
+            fact_entry.push_str(&format!(
+                "pub use self::{prefix}b{previous} as {prefix}a{level};\npub use self::{prefix}b{previous} as {prefix}b{level};\npub use self::{prefix}a{previous} as {prefix}b{level};\n"
+            ));
+        }
+
+        fact_entry.push_str(&format!("pub use self::{prefix}b{levels} as {prefix}b0;\n"));
+    }
+
+    fact_entry.push_str(&format!(
+        "pub use self::xb{levels} as top;\npub use self::late as top;\npub use self::yb{levels} as late;\npub use self::attention as late;\n"
+    ));
+
+    let exhausting = "use crate::fact::top::helper;\n";
+    let second = "use crate::fact::late::helper;\n";
+    let cases = [
+        ("exhausting use alone", exhausting.to_string(), Vec::new()),
+        ("second use alone", second.to_string(), vec![ATTENTION]),
+        (
+            "second use after the exhausting use",
+            format!("{exhausting}{second}"),
+            vec![ATTENTION],
+        ),
+    ];
+
+    for (name, ticket, keys) in cases {
+        let root = alias_project(&fact_entry, &[], "", &ticket);
+        let problems = problems(root.path());
+
+        assert_keys(&problems, &keys, name);
+    }
+}
+
+fn assert_cases<const COUNT: usize>(cases: [Case; COUNT]) {
+    let mut mismatches = Vec::new();
+
+    for case in cases {
+        let root = alias_project(
+            case.fact_entry,
+            case.extra_files,
+            case.extra_rows,
+            case.ticket,
+        );
+        let found: Vec<_> = problems(root.path())
+            .into_iter()
+            .map(|problem| problem.key)
+            .collect();
+        let expected: Vec<_> = case.keys.iter().map(|key| Some(key.to_string())).collect();
+
+        if found != expected {
+            mismatches.push(format!("{}: found {found:?}", case.name));
+        }
+    }
+
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
+}
+
+fn assert_keys(problems: &[Problem], keys: &[&str], name: &str) {
+    let found: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.path.as_str(), problem.rule, problem.key.as_deref()))
+        .collect();
+    let expected: Vec<_> = keys
+        .iter()
+        .map(|key| ("src/ticket.rs", Rule::ModulePrivateFile, Some(*key)))
+        .collect();
+
+    assert_eq!(found, expected, "{name}");
+}
+
+fn alias_project(
+    fact_entry: &str,
+    extra_files: &[(&str, &str)],
+    extra_rows: &str,
+    ticket: &str,
+) -> tempfile::TempDir {
+    let mut files = vec![
+        ("src/fact.rs", fact_entry),
+        (
+            "src/fact/attention.rs",
+            "pub fn attention() {}\npub fn helper() {}\npub struct Attention;\n",
+        ),
+        ("src/fact/helper.rs", "pub fn helper() {}\n"),
+        ("src/fact/Attention.rs", "pub struct Attention;\n"),
+        ("src/fact/score.rs", "pub fn rank() {}\n"),
+        ("src/fact/public_helper.rs", "pub fn helper() {}\n"),
+        ("src/fact/std/mem/drop.rs", "pub fn drop() {}\n"),
+        ("src/ticket.rs", ticket),
+    ];
+    files.extend(extra_files.iter().copied());
+    let table = format!(
+        "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n{extra_rows}"
+    );
+
+    project(&files, &table)
+}

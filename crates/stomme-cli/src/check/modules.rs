@@ -1,3 +1,5 @@
+mod resolution;
+mod scopes;
 mod use_paths;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -8,6 +10,7 @@ use super::source_files::{self, SourceFile, Tree};
 use crate::config::ModuleRow;
 use crate::layer::Language;
 use crate::rule::Rule;
+use resolution::Resolver;
 use use_paths::{UsePath, paths};
 
 struct Module {
@@ -30,6 +33,7 @@ pub(super) fn check(
 
     let tree = source_files::walk(root, Language::Rust)?;
     let modules = read_modules(modules);
+    let resolver = Resolver::new(&tree, &modules)?;
     let src_folders: BTreeSet<String> = modules
         .iter()
         .map(|module| module.src_folder.clone())
@@ -57,7 +61,7 @@ pub(super) fn check(
         }
 
         let source = tree.read(file)?;
-        problems.extend(check_file(&tree, owner, file, &source, &modules));
+        problems.extend(check_file(&resolver, owner, file, &source));
     }
 
     Ok(problems)
@@ -140,11 +144,10 @@ fn module_listed(file: &SourceFile) -> Problem {
 }
 
 fn check_file(
-    tree: &Tree,
+    resolver: &Resolver,
     module: &Module,
     file: &SourceFile,
     source: &str,
-    modules: &[Module],
 ) -> Vec<Problem> {
     let file_path = module_path(&file.path, &module.src_folder);
     let mut problems = Vec::new();
@@ -157,21 +160,14 @@ fn check_file(
         let Some(resolved) = resolve(&use_path, &current) else {
             continue;
         };
-        let Some(problem) = classify(
-            tree,
-            module,
-            file,
-            &resolved,
-            &use_path,
-            in_test_module,
-            modules,
-        ) else {
-            continue;
-        };
-        let key = (problem.rule.id(), problem.key.clone());
+        let found = classify(resolver, module, file, &resolved, &use_path, in_test_module);
 
-        if seen.insert(key) {
-            problems.push(problem);
+        for problem in found {
+            let key = (problem.rule.id(), problem.key.clone());
+
+            if seen.insert(key) {
+                problems.push(problem);
+            }
         }
     }
 
@@ -207,20 +203,21 @@ fn resolve(use_path: &UsePath, file_path: &[String]) -> Option<Vec<String>> {
 }
 
 fn classify(
-    tree: &Tree,
+    resolver: &Resolver,
     module: &Module,
     file: &SourceFile,
     resolved: &[String],
     use_path: &UsePath,
     in_test_module: bool,
-    modules: &[Module],
-) -> Option<Problem> {
-    let Some(found) = longest_prefix(modules, module, resolved) else {
-        return classify_unlisted(tree, module, file, resolved, use_path);
+) -> Vec<Problem> {
+    let Some(found) = longest_prefix(resolver.modules, module, resolved) else {
+        let unlisted = classify_unlisted(resolver.tree, module, file, resolved, use_path);
+
+        return unlisted.into_iter().collect();
     };
 
     if found.name == module.name {
-        return None;
+        return Vec::new();
     }
 
     if !module.imports.contains(&found.name) {
@@ -230,44 +227,39 @@ fn classify(
         );
         let key = format!("{}:{}", module.name, found.name);
 
-        return Some(problem(file, Rule::ModuleImports, message, key));
+        return vec![problem(file, Rule::ModuleImports, message, key)];
     }
 
-    if !in_test_module
-        && let Some(used_file) = deepest_file(tree, found, resolved)
-        && !found.public.contains(&used_file)
-    {
-        let message = format!(
-            "line {}: module `{}` uses `{}`, which `[modules.{}] public` does not list",
-            use_path.line, module.name, used_file, found.name
-        );
-        let key = format!("{}:{}", module.name, used_file);
-
-        return Some(problem(file, Rule::ModulePrivateFile, message, key));
+    if in_test_module {
+        return Vec::new();
     }
 
-    None
+    private_file_problems(resolver, module, found, file, resolved, use_path)
 }
 
-fn deepest_file(tree: &Tree, module: &Module, resolved: &[String]) -> Option<String> {
-    let mut folder = module.owner_folder.clone();
-    let mut reached = None;
-
-    for segment in resolved.iter().skip(module.path.len()) {
-        let candidate_folder = format!("{folder}/{segment}");
-        let candidate_file = format!("{candidate_folder}.rs");
-
-        if tree.files.iter().any(|file| file.path == candidate_file) {
-            reached = Some(candidate_file);
-            folder = candidate_folder;
-        } else if tree.folders.contains(&candidate_folder) {
-            folder = candidate_folder;
-        } else {
-            break;
-        }
-    }
+fn private_file_problems(
+    resolver: &Resolver,
+    module: &Module,
+    found: &Module,
+    file: &SourceFile,
+    resolved: &[String],
+    use_path: &UsePath,
+) -> Vec<Problem> {
+    let reached = resolver.reached_files(found, resolved);
 
     reached
+        .into_iter()
+        .filter(|used_file| !found.public.contains(used_file))
+        .map(|used_file| {
+            let message = format!(
+                "line {}: module `{}` uses `{}`, which `[modules.{}] public` does not list",
+                use_path.line, module.name, used_file, found.name
+            );
+            let key = format!("{}:{}", module.name, used_file);
+
+            problem(file, Rule::ModulePrivateFile, message, key)
+        })
+        .collect()
 }
 
 fn classify_unlisted(
