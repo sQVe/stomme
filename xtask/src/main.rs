@@ -2,6 +2,8 @@ mod check;
 mod mutation;
 mod release_gate;
 #[cfg(test)]
+mod renovate_preset;
+#[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod workflow;
