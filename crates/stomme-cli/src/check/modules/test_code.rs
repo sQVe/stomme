@@ -127,6 +127,7 @@ struct FileDeclaration {
     test: bool,
 }
 
+// A `#[path = "..."]` attribute is not followed: the declared file is named after the module.
 fn file_declarations(source: &str) -> Vec<FileDeclaration> {
     let tokens = code_tokens(source);
     let test_modules = test_modules(&tokens);

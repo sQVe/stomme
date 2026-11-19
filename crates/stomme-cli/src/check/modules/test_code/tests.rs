@@ -144,6 +144,7 @@ fn an_attribute_that_does_not_gate_on_test_alone_leaves_the_file_production_code
         "#[cfg(all(unix, feature = \"x\"))]\nmod helper;\n",
         "#[cfg(all(unix, not(test)))]\nmod helper;\n",
         "#[cfg(all(all(test)))]\nmod helper;\n",
+        "#[cfg_attr(test, allow(dead_code))]\nmod helper;\n",
         "#![cfg(test)]\nmod helper;\n",
         "#[cfg(test)]\n#![allow(dead_code)]\nmod helper;\n",
     ];
@@ -173,6 +174,7 @@ fn cfg_predicates_decide_whether_a_declared_file_is_test_code() {
         ("#[cfg(all(test = \"value\"))]", true),
         ("#[cfg(all(feature = \"fixtures\", test))]", false),
         ("#[other(test)]", true),
+        ("#[cfg(test)]\n// kept\n/* kept */", false),
     ];
 
     for (attribute, reported) in cases {
@@ -241,4 +243,32 @@ fn a_file_only_a_test_only_parent_declares_stays_test_code() {
     ]);
 
     assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_file_no_module_declares_below_a_test_file_is_test_code() {
+    let root = store_project(&[
+        ("src/store.rs", "#[cfg(test)]\nmod suite;\n"),
+        ("src/store/suite.rs", ""),
+        ("src/store/suite/orphan.rs", PRIVATE_USE),
+    ]);
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_path_attribute_is_not_followed() {
+    let entry = "#[cfg(test)]\n#[path = \"store_tests.rs\"]\nmod tests;\n";
+    let root = store_project(&[
+        ("src/store.rs", entry),
+        ("src/store/store_tests.rs", PRIVATE_USE),
+    ]);
+
+    assert_problem(
+        &problems(root.path()),
+        "src/store/store_tests.rs",
+        Rule::ModulePrivateFile,
+        PRIVATE_KEY,
+        "path attribute",
+    );
 }
