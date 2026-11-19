@@ -178,7 +178,7 @@ its version is missing on npm.
 
 The first publish is the one exception to "Do not publish from your local checkout". npm trusted
 publishing cannot create a new package. Someone with npm access publishes the first version by hand
-from a commit on `main` where the package is public. Do not use the 0.2.0 release commit, because
+from a commit on `main` where the package is public. Do not use the 0.2.1 release commit, because
 the package is still private there. Then they add the `sQVe/stomme` trusted publisher for workflow
 `package-release.yml` on npmjs.com. Until that first publish, the Package release run on `main`
 fails at the publish step, because it cannot create the package.
