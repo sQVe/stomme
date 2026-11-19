@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::layer::{Catalog, SelectionError};
 
 fn foundation_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../foundation")
@@ -65,7 +66,7 @@ fn embedded_sources_match_the_source_tree() {
 fn validate_links_accepts_a_link_inside_the_set() {
     let files = [
         file("docs/stomme/shared/one.md", "[two](./two.md#part)\n"),
-        file("docs/stomme/shared/two.md", "# Two\n"),
+        file("docs/stomme/shared/two.md", "# Two\n\n## Part\n"),
     ];
 
     assert_eq!(validate_links(&files), Ok(()));
@@ -145,6 +146,350 @@ fn validate_links_ignores_a_link_inside_a_mismatched_code_span() {
     );
 }
 
+struct AnchorCase {
+    name: &'static str,
+    headings: &'static str,
+    links: &'static str,
+    first_missing: Option<&'static str>,
+}
+
+#[test]
+fn validate_links_decides_each_heading_anchor() {
+    let cases = [
+        AnchorCase {
+            name: "a slug of the heading text",
+            headings: "## Test placement\n",
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "an anchor no heading has",
+            headings: "## Test placement\n",
+            links: "[two](./two.md#missing)\n",
+            first_missing: Some("missing"),
+        },
+        AnchorCase {
+            name: "a heading with an underscore",
+            headings: "## foo_bar\n",
+            links: "[two](./two.md#foo_bar)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with combining marks",
+            headings: "## नमस्ते\n",
+            links: "[two](./two.md#नमस्ते)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with connector punctuation",
+            headings: "## a‿b\n",
+            links: "[two](./two.md#a‿b)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with a spacing mark that is not alphabetic",
+            headings: "## a\u{1D165}b\n",
+            links: "[two](./two.md#a\u{1D165}b)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with an enclosing mark",
+            headings: "## a\u{20DD}b\n",
+            links: "[two](./two.md#a\u{20DD}b)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with a superscript digit",
+            headings: "## m²\n",
+            links: "[two](./two.md#m)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading whose last letter is a final sigma",
+            headings: "## \u{39F}\u{3A3}\n",
+            links: "[two](./two.md#\u{3BF}\u{3C2})\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a lone capital sigma",
+            headings: "## \u{3A3}\n",
+            links: "[two](./two.md#\u{3C3})\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a non-ASCII heading linked as written",
+            headings: "## Café\n",
+            links: "[two](./two.md#café)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a non-ASCII heading linked percent-encoded",
+            headings: "## Café\n",
+            links: "[two](./two.md#caf%C3%A9)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a percent-encoding cut off inside a character",
+            headings: "## Café\n",
+            links: "[two](./two.md#cafe%C3)\n",
+            first_missing: Some("cafe%C3"),
+        },
+        AnchorCase {
+            name: "a percent-encoding with non-hex digits",
+            headings: "## Café\n",
+            links: "[two](./two.md#%zz)\n",
+            first_missing: Some("%zz"),
+        },
+        AnchorCase {
+            name: "a percent-encoding missing its second digit",
+            headings: "## a0\n",
+            links: "[two](./two.md#a%3)\n",
+            first_missing: Some("a%3"),
+        },
+        AnchorCase {
+            name: "a percent-encoding with an invalid second digit",
+            headings: "## a0\n",
+            links: "[two](./two.md#a%3z)\n",
+            first_missing: Some("a%3z"),
+        },
+        AnchorCase {
+            name: "a percent sign at the end of the fragment",
+            headings: "## Café\n",
+            links: "[two](./two.md#cafe%)\n",
+            first_missing: Some("cafe%"),
+        },
+        AnchorCase {
+            name: "a percent-encoded byte that is not UTF-8",
+            headings: "## Café\n",
+            links: "[two](./two.md#%FF)\n",
+            first_missing: Some("%FF"),
+        },
+        AnchorCase {
+            name: "an empty fragment",
+            headings: "# Two\n",
+            links: "[two](./two.md#)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "the first duplicate heading",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "the second duplicate heading",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            links: "[two](./two.md#test-placement-1)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "the third duplicate heading",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            links: "[two](./two.md#test-placement-2)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a number past the duplicate headings",
+            headings: "# Test placement\n## Test placement\n",
+            links: "[two](./two.md#test-placement-2)\n",
+            first_missing: Some("test-placement-2"),
+        },
+        AnchorCase {
+            name: "a suffix a later heading already uses",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            links: "[two](./two.md#setup-2)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "the plain slug before a used suffix",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            links: "[two](./two.md#setup)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "the written suffix before a used suffix",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            links: "[two](./two.md#setup-1)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading inside a fence",
+            headings: "```\n## Hidden\n```\n",
+            links: "[two](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
+        },
+        AnchorCase {
+            name: "a heading inside a mismatched fence",
+            headings: "~~~\n## Hidden\n```\n## Also hidden\n~~~\n",
+            links: "[two](./two.md#also-hidden)\n",
+            first_missing: Some("also-hidden"),
+        },
+        AnchorCase {
+            name: "a heading after a short closing fence",
+            headings: "````\n## Hidden\n```\n## Also hidden\n````\n",
+            links: "[two](./two.md#also-hidden)\n",
+            first_missing: Some("also-hidden"),
+        },
+        AnchorCase {
+            name: "a heading after a fence line with trailing text",
+            headings: "```\n```not a closer\n## Hidden\n```\n",
+            links: "[two](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
+        },
+        AnchorCase {
+            name: "a heading after a closed fence",
+            headings: "```\n## Inside\n```\n## After\n",
+            links: "[two](./two.md#after)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading indented by three spaces",
+            headings: "   ## Test placement\n",
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading hash without a space",
+            headings: "##Test placement\n",
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: Some("test-placement"),
+        },
+        AnchorCase {
+            name: "a heading with a closing hash sequence",
+            headings: "## Test placement ##\n",
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading with punctuation",
+            headings: "## Test placement, done!\n",
+            links: "[two](./two.md#test-placement-done)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading underlined with equals signs",
+            headings: "Test placement\n==============\n",
+            links: "[two](./two.md#test-placement)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a heading that spans two lines",
+            headings: "Two line\nheading\n===\n",
+            links: "[two](./two.md#two-lineheading)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a two-line heading linked with a hyphen at the break",
+            headings: "Two line\nheading\n===\n",
+            links: "[two](./two.md#two-line-heading)\n",
+            first_missing: Some("two-line-heading"),
+        },
+        AnchorCase {
+            name: "a heading underlined with dashes",
+            headings: "Second part\n-----------\n",
+            links: "[two](./two.md#second-part)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "three duplicate headings linked together",
+            headings: "# Test placement\n## Test placement\n### Test placement\n",
+            links: "[a](./two.md#test-placement) [b](./two.md#test-placement-1) [c](./two.md#test-placement-2)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a number past the duplicates after valid links",
+            headings: "# Test placement\n## Test placement\n",
+            links: "[a](./two.md#test-placement) [b](./two.md#test-placement-1) [c](./two.md#test-placement-2)\n",
+            first_missing: Some("test-placement-2"),
+        },
+        AnchorCase {
+            name: "the setup suffixes linked together",
+            headings: "# Setup\n# Setup-1\n# Setup\n",
+            links: "[a](./two.md#setup) [b](./two.md#setup-1) [c](./two.md#setup-2)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "both setext heading kinds in one file",
+            headings: "Test placement\n==============\n\nSecond part\n-----------\n",
+            links: "[a](./two.md#test-placement) [b](./two.md#second-part)\n",
+            first_missing: None,
+        },
+        AnchorCase {
+            name: "a visible heading after a hidden one",
+            headings: "```\n## Hidden\n```\n## Shown\n",
+            links: "[a](./two.md#shown) [b](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
+        },
+        AnchorCase {
+            name: "a heading inside an HTML comment",
+            headings: "<!--\n## Hidden\n-->\n\n## Shown\n",
+            links: "[two](./two.md#hidden)\n",
+            first_missing: Some("hidden"),
+        },
+    ];
+
+    for case in cases {
+        let files = [
+            file("docs/stomme/shared/one.md", case.links),
+            file("docs/stomme/shared/two.md", case.headings),
+        ];
+        let expected = match case.first_missing {
+            None => Ok(()),
+            Some(anchor) => Err(LinkError::MissingAnchor {
+                path: "docs/stomme/shared/one.md".to_string(),
+                target: format!("./two.md#{anchor}"),
+                anchor: anchor.to_string(),
+                resolved: "docs/stomme/shared/two.md".to_string(),
+            }),
+        };
+
+        assert_eq!(validate_links(&files), expected, "{}", case.name);
+    }
+}
+
+#[test]
+fn validate_links_checks_a_reference_style_link_with_a_definition() {
+    let cases = [
+        (
+            "a defined link to a file in the set",
+            "[two][ref]\n\n[ref]: ./two.md\n",
+            Ok(()),
+        ),
+        (
+            "a defined link to a heading in the set",
+            "[two][ref]\n\n[ref]: ./two.md#part\n",
+            Ok(()),
+        ),
+        (
+            "a defined link to a missing file",
+            "[two][ref]\n\n[ref]: ./missing.md\n",
+            Err(LinkError::Broken {
+                path: "docs/stomme/shared/one.md".to_string(),
+                target: "./missing.md".to_string(),
+            }),
+        ),
+        (
+            "a defined link to a missing anchor",
+            "[two][ref]\n\n[ref]: ./two.md#missing\n",
+            Err(LinkError::MissingAnchor {
+                path: "docs/stomme/shared/one.md".to_string(),
+                target: "./two.md#missing".to_string(),
+                anchor: "missing".to_string(),
+                resolved: "docs/stomme/shared/two.md".to_string(),
+            }),
+        ),
+    ];
+
+    for (name, content, expected) in cases {
+        let files = [
+            file("docs/stomme/shared/one.md", content),
+            file("docs/stomme/shared/two.md", "# Two\n\n## Part\n"),
+        ];
+
+        assert_eq!(validate_links(&files), expected, "{name}");
+    }
+}
+
 #[test]
 fn validate_links_ignores_external_and_anchor_links() {
     let files = [file(
@@ -210,6 +555,37 @@ fn a_closing_fence_needs_at_least_the_opening_length() {
 }
 
 #[test]
+fn a_fence_line_with_trailing_text_does_not_close_a_fence_for_links() {
+    let text = "```\n```not a closer\n[inside](./inside.md)\n```\n";
+
+    assert_eq!(link_targets(text), Vec::<String>::new());
+}
+
+#[test]
+fn a_balanced_paren_destination_resolves_in_full() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two_(draft).md)\n"),
+        file("docs/stomme/shared/two_(draft).md", "# Two\n"),
+    ];
+
+    assert_eq!(
+        link_targets("[two](./two_(draft).md)\n"),
+        vec!["./two_(draft).md"]
+    );
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_drops_a_link_title() {
+    let files = [
+        file("docs/stomme/shared/one.md", "[two](./two.md \"Two\")\n"),
+        file("docs/stomme/shared/two.md", "# Two\n"),
+    ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
 fn owned_set_reads_the_given_catalog() {
     let catalog = crate::layer::test_catalog(&[("one", "language = \"rust\"\n")]);
     let selection = Selection {
@@ -231,6 +607,43 @@ fn owned_set_reads_the_given_catalog() {
     );
 }
 
+fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkError> {
+    let selection = smallest_selection(catalog, name)
+        .expect("the smallest selection passes the real selection rules");
+
+    validate_links(&owned_set(&selection, catalog))
+}
+
+#[test]
+fn every_layer_passes_links_in_its_smallest_selection() {
+    let catalog = crate::layer::catalog();
+
+    for (name, _) in catalog.guides() {
+        assert_eq!(
+            smallest_selection_links(catalog, name),
+            Ok(()),
+            "layer `{name}` fails links in its smallest selection"
+        );
+    }
+}
+
+#[test]
+fn a_layer_guide_linking_outside_its_smallest_selection_fails() {
+    let catalog = crate::layer::test_guide_catalog(&[
+        ("one", "language = \"rust\"\n", "[other](../two/guide.md)\n"),
+        ("two", "language = \"rust\"\n", "# Two\n"),
+    ]);
+
+    assert_eq!(
+        smallest_selection_links(&catalog, "one"),
+        Err(LinkError::Broken {
+            path: "docs/stomme/layers/one/guide.md".to_string(),
+            target: "../two/guide.md".to_string(),
+        })
+    );
+    assert_eq!(smallest_selection_links(&catalog, "two"), Ok(()));
+}
+
 #[test]
 fn bundle_set_holds_every_language_and_layer() {
     let catalog = crate::layer::catalog();
@@ -242,4 +655,45 @@ fn bundle_set_holds_every_language_and_layer() {
     assert!(paths.contains("docs/stomme/languages/typescript/guide.md"));
     assert!(paths.contains("docs/stomme/layers/herdr/guide.md"));
     assert_eq!(paths.len(), embedded_paths().len());
+}
+
+#[test]
+fn a_smallest_selection_the_selection_rules_reject_is_an_error() {
+    let catalog = crate::layer::test_guide_catalog(&[
+        (
+            "one",
+            "language = \"rust\"\nrequires = [\"two\"]\n",
+            "# One\n",
+        ),
+        (
+            "two",
+            "language = \"rust\"\nconflicts = [\"one\"]\n",
+            "# Two\n",
+        ),
+    ]);
+
+    assert_eq!(
+        smallest_selection(&catalog, "one").map(|_| ()),
+        Err(SelectionError::Conflict {
+            layer: "two".to_string(),
+            conflict: "one".to_string(),
+        })
+    );
+}
+
+fn smallest_selection(catalog: &Catalog, name: &str) -> Result<Selection, SelectionError> {
+    let (language, layers) = catalog
+        .smallest_selection(name)
+        .expect("a registered layer has a language and requirements");
+    let layers = crate::layer::select(catalog, language, layers.into_iter().collect())?;
+
+    Ok(Selection {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        language,
+        layers,
+        roles: BTreeMap::new(),
+        violations: Vec::new(),
+        extra_docs: Vec::new(),
+        modules: BTreeMap::new(),
+    })
 }

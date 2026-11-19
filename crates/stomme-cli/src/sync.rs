@@ -367,10 +367,10 @@ fn validate_block_links(root: &Path, block: &str, owned: &[OwnedFile]) -> Result
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
 
     for target in owned::link_targets(block) {
-        let Some(relative) = owned::relative_target(&target) else {
+        let Some(link) = owned::relative_link(&target) else {
             continue;
         };
-        let Some(resolved) = owned::resolve("", relative) else {
+        let Some(resolved) = owned::resolve("", link.path) else {
             return Err(SyncError::BlockLink { target });
         };
 

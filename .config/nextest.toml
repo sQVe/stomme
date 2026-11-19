@@ -1,0 +1,8 @@
+[test-groups]
+# The init tests each run `pnpm install` against the machine's single pnpm store, and two at once
+# can fail to import a file the other is writing.
+init-shared-pnpm-store = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary_id(stomme::init)'
+test-group = 'init-shared-pnpm-store'

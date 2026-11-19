@@ -316,3 +316,21 @@ fn catalog_reports_invalid_layer_bans() {
         Err(CatalogError::InvalidLayerBans { layer: "one", .. })
     ));
 }
+
+#[test]
+fn smallest_selection_follows_requirements_through_a_second_hop() {
+    let catalog = test_catalog(&[
+        ("one", "language = \"rust\"\nrequires = [\"two\"]\n"),
+        ("two", "language = \"rust\"\nrequires = [\"three\"]\n"),
+        ("three", "language = \"rust\"\n"),
+        ("other", "language = \"rust\"\n"),
+    ]);
+
+    assert_eq!(
+        catalog.smallest_selection("one"),
+        Some((
+            Language::Rust,
+            BTreeSet::from(["one".to_string(), "two".to_string(), "three".to_string()])
+        ))
+    );
+}

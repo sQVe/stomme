@@ -450,14 +450,43 @@ fn rule_owners() -> Vec<(Owner, &'static str)> {
 }
 
 #[cfg(test)]
+impl Catalog {
+    pub(crate) fn smallest_selection(&self, name: &str) -> Option<(Language, BTreeSet<String>)> {
+        let language = self.layers.get(name)?.manifest.language;
+        let mut layers = BTreeSet::from([name.to_string()]);
+        let mut pending = vec![name.to_string()];
+
+        while let Some(current) = pending.pop() {
+            for required in &self.layers[current.as_str()].manifest.requires {
+                if layers.insert(required.clone()) {
+                    pending.push(required.clone());
+                }
+            }
+        }
+
+        Some((language, layers))
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn test_catalog(manifests: &[(&'static str, &'static str)]) -> Catalog {
-    let sources: Vec<Source> = manifests
+    let guided: Vec<(&'static str, &'static str, &'static str)> = manifests
         .iter()
-        .map(|&(name, manifest)| Source {
+        .map(|&(name, manifest)| (name, manifest, ""))
+        .collect();
+
+    test_guide_catalog(&guided)
+}
+
+#[cfg(test)]
+pub(crate) fn test_guide_catalog(layers: &[(&'static str, &'static str, &'static str)]) -> Catalog {
+    let sources: Vec<Source> = layers
+        .iter()
+        .map(|&(name, manifest, guide)| Source {
             name,
             manifest,
             bans: None,
-            guide: "",
+            guide,
             refinements: &[],
             detection: Detection::PackageField(name),
             starter: None,
