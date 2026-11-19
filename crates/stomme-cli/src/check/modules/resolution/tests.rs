@@ -795,6 +795,94 @@ fn an_alias_to_another_row_is_not_walked_from_the_entry() {
     );
 }
 
+const CRATE_ROOT_ALIAS: &str = "pub(crate) use crate as renamed;\nmod attention;\n";
+const CRATE_ROOT_ALIAS_HELPER: &str = "use crate::fact::renamed::fact::attention::helper;\n";
+
+#[test]
+fn crate_root_alias_use_reports_the_private_file_it_reaches() {
+    let root = alias_project(CRATE_ROOT_ALIAS, &[], "", CRATE_ROOT_ALIAS_HELPER);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[ATTENTION], "crate root alias");
+}
+
+#[test]
+fn crate_root_and_parent_alias_cases_decide_the_reached_private_file() {
+    assert_cases([
+        case(
+            "super alias",
+            "pub use super as up;\nmod attention;\n",
+            "use crate::fact::up::fact::attention::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "super::super from an inline module",
+            "mod attention;\npub mod inner { pub use super::super as up; }\n",
+            "use crate::fact::inner::up::fact::attention::helper;\n",
+            &["fact:crate", ATTENTION],
+        ),
+        case(
+            "twice around",
+            CRATE_ROOT_ALIAS,
+            "use crate::fact::renamed::fact::renamed::fact::attention::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "bare target through the alias",
+            "pub(crate) use crate as root;\nmod attention;\npub use root::fact::attention as renamed;\n",
+            "use crate::fact::renamed::helper;\n",
+            &[ATTENTION],
+        ),
+        case(
+            "leaves the row",
+            CRATE_ROOT_ALIAS,
+            "use crate::fact::renamed::other::helper;\n",
+            &[],
+        ),
+        case(
+            "terminal alias",
+            CRATE_ROOT_ALIAS,
+            "use crate::fact::renamed;\n",
+            &[],
+        ),
+        Case {
+            extra_rows: "\n[modules.attention]\nentry = \"src/fact/attention.rs\"\n",
+            ..case(
+                "into a deeper row",
+                CRATE_ROOT_ALIAS,
+                CRATE_ROOT_ALIAS_HELPER,
+                &[],
+            )
+        },
+    ]);
+}
+
+#[test]
+fn an_alias_to_a_shorter_path_outside_a_nested_row_is_not_an_ancestor() {
+    let files = [
+        ("src/fact/attention.rs", "pub mod inner;\n"),
+        (
+            "src/fact/attention/inner.rs",
+            "mod secret;\npub use crate::other as secret;\n",
+        ),
+        ("src/fact/attention/inner/secret.rs", "pub fn helper() {}\n"),
+        (
+            "src/ticket.rs",
+            "use crate::fact::attention::inner::secret;\n",
+        ),
+    ];
+    let table = "[modules.attention]\nentry = \"src/fact/attention.rs\"\npublic = [\"src/fact/attention/inner.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"attention\"]\n";
+    let root = project(&files, table);
+
+    let private_files: Vec<_> = problems(root.path())
+        .into_iter()
+        .filter(|problem| problem.rule == Rule::ModulePrivateFile)
+        .collect();
+
+    assert_keys(&private_files, &[], "alias to a path outside the row");
+}
+
 #[test]
 fn fan_in_alias_chains_resolve_without_exponential_work() {
     let mut fan_in =
@@ -826,17 +914,8 @@ fn fan_in_alias_chains_resolve_without_exponential_work() {
     ];
 
     for (name, fact_entry, keys) in cases {
-        let (sender, receiver) = std::sync::mpsc::channel();
-
-        std::thread::spawn(move || {
-            let root = alias_project(&fact_entry, &[], "", "use crate::fact::b64::helper;\n");
-
-            sender.send(problems(root.path())).ok();
-        });
-
-        let problems = receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .unwrap_or_else(|_| panic!("{name}: the check did not finish in 10 seconds"));
+        let ticket = "use crate::fact::b64::helper;\n";
+        let problems = problems_within_timeout(name, fact_entry, &[], ticket);
 
         assert_keys(&problems, &keys, name);
     }
@@ -884,6 +963,317 @@ fn a_use_after_an_exhausted_use_resolves_as_if_it_ran_alone() {
 
         assert_keys(&problems, &keys, name);
     }
+}
+
+const INNER: &str = "ticket:src/fact/attention/inner.rs";
+const INNER_FILES: &[(&str, &str)] = &[
+    ("src/fact/attention.rs", "pub mod inner;\n"),
+    ("src/fact/attention/inner.rs", "pub fn helper() {}\n"),
+];
+const GLOB_ENTRY: &str = "mod attention;\npub use attention::*;\n";
+const INNER_HELPER: &str = "use crate::fact::inner::helper;\n";
+
+#[test]
+fn glob_reexport_use_reports_the_private_file_it_reaches() {
+    let root = alias_project(GLOB_ENTRY, INNER_FILES, "", INNER_HELPER);
+
+    let problems = problems(root.path());
+
+    assert_keys(&problems, &[INNER], "glob reexport");
+}
+
+#[test]
+fn glob_reexport_cases_decide_the_reached_private_file() {
+    assert_cases([
+        Case {
+            extra_files: &[("src/fact/attention.rs", "pub fn attention() {}\n")],
+            ..case(
+                "E1 name bound only by an export of the glob target",
+                "mod attention;\nmod hub { pub use super::attention as inner; }\npub use hub::*;\n",
+                INNER_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G2 terminal glob name",
+                GLOB_ENTRY,
+                "use crate::fact::inner;\n",
+                &[INNER],
+            )
+        },
+        Case {
+            extra_files: &[
+                ("src/fact/attention.rs", "mod inner;\n"),
+                ("src/fact/attention/inner.rs", "pub fn helper() {}\n"),
+            ],
+            ..case("G3 private mod", GLOB_ENTRY, INNER_HELPER, &[])
+        },
+        Case {
+            extra_files: &[
+                ("src/fact/attention.rs", "pub(crate) mod inner;\n"),
+                ("src/fact/attention/inner.rs", "pub fn helper() {}\n"),
+            ],
+            ..case("G4 pub(crate) mod", GLOB_ENTRY, INNER_HELPER, &[INNER])
+        },
+        Case {
+            extra_files: &[(
+                "src/fact/attention.rs",
+                "pub mod inner { pub fn helper() {} }\n",
+            )],
+            ..case(
+                "G5 public inline module",
+                GLOB_ENTRY,
+                INNER_HELPER,
+                &[ATTENTION],
+            )
+        },
+        Case {
+            extra_files: &[(
+                "src/fact/attention.rs",
+                "mod inner { pub fn helper() {} }\n",
+            )],
+            ..case("G6 private inline module", GLOB_ENTRY, INNER_HELPER, &[])
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G7 explicit export shadows the glob",
+                "mod attention;\npub mod score;\npub use attention::*;\npub use self::score as inner;\n",
+                INNER_HELPER,
+                &["ticket:src/fact/score.rs"],
+            )
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G8 explicit export declared first",
+                "mod attention;\npub mod score;\npub use self::score as inner;\npub use attention::*;\n",
+                INNER_HELPER,
+                &["ticket:src/fact/score.rs"],
+            )
+        },
+        Case {
+            extra_files: &[
+                ("src/fact/attention.rs", "pub mod inner;\n"),
+                ("src/fact/attention/inner.rs", "pub fn helper() {}\n"),
+                ("src/fact/inner.rs", "pub fn helper() {}\n"),
+            ],
+            ..case(
+                "G9 child file shadows the glob",
+                "mod attention;\npub mod inner;\npub use attention::*;\n",
+                INNER_HELPER,
+                &["ticket:src/fact/inner.rs"],
+            )
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G10 entry inline module shadows the glob",
+                "mod attention;\npub use attention::*;\npub mod inner { pub fn helper() {} }\n",
+                INNER_HELPER,
+                &[],
+            )
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G11 glob of a glob",
+                "mod attention;\npub mod outer { pub use super::attention::*; }\npub use outer::*;\n",
+                INNER_HELPER,
+                &[INNER],
+            )
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G12 glob inside a group",
+                "mod attention;\npub mod score;\npub use self::{score, attention::*};\n",
+                INNER_HELPER,
+                &[INNER],
+            )
+        },
+        case(
+            "G13 external glob",
+            "pub use ::std::*;\n",
+            INNER_HELPER,
+            &[],
+        ),
+        case(
+            "G14 unknown bare glob",
+            "pub use serde::*;\n",
+            INNER_HELPER,
+            &[],
+        ),
+        case(
+            "G15 glob over the crate root",
+            "mod attention;\npub use crate::*;\n",
+            "use crate::fact::fact::attention::helper;\n",
+            &["fact:*"],
+        ),
+        Case {
+            extra_files: &[
+                ("src/fact/attention.rs", "mod hidden;\npub use hidden::*;\n"),
+                ("src/fact/attention/hidden.rs", "pub mod inner;\n"),
+                ("src/fact/attention/hidden/inner.rs", "pub fn helper() {}\n"),
+            ],
+            ..case("G16 glob in a private file", GLOB_ENTRY, INNER_HELPER, &[])
+        },
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "G17 glob over an inline module's parent",
+                "mod attention;\npub use attention::*;\npub mod first { pub use super::*; }\n",
+                "use crate::fact::first::inner::helper;\n",
+                &[INNER],
+            )
+        },
+    ]);
+}
+
+#[test]
+fn same_name_inline_modules_merge_their_globs_and_public_modules() {
+    assert_cases([
+        Case {
+            extra_files: INNER_FILES,
+            ..case(
+                "M1 glob in the last of two inline modules",
+                "mod attention;\n#[cfg(not(a))]\npub mod first {}\n#[cfg(a)]\npub mod first { pub use super::attention::*; }\n",
+                "use crate::fact::first::inner::helper;\n",
+                &[INNER],
+            )
+        },
+        Case {
+            extra_files: &[(
+                "src/fact/attention.rs",
+                "#[cfg(not(a))]\npub mod outer {}\n#[cfg(a)]\npub mod outer { pub mod inner { pub fn helper() {} } }\n",
+            )],
+            ..case(
+                "M2 pub mod in the last of two inline modules",
+                "mod attention;\npub use attention::outer::*;\n",
+                INNER_HELPER,
+                &[ATTENTION],
+            )
+        },
+    ]);
+}
+
+#[test]
+fn glob_reexport_cycles_terminate() {
+    let first_second = "pub mod first { pub use super::second::*; }\npub mod second { pub use super::first::*; }\n";
+    let cases = [
+        (
+            "Y1 two modules glob each other",
+            first_second,
+            &[][..],
+            "use crate::fact::first::helper;\n",
+            Vec::new(),
+        ),
+        (
+            "Y2 other direction",
+            first_second,
+            &[][..],
+            "use crate::fact::second::helper;\n",
+            Vec::new(),
+        ),
+        (
+            "Y3 cycle that also binds",
+            "mod attention;\npub mod first { pub use super::second::*; pub use super::attention::*; }\npub mod second { pub use super::first::*; }\n",
+            INNER_FILES,
+            "use crate::fact::second::inner::helper;\n",
+            vec![INNER],
+        ),
+        (
+            "Y5 cycle that binds, repeated uses",
+            "mod attention;\npub mod first { pub use super::second::*; pub use super::attention::*; }\npub mod second { pub use super::first::*; }\n",
+            INNER_FILES,
+            "use crate::fact::second::inner::helper;\nuse crate::fact::first::inner::helper as again;\nuse crate::fact::second::inner;\n",
+            vec![INNER],
+        ),
+        (
+            "Y4 self glob",
+            "pub use self::*;\n",
+            &[][..],
+            INNER_HELPER,
+            Vec::new(),
+        ),
+    ];
+
+    for (name, fact_entry, extra_files, ticket, keys) in cases {
+        let problems = problems_within_timeout(name, fact_entry.to_string(), extra_files, ticket);
+
+        assert_keys(&problems, &keys, name);
+    }
+}
+
+#[test]
+fn fan_in_glob_chains_resolve_without_exponential_work() {
+    let mut fan_in = "mod attention;\npub mod m0 { pub use super::attention::*; }\npub mod n0 { pub use super::attention::*; }\n".to_string();
+
+    for level in 1..=64 {
+        let previous = level - 1;
+
+        for prefix in ["m", "n"] {
+            fan_in.push_str(&format!(
+                "pub mod {prefix}{level} {{ pub use super::m{previous}::*; pub use super::n{previous}::*; }}\n"
+            ));
+        }
+    }
+
+    let closed = fan_in.replace(
+        "pub mod m0 { pub use super::attention::*; }",
+        "pub mod m0 { pub use super::attention::*; pub use super::m64::*; }",
+    );
+    let cases = [
+        ("P3 fan-in", fan_in, vec![INNER]),
+        ("P4 closed into a cycle", closed, Vec::new()),
+    ];
+
+    for (name, fact_entry, keys) in cases {
+        let ticket = "use crate::fact::m64::inner::helper;\n";
+        let problems = problems_within_timeout(name, fact_entry, INNER_FILES, ticket);
+
+        assert_keys(&problems, &keys, name);
+    }
+}
+
+#[test]
+fn globs_of_modules_that_bind_nothing_do_not_spend_the_lookup_budget() {
+    let mut fact_entry = "mod attention;\nmod empty;\npub use attention::*;\n".to_string();
+
+    for _ in 0..6_000 {
+        fact_entry.push_str("pub use empty::*;\n");
+    }
+
+    let files: &'static [(&'static str, &'static str)] = &[
+        ("src/fact/attention.rs", "pub mod inner;\n"),
+        ("src/fact/attention/inner.rs", "pub fn helper() {}\n"),
+        ("src/fact/empty.rs", "fn private() {}\n"),
+    ];
+    let name = "bound-nothing globs";
+    let problems = problems_within_timeout(name, fact_entry, files, INNER_HELPER);
+
+    assert_keys(&problems, &[INNER], name);
+}
+
+fn problems_within_timeout(
+    name: &str,
+    fact_entry: String,
+    extra_files: &'static [(&'static str, &'static str)],
+    ticket: &'static str,
+) -> Vec<Problem> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let root = alias_project(&fact_entry, extra_files, "", ticket);
+
+        sender.send(problems(root.path())).ok();
+    });
+
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap_or_else(|_| panic!("{name}: the check did not finish in 10 seconds"))
 }
 
 fn assert_cases<const COUNT: usize>(cases: [Case; COUNT]) {

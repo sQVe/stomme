@@ -220,3 +220,80 @@ fn an_identifier_other_than_pub_before_use_exports_nothing() {
         Vec::new()
     );
 }
+
+fn file_scope(source: &str) -> Scope {
+    scopes(source)
+        .into_iter()
+        .next()
+        .expect("the file scope comes first")
+}
+
+fn names(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+fn scope_at(scopes: &[Scope], inline_path: &[&str]) -> usize {
+    scopes
+        .iter()
+        .position(|scope| scope.inline_path == strings(inline_path))
+        .expect("the scope exists")
+}
+
+#[test]
+fn public_module_declarations_are_listed_per_scope() {
+    let source = "pub mod a;\nmod b;\npub(crate) mod c;\npub mod d {\n    pub mod e;\n    mod f;\n}\nmod g {}\npub(crate) mod h {\n    pub mod i;\n}\n";
+    let scopes = scopes(source);
+
+    assert_eq!(scopes[0].public_modules, names(&["a", "c", "d", "h"]));
+    assert_eq!(scopes[0].inline_modules, names(&["d", "g", "h"]));
+
+    let d = &scopes[scope_at(&scopes, &["d"])];
+    assert_eq!(d.public_modules, names(&["e"]));
+    assert_eq!(d.inline_modules, names(&[]));
+
+    let h = &scopes[scope_at(&scopes, &["h"])];
+    assert_eq!(h.public_modules, names(&["i"]));
+}
+
+#[test]
+fn glob_exports_are_listed_as_targets() {
+    let source = "pub use attention::*;\npub use self::*;\npub use super::*;\npub use crate::fact::*;\npub use ::std::*;\npub use self::{score, attention::*};\nuse private::*;\n";
+    let scope = file_scope(source);
+
+    assert_eq!(
+        scope.globs,
+        [
+            Target::Bare(strings(&["attention"])),
+            relative(0, &[]),
+            relative(1, &[]),
+            Target::Crate(strings(&["fact"])),
+            Target::External,
+            relative(0, &["attention"]),
+        ]
+    );
+    assert_eq!(
+        file_exports(source),
+        [named("score", relative(0, &["score"]))]
+    );
+}
+
+#[test]
+fn crate_and_super_aliases_export_their_ancestor_targets() {
+    assert_eq!(
+        file_exports("pub(crate) use crate as renamed;\npub use super as up;\n"),
+        [
+            named("renamed", Target::Crate(Vec::new())),
+            named("up", relative(1, &[])),
+        ]
+    );
+}
+
+#[test]
+fn globs_and_public_modules_inside_functions_are_skipped() {
+    let scopes = scopes("fn f() { pub use a::*; pub mod x; }\n");
+
+    for scope in &scopes {
+        assert_eq!(scope.globs, []);
+        assert_eq!(scope.public_modules, names(&[]));
+    }
+}
