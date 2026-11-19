@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::scopes::{self, Scope, Target};
 use super::{Module, is_crate_root, is_under_bin, module_path, owner_module};
-use crate::check::source_files::Tree;
+use crate::check::source_files::{SourceFile, Tree};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Place {
@@ -83,7 +83,7 @@ impl<'a> Resolver<'a> {
                 continue;
             }
 
-            read_scopes(tree, module, &file.path, keep_exports, &mut scopes)?;
+            read_scopes(tree, module, file, keep_exports, &mut scopes)?;
         }
 
         Ok(Self {
@@ -335,15 +335,12 @@ impl<'a> Resolver<'a> {
 fn read_scopes(
     tree: &Tree,
     module: &Module,
-    path: &str,
+    file: &SourceFile,
     keep_exports: bool,
     table: &mut BTreeMap<ScopeKey, Scope>,
 ) -> anyhow::Result<()> {
-    let Some(file) = tree.files.iter().find(|file| file.path == path) else {
-        return Ok(());
-    };
     let source = tree.read(file)?;
-    let file_path = module_path(path, &module.src_folder);
+    let file_path = module_path(&file.path, &module.src_folder);
 
     for mut scope in scopes::scopes(&source) {
         if !keep_exports {

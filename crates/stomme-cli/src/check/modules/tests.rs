@@ -228,6 +228,31 @@ fn a_bin_file_owned_by_a_module_is_not_checked() {
 }
 
 #[test]
+fn an_unreadable_bin_file_owned_by_a_module_does_not_stop_the_check() {
+    let root = project(
+        &[
+            ("src/bin.rs", ""),
+            ("src/store.rs", ""),
+            ("src/ticket.rs", "use crate::store::read;\n"),
+        ],
+        "[modules.bin]\nentry = \"src/bin.rs\"\n\n[modules.store]\nentry = \"src/store.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n",
+    );
+    std::fs::create_dir_all(root.path().join("src/bin")).expect("create the bin folder");
+    std::fs::write(root.path().join("src/bin/tool.rs"), [0xff, 0xfe, 0xfd])
+        .expect("write a non-UTF-8 file");
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModuleImports,
+        "ticket:store",
+        "problem from another row",
+    );
+}
+
+#[test]
 fn a_crate_root_file_owned_by_a_module_is_not_checked() {
     let root = project(
         &[
