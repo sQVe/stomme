@@ -138,6 +138,16 @@ fn sync_update_checks_the_guides_directory_before_writing() {
     assert!(step.contains("\n            \"$root\"/*) ;;\n"));
     assert!(step.contains("\n            \"$root/.git\" | \"$root/.git\"/*)\n"));
     assert!(step.contains("\n            \"$root/docs/stomme\" | \"$root/docs/stomme\"/*)\n"));
+    assert!(step.contains("\n          probe=$destination\n"));
+    assert!(step.contains("\n          while [ \"$probe\" != \"$root\" ]; do\n"));
+    assert!(step.contains(
+        "\n            if [ -e \"$probe/.git\" ] || git ls-files --stage -- \"$probe\" | grep -q '^160000'; then\n"
+    ));
+    assert!(
+        step.contains("::error::The guides directory must not be inside another Git repository:")
+    );
+    assert!(step.contains("\n            probe=$(dirname \"$probe\")\n"));
+    assert!(step.contains("\n          done\n"));
     assert!(step.contains(
         "\n          status=0\n          git check-ignore -q -- \"$destination\" || status=$?\n\n          if [ \"$status\" -eq 1 ]; then\n            status=0\n            git check-ignore -q -- \"$destination/\" || status=$?\n          fi\n"
     ));
@@ -152,7 +162,7 @@ fn sync_update_checks_the_guides_directory_before_writing() {
         "::error::Git ignores the guides directory, so the sync cannot commit the guides:"
     ));
     assert!(step.contains("::error::Git could not check the guides directory:"));
-    assert_eq!(step.matches("exit 1").count(), 5);
+    assert_eq!(step.matches("exit 1").count(), 6);
 }
 
 #[test]

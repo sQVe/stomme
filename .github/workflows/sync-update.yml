@@ -89,6 +89,15 @@ jobs:
               ;;
           esac
 
+          probe=$destination
+          while [ "$probe" != "$root" ]; do
+            if [ -e "$probe/.git" ] || git ls-files --stage -- "$probe" | grep -q '^160000'; then
+              echo "::error::The guides directory must not be inside another Git repository: $destination"
+              exit 1
+            fi
+            probe=$(dirname "$probe")
+          done
+
           status=0
           git check-ignore -q -- "$destination" || status=$?
 
