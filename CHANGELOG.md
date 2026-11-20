@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3
+
+- `stomme` 0.2.3.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.3.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Take an optional `guides-directory` input in the reusable sync workflow. When it is set, the job
+  refreshes the shared guides in that folder and commits them with the rest of the sync.
+
 ## 0.2.2
 
 - `stomme` 0.2.2.
