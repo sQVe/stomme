@@ -34,13 +34,13 @@ Pin the binary in `mise.toml`:
 
 ```toml
 [tools]
-"github:sQVe/stomme" = "0.2.2"
+"github:sQVe/stomme" = "0.2.3"
 ```
 
 Set the same version in `stomme.toml`:
 
 ```toml
-version = "0.2.2"
+version = "0.2.3"
 ```
 
 Extend the Renovate preset in `renovate.json`:
@@ -65,7 +65,33 @@ permissions:
 
 jobs:
   sync:
-    uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.2
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.3
+    secrets:
+      app-id: ${{ secrets.STOMME_APP_ID }}
+      app-private-key: ${{ secrets.STOMME_APP_PRIVATE_KEY }}
+```
+
+The workflow takes an optional `guides-directory` input. Leave it unset for the behavior above. When
+it is set, the job runs `stomme guides <directory>` after `stomme sync` and commits that folder with
+the rest of the sync, so the folder holds the current release's shared guides. The folder must be
+inside the repository, and Git must be able to stage its files, so the folder must not be ignored.
+It must not be inside another Git repository. It must not be `docs/stomme` or a folder inside it:
+
+```yaml
+name: Sync stomme
+
+on:
+  push:
+    branches: [renovate/stomme]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.3
+    with:
+      guides-directory: docs/guides
     secrets:
       app-id: ${{ secrets.STOMME_APP_ID }}
       app-private-key: ${{ secrets.STOMME_APP_PRIVATE_KEY }}

@@ -2,6 +2,10 @@ name: Sync stomme update
 
 on:
   workflow_call:
+    inputs:
+      guides-directory:
+        required: false
+        type: string
     secrets:
       app-id:
         required: true
@@ -55,6 +59,67 @@ jobs:
       - name: Sync stomme files
         if: steps.check.outputs.run == 'true'
         run: stomme sync
+      - name: Check the guides directory
+        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''
+        env:
+          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}
+        run: |
+          root=$(realpath -m -- "$PWD")
+          destination=$(realpath -m -- "$GUIDES_DIRECTORY")
+
+          case "$destination" in
+            "$root"/*) ;;
+            *)
+              echo "::error::The guides directory must be a folder inside the repository: $destination"
+              exit 1
+              ;;
+          esac
+
+          case "$destination" in
+            "$root/.git" | "$root/.git"/*)
+              echo "::error::The guides directory must not be inside the Git folder: $destination"
+              exit 1
+              ;;
+          esac
+
+          case "$destination" in
+            "$root/docs/stomme" | "$root/docs/stomme"/*)
+              echo "::error::The guides directory must not be the project's synced guides folder or a folder inside it: $destination"
+              exit 1
+              ;;
+          esac
+
+          probe=$destination
+          while [ "$probe" != "$root" ]; do
+            if [ -e "$probe/.git" ] || git ls-files --stage -- "$probe" | grep -q '^160000'; then
+              echo "::error::The guides directory must not be inside another Git repository: $destination"
+              exit 1
+            fi
+            probe=$(dirname "$probe")
+          done
+
+          status=0
+          git check-ignore -q -- "$destination" || status=$?
+
+          if [ "$status" -eq 1 ]; then
+            status=0
+            git check-ignore -q -- "$destination/" || status=$?
+          fi
+
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Git ignores the guides directory, so the sync cannot commit the guides: $destination"
+            exit 1
+          fi
+
+          if [ "$status" -ne 1 ]; then
+            echo "::error::Git could not check the guides directory: $destination"
+            exit 1
+          fi
+      - name: Write the guides
+        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''
+        env:
+          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}
+        run: stomme guides "$GUIDES_DIRECTORY"
       - name: Detect the lockfile
         id: lockfile
         if: steps.check.outputs.run == 'true'
