@@ -73,9 +73,9 @@ jobs:
 
 The workflow takes an optional `guides-directory` input. Leave it unset for the behavior above. When
 it is set, the job runs `stomme guides <directory>` after `stomme sync` and commits that folder with
-the rest of the sync, so the folder holds the current release's shared guides. Git must be able to
-stage the folder's files, so the folder must not be ignored. It must not be the project's synced
-guides folder, `docs/stomme`:
+the rest of the sync, so the folder holds the current release's shared guides. The folder must be
+inside the repository, and Git must be able to stage its files, so the folder must not be ignored.
+It must not be `docs/stomme` or a folder inside it:
 
 ```yaml
 name: Sync stomme

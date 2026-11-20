@@ -129,21 +129,30 @@ fn sync_update_checks_the_guides_directory_before_writing() {
     assert!(step.contains(
         "\n        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''\n"
     ));
-    assert!(step.contains("\n        run: |\n"));
-    assert!(step.contains("\n          destination=$(realpath -m -- \"$GUIDES_DIRECTORY\")\n"));
     assert!(step.contains(
-        "\n          if git check-ignore -q -- \"$destination\" || git check-ignore -q -- \"$destination/\"; then\n"
+        "\n        env:\n          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}\n"
     ));
-    assert!(step.contains("\n          if [ \"$destination\" = \"$PWD/docs/stomme\" ]; then\n"));
+    assert!(step.contains("\n        run: |\n"));
+    assert!(step.contains("\n          root=$(realpath -m -- \"$PWD\")\n"));
+    assert!(step.contains("\n          destination=$(realpath -m -- \"$GUIDES_DIRECTORY\")\n"));
+    assert!(step.contains("\n            \"$root\"/*) ;;\n"));
+    assert!(step.contains("\n            \"$root/.git\" | \"$root/.git\"/*)\n"));
+    assert!(step.contains("\n            \"$root/docs/stomme\" | \"$root/docs/stomme\"/*)\n"));
+    assert!(step.contains(
+        "\n          status=0\n          git check-ignore -q -- \"$destination\" || status=$?\n\n          if [ \"$status\" -eq 1 ]; then\n            status=0\n            git check-ignore -q -- \"$destination/\" || status=$?\n          fi\n"
+    ));
+    assert!(step.contains("\n          if [ \"$status\" -eq 0 ]; then\n"));
+    assert!(step.contains("\n          if [ \"$status\" -ne 1 ]; then\n"));
+    assert!(step.contains("::error::The guides directory must be a folder inside the repository:"));
+    assert!(step.contains("::error::The guides directory must not be inside the Git folder:"));
+    assert!(step.contains(
+        "::error::The guides directory must not be the project's synced guides folder or a folder inside it:"
+    ));
     assert!(step.contains(
         "::error::Git ignores the guides directory, so the sync cannot commit the guides:"
     ));
-    assert!(
-        step.contains(
-            "::error::The guides directory must not be the project's synced guides folder:"
-        )
-    );
-    assert_eq!(step.matches("exit 1").count(), 2);
+    assert!(step.contains("::error::Git could not check the guides directory:"));
+    assert_eq!(step.matches("exit 1").count(), 5);
 }
 
 #[test]
