@@ -2,6 +2,10 @@ name: Sync stomme update
 
 on:
   workflow_call:
+    inputs:
+      guides-directory:
+        required: false
+        type: string
     secrets:
       app-id:
         required: true
@@ -55,6 +59,25 @@ jobs:
       - name: Sync stomme files
         if: steps.check.outputs.run == 'true'
         run: stomme sync
+      - name: Check the guides directory
+        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''
+        env:
+          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}
+        run: |
+          destination=$(realpath -m -- "$GUIDES_DIRECTORY")
+          if git check-ignore -q -- "$destination" || git check-ignore -q -- "$destination/"; then
+            echo "::error::Git ignores the guides directory, so the sync cannot commit the guides: $destination"
+            exit 1
+          fi
+          if [ "$destination" = "$PWD/docs/stomme" ]; then
+            echo "::error::The guides directory must not be the project's synced guides folder: $destination"
+            exit 1
+          fi
+      - name: Write the guides
+        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''
+        env:
+          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}
+        run: stomme guides "$GUIDES_DIRECTORY"
       - name: Detect the lockfile
         id: lockfile
         if: steps.check.outputs.run == 'true'
