@@ -16,7 +16,6 @@ jobs:
     name: OCR review
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # A draft asks for no review; ready_for_review starts one.
     if: ${{ !github.event.pull_request.draft }}
     permissions:
       contents: write
