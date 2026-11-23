@@ -1,6 +1,8 @@
 mod check;
 mod mutation;
+mod release_check;
 mod release_gate;
+mod release_pin;
 #[cfg(test)]
 mod renovate_preset;
 #[cfg(test)]
@@ -16,7 +18,8 @@ Usage:
   cargo xtask check [tidy|build]
   cargo xtask mutation changed <base> [--max-mutants N]
   cargo xtask mutation audit <file>... [--max-mutants N]
-  cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>";
+  cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>
+  cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>";
 
 fn workspace_root() -> PathBuf {
     let manifest_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -39,6 +42,7 @@ fn main() -> ExitCode {
         Some((task, rest)) if task == "check" => check::run(&root, rest),
         Some((task, rest)) if task == "mutation" => mutation::run(&root, rest),
         Some((task, rest)) if task == "release-gate" => release_gate::run(&root, rest),
+        Some((task, rest)) if task == "release-pin" => release_pin::run(&root, rest),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::FAILURE

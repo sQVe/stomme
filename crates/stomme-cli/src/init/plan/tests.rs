@@ -1,8 +1,10 @@
 use std::fs;
 
 use super::super::assets::{self, Source};
-use super::super::{InitError, empty_folder, planned, request};
-use super::super::{plan, run_with_sources};
+use super::super::plan;
+use super::super::{
+    InitError, TEST_COMMIT, empty_folder, planned, request, run_with_sources, test_commit,
+};
 use crate::layer::{self, Language};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -63,7 +65,7 @@ fn plan_fails_when_two_sources_own_one_file() {
     ];
 
     for (sources, path, first, second) in cases {
-        let error = plan::plan(&request, sources).expect_err("two owners clash");
+        let error = plan::plan(&request, sources, &test_commit()).expect_err("two owners clash");
 
         assert!(
             matches!(
@@ -77,13 +79,16 @@ fn plan_fails_when_two_sources_own_one_file() {
 }
 
 #[test]
-fn plan_substitutes_name_and_version() {
+fn plan_substitutes_name_version_and_commit() {
     static SOURCE: Source = Source {
         owner: "first",
-        files: &[("crates/{{name}}/VERSION", "{{name}} {{version}}\n")],
+        files: &[(
+            "crates/{{name}}/VERSION",
+            "{{name}} {{version}} {{commit}}\n",
+        )],
         merges: &[(
             "crates/{{name}}/Cargo.toml",
-            "[package]\nname = \"{{name}}\"\n",
+            "[package]\nname = \"{{name}}\"\ndescription = \"{{commit}}\"\n",
         )],
     };
     let request = request(Language::Rust, &[], &[]);
@@ -92,11 +97,11 @@ fn plan_substitutes_name_and_version() {
 
     assert_eq!(
         plan.files["crates/demo/VERSION"],
-        format!("demo {VERSION}\n")
+        format!("demo {VERSION} {TEST_COMMIT}\n")
     );
     assert_eq!(
         plan.files["crates/demo/Cargo.toml"],
-        "[package]\nname = \"demo\"\n"
+        format!("[package]\ndescription = \"{TEST_COMMIT}\"\nname = \"demo\"\n")
     );
 }
 
@@ -156,6 +161,7 @@ fn run_writes_nested_files_and_merge_targets() {
         &request,
         &[&BASE, &LAYER],
         &crate::config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect("init succeeds");
 

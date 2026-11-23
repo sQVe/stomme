@@ -162,6 +162,7 @@ fn run_init(arguments: &[String]) -> ExitCode {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        init::release_commit_from_environment,
     ) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

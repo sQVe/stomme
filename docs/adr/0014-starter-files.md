@@ -31,9 +31,12 @@ Each source owns one `skeleton/` folder next to the shared material it belongs t
 - `foundation/layers/<layer>/skeleton/` for a layer.
 
 A skeleton holds `files/`, whose files keep their project-relative path, and `merge/`, whose files
-are fragments of a shared target at the same path. `{{name}}` and `{{version}}` are replaced in
-every path and text. The binary embeds each file, so a release carries its starters as it carries
-its synced text.
+are fragments of a shared target at the same path. `{{name}}`, `{{version}}`, and `{{commit}}` are
+replaced in every path and text. `{{commit}}` is the release commit, so a starter can pin a shared
+workflow by commit instead of a moving tag. A release build embeds the commit of its own
+`v<version>` tag; any other build requires `STOMME_RELEASE_COMMIT`. `init` refuses rather than
+guessing when neither is available. The binary embeds each file, so a release carries its starters
+as it carries its synced text.
 
 A layer that needs set-up steps puts them in `docs/<layer>.md` in its skeleton. The language's
 `docs/development.md` links that path pattern, because whole-file ownership stops a layer from

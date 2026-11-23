@@ -4,14 +4,13 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::assets::{self, Source};
-use super::{InitError, Request, merge};
+use super::assets::Source;
+use super::{InitError, ReleaseCommit, Request, VERSION, merge};
 use crate::config::{CONFIG_FILE, SCHEMA};
 use crate::layer::{self, Catalog, Language};
 
 const CONFIG_OWNER: &str = "init";
 const KEPT_ENTRY: &str = ".git";
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub(crate) struct InitPlan {
@@ -36,7 +35,11 @@ pub(crate) fn validate(root: &Path, catalog: &Catalog, request: &Request) -> Res
     check_empty(root)
 }
 
-pub(crate) fn plan(request: &Request, sources: &[&Source]) -> Result<InitPlan, InitError> {
+pub(crate) fn plan(
+    request: &Request,
+    sources: &[&Source],
+    commit: &ReleaseCommit,
+) -> Result<InitPlan, InitError> {
     let mut owners: BTreeMap<String, &str> = BTreeMap::new();
     let mut files = BTreeMap::new();
     let mut fragments: BTreeMap<String, Vec<(&str, String)>> = BTreeMap::new();
@@ -46,20 +49,20 @@ pub(crate) fn plan(request: &Request, sources: &[&Source]) -> Result<InitPlan, I
 
     for source in sources {
         for (path, text) in source.files {
-            let path = substitute(request, path);
+            let path = substitute(request, commit, path);
 
             if let Some(first) = owners.insert(path.clone(), source.owner) {
                 return Err(owner_clash(path, first, source.owner));
             }
 
-            files.insert(path, substitute(request, text));
+            files.insert(path, substitute(request, commit, text));
         }
 
         for (path, text) in source.merges {
             fragments
-                .entry(substitute(request, path))
+                .entry(substitute(request, commit, path))
                 .or_default()
-                .push((source.owner, substitute(request, text)));
+                .push((source.owner, substitute(request, commit, text)));
         }
     }
 
@@ -112,13 +115,6 @@ fn validate_roles(request: &Request) -> Result<(), InitError> {
     let mut seen = BTreeSet::new();
 
     for role in &request.roles {
-        if assets::role(request.language, role).is_none() {
-            return Err(InitError::UnknownRole {
-                role: role.clone(),
-                language: request.language,
-            });
-        }
-
         if !seen.insert(role) {
             return Err(InitError::DuplicateRole { role: role.clone() });
         }
@@ -174,9 +170,10 @@ fn role_path(request: &Request, role: &str) -> Result<String, InitError> {
     }
 }
 
-fn substitute(request: &Request, text: &str) -> String {
+fn substitute(request: &Request, commit: &ReleaseCommit, text: &str) -> String {
     text.replace("{{name}}", &request.name)
         .replace("{{version}}", VERSION)
+        .replace("{{commit}}", &commit.0)
 }
 
 fn owner_clash(path: String, first: &str, second: &str) -> InitError {

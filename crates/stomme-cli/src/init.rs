@@ -12,6 +12,7 @@ use assets::Source;
 mod assets;
 mod merge;
 mod plan;
+mod release_commit;
 
 const NAME_FLAG: &str = "--name";
 const LANGUAGE_FLAG: &str = "--language";
@@ -22,6 +23,7 @@ const FLAGS: [&str; 4] = [NAME_FLAG, LANGUAGE_FLAG, LAYERS_FLAG, ROLES_FLAG];
 // npm's package-name limit, which also keeps `crates/<name>-<role>` under the 255-byte file-name
 // limit that common filesystems impose.
 const NAME_LENGTH_LIMIT: usize = 214;
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Request {
@@ -30,6 +32,8 @@ pub(crate) struct Request {
     layers: Vec<String>,
     roles: Vec<String>,
 }
+
+pub(crate) use release_commit::ReleaseCommit;
 
 #[derive(Debug, Error)]
 pub(crate) enum InitError {
@@ -85,6 +89,12 @@ pub(crate) enum InitError {
     Write { path: String, source: io::Error },
     #[error("could not read {path}: {source}")]
     Read { path: String, source: io::Error },
+    #[error(
+        "this stomme build does not know the commit of release v{version}; install a released binary, or set STOMME_RELEASE_COMMIT to that commit"
+    )]
+    UnknownReleaseCommit { version: &'static str },
+    #[error("STOMME_RELEASE_COMMIT `{value}` is not a 40-character lowercase hex commit")]
+    InvalidReleaseCommit { value: String },
 }
 
 pub(crate) fn parse_arguments(arguments: &[String]) -> Result<Request, InitError> {
@@ -133,11 +143,12 @@ pub(crate) fn run(
     catalog: &Catalog,
     request: &Request,
     file: &FileRead,
+    commit: impl Fn() -> Result<ReleaseCommit, InitError>,
 ) -> Result<(), InitError> {
     let sources = assets::sources(request, catalog)?;
     let sources: Vec<&Source> = sources.iter().collect();
 
-    run_with_sources(root, catalog, request, &sources, file)
+    run_with_sources(root, catalog, request, &sources, file, commit)
 }
 
 pub(crate) fn run_with_sources(
@@ -146,15 +157,21 @@ pub(crate) fn run_with_sources(
     request: &Request,
     sources: &[&Source],
     file: &FileRead,
+    commit: impl Fn() -> Result<ReleaseCommit, InitError>,
 ) -> Result<(), InitError> {
     plan::validate(root, catalog, request)?;
 
-    let plan = plan::plan(request, sources)?;
+    let commit = commit()?;
+    let plan = plan::plan(request, sources, &commit)?;
 
     plan::execute(root, &plan)?;
     sync::run(root, catalog, file)?;
 
     Ok(())
+}
+
+pub(crate) fn release_commit_from_environment() -> Result<ReleaseCommit, InitError> {
+    release_commit::from_environment()
 }
 
 fn required<'a>(
@@ -197,8 +214,16 @@ pub(crate) fn request(language: Language, layers: &[&str], roles: &[&str]) -> Re
 }
 
 #[cfg(test)]
+pub(crate) const TEST_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+#[cfg(test)]
+pub(crate) fn test_commit() -> ReleaseCommit {
+    release_commit::resolve(Some(TEST_COMMIT), None).expect("the test commit is valid")
+}
+
+#[cfg(test)]
 pub(crate) fn planned(request: &Request, sources: &[&Source]) -> plan::InitPlan {
-    plan::plan(request, sources).expect("the plan succeeds")
+    plan::plan(request, sources, &test_commit()).expect("the plan succeeds")
 }
 
 #[cfg(test)]

@@ -6,16 +6,11 @@ use std::process::{Command, ExitCode, Output};
 use anyhow::Context as _;
 use thiserror::Error;
 
+use crate::release_check::{self, Outcome};
+
 const USAGE: &str = "\
 Usage:
   cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>";
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Outcome {
-    Passed,
-    Failed { step: &'static str, output: String },
-    NotAdopted { output: String },
-}
 
 struct Runner {
     run: fn(binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<Output>,
@@ -51,9 +46,8 @@ struct Arguments {
 }
 
 #[expect(
-    clippy::print_stdout,
     clippy::print_stderr,
-    reason = "the report, usage, and errors are the command's output"
+    reason = "the usage and error messages are the command's output"
 )]
 pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     let Some(arguments) = parse_arguments(arguments) else {
@@ -61,13 +55,8 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let binary_path = root.join(&arguments.binary);
-    let binary = match binary_path.canonicalize() {
-        Ok(binary) => binary,
-        Err(error) => {
-            eprintln!("Could not resolve {}: {error}", binary_path.display());
-            return ExitCode::FAILURE;
-        }
+    let Some(binary) = release_check::resolve_binary(root, &arguments.binary) else {
+        return ExitCode::FAILURE;
     };
 
     let folder = root.join(&arguments.folder);
@@ -78,10 +67,7 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     };
 
     match gate(&runner, &binary, &arguments.version, &folder) {
-        Ok(outcome) => {
-            print!("{}", report(&folder, &outcome));
-            exit_code(&outcome)
-        }
+        Ok(outcome) => release_check::print_report(&folder, &outcome),
         Err(error) => {
             eprintln!("{error:#}");
             ExitCode::FAILURE
@@ -155,13 +141,6 @@ fn inspect_entry(path: &Path) -> io::Result<fs::Metadata> {
 
 fn read_entry(path: &Path) -> io::Result<String> {
     fs::read_to_string(path)
-}
-
-fn exit_code(outcome: &Outcome) -> ExitCode {
-    match outcome {
-        Outcome::Passed | Outcome::NotAdopted { .. } => ExitCode::SUCCESS,
-        Outcome::Failed { .. } => ExitCode::FAILURE,
-    }
 }
 
 fn parse_arguments(arguments: &[String]) -> Option<Arguments> {
@@ -242,35 +221,6 @@ fn rewrite_top_level_version(text: &str, folder: &Path, version: &str) -> anyhow
         &text[..span.start],
         &text[span.end..]
     ))
-}
-
-fn report(folder: &Path, outcome: &Outcome) -> String {
-    let name = folder.file_name().map_or_else(
-        || folder.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-
-    let mut text = format!("### {name}\n");
-
-    match outcome {
-        Outcome::Passed => text.push_str("Passed\n"),
-        Outcome::Failed { step, output } => {
-            text.push_str(&format!("Failed at {step}\n"));
-            text.push_str(&output_block(output));
-        }
-        Outcome::NotAdopted { output } => {
-            text.push_str("Not adopted; reported only\n");
-            text.push_str(&output_block(output));
-        }
-    }
-
-    text
-}
-
-fn output_block(output: &str) -> String {
-    let body = output.trim_end_matches('\n');
-
-    format!("```text\n{body}\n```\n")
 }
 
 #[cfg(test)]

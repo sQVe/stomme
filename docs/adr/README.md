@@ -58,6 +58,7 @@ the commit in its row.
 ### Releases
 
 - [0012: Release the binary through GitHub Releases](./0012-release-train.md)
+- [0016: Pin the sync workflow by release commit](./0016-pin-the-sync-workflow-by-release-commit.md)
 
 ## Retired
 
