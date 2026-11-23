@@ -288,24 +288,6 @@ thread_local! {
     static FAKE: RefCell<Fake> = RefCell::new(Fake::default());
     static READS: RefCell<usize> = const { RefCell::new(0) };
     static RUNS: RefCell<usize> = const { RefCell::new(0) };
-    static FIXTURES: RefCell<Vec<(PathBuf, String)>> = const { RefCell::new(Vec::new()) };
-}
-
-fn install_fixtures(fixtures: Vec<(PathBuf, String)>) {
-    FIXTURES.with(|installed| *installed.borrow_mut() = fixtures);
-}
-
-fn fixture_read(path: &Path) -> io::Result<String> {
-    READS.with(|reads| *reads.borrow_mut() += 1);
-    let text = FIXTURES.with(|fixtures| {
-        fixtures
-            .borrow()
-            .iter()
-            .find(|(candidate, _)| candidate == path)
-            .map(|(_, text)| text.clone())
-    });
-
-    text.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no fixture"))
 }
 
 fn install(fake: Fake) {
@@ -348,6 +330,22 @@ fn counting_read(path: &Path) -> io::Result<String> {
     std::fs::read_to_string(path)
 }
 
+fn fake_run_writing_workflows(_binary: &Path, folder: &Path) -> io::Result<Output> {
+    let workflows = [
+        (SYNC_WORKFLOW, sync_workflow(VERSION, COMMIT)),
+        (OCR_WORKFLOW, ocr_workflow(VERSION, OTHER_COMMIT)),
+    ];
+
+    for (path, text) in workflows {
+        let file = folder.join(path);
+        let parent = file.parent().expect("a workflow path has a folder");
+        std::fs::create_dir_all(parent)?;
+        std::fs::write(file, text)?;
+    }
+
+    Ok(output(0, ""))
+}
+
 fn failed_directory_open(_folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>> {
     Err(io::Error::new(io::ErrorKind::NotFound, "no such folder"))
 }
@@ -356,14 +354,6 @@ fn failed_entry(_folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>> {
     let error = io::Error::new(io::ErrorKind::PermissionDenied, "unreadable entry");
 
     Ok(vec![Err(error)])
-}
-
-fn runner_with_read(read: fn(&Path) -> io::Result<String>) -> Runner {
-    Runner {
-        run: fake_run,
-        read,
-        entries: read_entries,
-    }
 }
 
 fn runner_with_entries(entries: fn(&Path) -> io::Result<Vec<io::Result<PathBuf>>>) -> Runner {
@@ -435,17 +425,14 @@ fn release_pin_reports_a_missing_workflow() {
 fn release_pin_reports_the_ocr_workflow_that_differs() {
     let folder = temporary_directory();
     let ocr = ocr_workflow(VERSION, OTHER_COMMIT);
-    install(Fake::default());
-    install_fixtures(vec![
-        (
-            folder.path().join(SYNC_WORKFLOW),
-            sync_workflow(VERSION, COMMIT),
-        ),
-        (folder.path().join(OCR_WORKFLOW), ocr.clone()),
-    ]);
+    let runner = Runner {
+        run: fake_run_writing_workflows,
+        read: read_entry,
+        entries: read_entries,
+    };
 
     let outcome = check_pin(
-        &runner_with_read(fixture_read),
+        &runner,
         Path::new("/stomme"),
         VERSION,
         COMMIT,
