@@ -746,61 +746,113 @@ fn workflow_passes_the_coverage_verdict_from_the_classifier_to_the_insert() {
 
 #[test]
 fn report_decides_the_check_result() {
+    struct Case<'a> {
+        name: &'a str,
+        report: Report<'a>,
+        expected_exit: i32,
+        expected_fragments: &'a [&'a str],
+        expected_annotation_count: Option<usize>,
+        absent_line_prefixes: &'a [&'a str],
+    }
+
     let classifier = Classifier::new();
+    let cases = [
+        Case {
+            name: "a complete run",
+            report: Report {
+                status: "0",
+                ..Report::default()
+            },
+            expected_exit: 0,
+            expected_fragments: &["covered every selected file"],
+            expected_annotation_count: None,
+            absent_line_prefixes: &[],
+        },
+        Case {
+            name: "an unreviewed run",
+            report: Report {
+                status: "2",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review left selected files unreviewed"],
+            expected_annotation_count: None,
+            absent_line_prefixes: &[],
+        },
+        Case {
+            name: "a failed run with a reason",
+            report: Report {
+                status: "1",
+                reason: "provider",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed: provider"],
+            expected_annotation_count: None,
+            absent_line_prefixes: &[],
+        },
+        Case {
+            name: "a failed run with encoded text in its reason",
+            report: Report {
+                status: "1",
+                reason: "provider 50%0A",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed: provider 50%250A"],
+            expected_annotation_count: None,
+            absent_line_prefixes: &[],
+        },
+        Case {
+            name: "a failed run with a multi-line reason",
+            report: Report {
+                status: "1",
+                reason: "provider 50%0A\r\n::warning::forged",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &[
+                "::error::the OCR review failed: provider 50%250A%0D%0A::warning::forged",
+            ],
+            expected_annotation_count: Some(1),
+            absent_line_prefixes: &["::warning::"],
+        },
+        Case {
+            name: "a failed run without a reason",
+            report: Report {
+                status: "1",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed\n"],
+            expected_annotation_count: None,
+            absent_line_prefixes: &[],
+        },
+    ];
 
-    let (exit, stdout) = classifier.report(Report {
-        status: "0",
-        ..Report::default()
-    });
+    for case in cases {
+        let (exit, stdout) = classifier.report(case.report);
 
-    assert_eq!(exit, 0);
-    assert!(stdout.contains("covered every selected file"), "{stdout}");
-
-    let (exit, stdout) = classifier.report(Report {
-        status: "2",
-        ..Report::default()
-    });
-
-    assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review left selected files unreviewed"),
-        "{stdout}"
-    );
-
-    let (exit, stdout) = classifier.report(Report {
-        status: "1",
-        reason: "provider",
-        ..Report::default()
-    });
-
-    assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review failed: provider"),
-        "{stdout}"
-    );
-
-    let (exit, stdout) = classifier.report(Report {
-        status: "1",
-        reason: "provider 50%0A",
-        ..Report::default()
-    });
-
-    assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review failed: provider 50%250A"),
-        "{stdout}"
-    );
-
-    let (exit, stdout) = classifier.report(Report {
-        status: "1",
-        ..Report::default()
-    });
-
-    assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review failed\n"),
-        "{stdout}"
-    );
+        assert_eq!(exit, case.expected_exit, "{}", case.name);
+        for fragment in case.expected_fragments {
+            assert!(stdout.contains(fragment), "{}: {stdout}", case.name);
+        }
+        if let Some(count) = case.expected_annotation_count {
+            assert_eq!(
+                stdout.matches("::error::the OCR review failed").count(),
+                count,
+                "{}: {stdout}",
+                case.name
+            );
+        }
+        for prefix in case.absent_line_prefixes {
+            assert!(
+                !stdout.lines().any(|line| line.starts_with(prefix)),
+                "{}: {stdout}",
+                case.name
+            );
+        }
+    }
 }
 
 #[test]

@@ -448,7 +448,10 @@ jobs:
           if [ "$FINAL" = "2" ]; then
             echo "::error::the OCR review left selected files unreviewed"
           elif [ -n "$REASON" ]; then
-            echo "::error::the OCR review failed: ${REASON//%/%25}"
+            reason="${REASON//%/%25}"
+            reason="${reason//$'\r'/%0D}"
+            reason="${reason//$'\n'/%0A}"
+            echo "::error::the OCR review failed: $reason"
           else
             echo "::error::the OCR review failed"
           fi
