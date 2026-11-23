@@ -23,6 +23,12 @@ jobs:
     concurrency:
       group: ocr-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
+    env:
+      OCR_APP_SLUG: github-actions
+      OCR_CHECKPOINT_RANGE: 'true'
+      OCR_INCREMENTAL: 'true'
+      OCR_ROUTE_SEVERITY_BELOW: low
+      OCR_STICKY_SUMMARY: 'true'
     steps:
       - name: Check the model token
         env:
@@ -46,11 +52,11 @@ jobs:
           llm_protocol: openai
           llm_auth_token: ${{ secrets.model-token }}
           rule: docs/stomme/ocr-rules.json
-          sticky_summary: 'true'
-          checkpoint_range: 'true'
-          incremental: 'true'
+          sticky_summary: ${{ env.OCR_STICKY_SUMMARY }}
+          checkpoint_range: ${{ env.OCR_CHECKPOINT_RANGE }}
+          incremental: ${{ env.OCR_INCREMENTAL }}
           resolve_outdated: 'true'
-          route_severity_below: low
+          route_severity_below: ${{ env.OCR_ROUTE_SEVERITY_BELOW }}
 
       - name: Build stomme from the change
         id: build
@@ -71,36 +77,37 @@ jobs:
           command -v stomme
           echo "command=stomme" >> "$GITHUB_OUTPUT"
 
-      - name: Classify the review
-        id: first
+      - name: Classify and resume the review
+        id: outcome
         if: steps.ocr.outputs.range_reason != 'same_head_noop'
         env:
           STOMME: ${{ steps.build.outputs.command || steps.installed.outputs.command }}
-        run: |
-          status=0
-          if [ -f /tmp/ocr-result.json ]; then
-            "$STOMME" ocr-coverage /tmp/ocr-result.json \
-              > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || status=$?
-          else
-            status=1
-          fi
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-
-      - name: Resume the review
-        id: resume
-        if: >-
-          steps.ocr.outputs.range_reason != 'same_head_noop'
-          && steps.first.outputs.status == '2'
-        env:
-          OCR_LLM_TOKEN: ${{ secrets.model-token }}
-          OCR_LLM_TIMEOUT: "300"
-          OCR_NO_UPDATE: "1"
+          MODEL_TOKEN: ${{ secrets.model-token }}
           RANGE_FROM: ${{ steps.ocr.outputs.range_from }}
         run: |
+          # The classifier may be built from the change, so it must not see the
+          # model token.
+          token="$MODEL_TOKEN"
+          unset MODEL_TOKEN
+          # A failed resume must report a failed run, not the partial it replaced.
+          trap 'echo "final=1" >> "$GITHUB_OUTPUT"' ERR
+          final=0
+          if [ -f /tmp/ocr-result.json ]; then
+            "$STOMME" ocr-coverage /tmp/ocr-result.json \
+              > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || final=$?
+          else
+            final=1
+          fi
+          # Record the first outcome before the resume, so the helper checkout
+          # still runs when the resume fails.
+          echo "final=$final" >> "$GITHUB_OUTPUT"
+          if [ "$final" != "2" ]; then
+            exit 0
+          fi
           session_id="$(jq -r '.session_id // empty' /tmp/ocr-result.json)"
           if [ -z "$session_id" ]; then
             echo "::warning::The partial review recorded no session to resume."
-            echo "status=1" >> "$GITHUB_OUTPUT"
+            echo "final=1" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           args=(
@@ -115,28 +122,20 @@ jobs:
             args+=(--effort "$EFFORT")
           fi
           status=0
-          ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-
-      - name: Classify the resumed review
-        id: resumed
-        if: >-
-          steps.ocr.outputs.range_reason != 'same_head_noop'
-          && steps.first.outputs.status == '2'
-          && steps.resume.outputs.status == '0'
-        env:
-          STOMME: ${{ steps.build.outputs.command || steps.installed.outputs.command }}
-        run: |
-          status=0
+          OCR_LLM_TOKEN="$token" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
+            ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || status=$?
+          if [ "$status" != "0" ]; then
+            echo "final=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          resumed=0
           "$STOMME" ocr-coverage /tmp/ocr-resume.json \
-            > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
+            > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || resumed=$?
+          echo "resumed=true" >> "$GITHUB_OUTPUT"
+          echo "final=$resumed" >> "$GITHUB_OUTPUT"
 
       - name: Check out the OCR posting helper
-        if: >-
-          always()
-          && steps.ocr.outputs.range_reason != 'same_head_noop'
-          && steps.first.outputs.status != ''
+        if: always() && steps.outcome.outputs.final != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: alibaba/open-code-review
@@ -146,9 +145,8 @@ jobs:
 
       - name: Post the resumed review
         if: >-
-          steps.first.outputs.status == '2'
-          && steps.resume.outputs.status == '0'
-          && (steps.resumed.outputs.status == '0' || steps.resumed.outputs.status == '2')
+          steps.outcome.outputs.resumed == 'true'
+          && (steps.outcome.outputs.final == '0' || steps.outcome.outputs.final == '2')
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RANGE_MODE: ${{ steps.ocr.outputs.range_mode }}
@@ -174,13 +172,10 @@ jobs:
               prNumber: Number(process.env.PR_NUMBER),
               resultPath: '/tmp/ocr-resume.json',
               stderrPath: '/tmp/ocr-resume.err',
-              stickySummary: true,
-              incremental: true,
-              incrementalOverlapThreshold: 0.6,
-              reviewCommentBatchSize: 50,
-              routeSeverityBelow: 'low',
-              routeCategories: '',
-              checkpointEnabled: true,
+              stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
+              incremental: process.env.OCR_INCREMENTAL === 'true',
+              routeSeverityBelow: process.env.OCR_ROUTE_SEVERITY_BELOW,
+              checkpointEnabled: process.env.OCR_CHECKPOINT_RANGE === 'true',
               checkpointCarry: '',
               checkpointBaseRef: process.env.BASE_REF || '',
               checkpointMergeBase: process.env.MERGE_BASE || '',
@@ -192,7 +187,7 @@ jobs:
               rangeFrom: process.env.RANGE_FROM || '',
               rangeTo: process.env.RANGE_TO || '',
               resolveOutdated: process.env.RESOLVE_OUTDATED,
-              appSlug: 'github-actions',
+              appSlug: process.env.OCR_APP_SLUG,
             });
 
       - name: Add the coverage section
@@ -229,9 +224,9 @@ jobs:
               owner,
               repo,
               prNumber,
-              sticky: true,
+              sticky: process.env.OCR_STICKY_SUMMARY === 'true',
               tag: '',
-              appSlug: 'github-actions',
+              appSlug: process.env.OCR_APP_SLUG,
               log: (line) => core.info(line),
             });
             if (!comment) {
@@ -275,34 +270,24 @@ jobs:
         if: always()
         env:
           RANGE_REASON: ${{ steps.ocr.outputs.range_reason }}
-          FIRST_STATUS: ${{ steps.first.outputs.status }}
-          RESUME_STATUS: ${{ steps.resume.outputs.status }}
-          RESUMED_STATUS: ${{ steps.resumed.outputs.status }}
+          FINAL: ${{ steps.outcome.outputs.final }}
         run: |
           if [ "$RANGE_REASON" = "same_head_noop" ]; then
             echo "The checkpoint already covers the head; nothing to review."
             exit 0
           fi
-          final="$FIRST_STATUS"
-          if [ "$FIRST_STATUS" = "2" ]; then
-            if [ "$RESUME_STATUS" = "0" ] && [ -n "$RESUMED_STATUS" ]; then
-              final="$RESUMED_STATUS"
-            else
-              final=1
-            fi
-          fi
-          if [ "$final" = "0" ]; then
+          if [ "$FINAL" = "0" ]; then
             echo "The OCR review covered every selected file."
             exit 0
           fi
-          if [ "$final" = "2" ] && [ -f /tmp/ocr-coverage.err ]; then
+          if [ "$FINAL" = "2" ] && [ -f /tmp/ocr-coverage.err ]; then
             while IFS= read -r line; do
               case "$line" in
                 *": not reviewed ("*) echo "::error::${line#stomme: }" ;;
               esac
             done < /tmp/ocr-coverage.err
           fi
-          if [ "$final" = "2" ]; then
+          if [ "$FINAL" = "2" ]; then
             echo "::error::the OCR review left selected files unreviewed"
           else
             echo "::error::the OCR review failed"
