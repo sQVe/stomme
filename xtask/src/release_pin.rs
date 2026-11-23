@@ -19,6 +19,7 @@ const COMMIT_LENGTH: usize = 40;
 struct Runner {
     run: fn(binary: &Path, folder: &Path) -> io::Result<Output>,
     read: fn(path: &Path) -> io::Result<String>,
+    entries: fn(folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     let runner = Runner {
         run: run_init,
         read: read_entry,
+        entries: read_entries,
     };
 
     match check_pin(
@@ -71,6 +73,10 @@ fn check_pin(
     commit: &str,
     folder: &Path,
 ) -> anyhow::Result<Outcome> {
+    if let Some(failure) = refuse_nonempty_folder(runner, folder) {
+        return Ok(failure);
+    }
+
     let init = (runner.run)(binary, folder)
         .with_context(|| format!("Could not run {} in {}", binary.display(), folder.display()))?;
 
@@ -95,11 +101,42 @@ fn check_pin(
     Ok(compare_pin(&text, version, commit))
 }
 
+fn refuse_nonempty_folder(runner: &Runner, folder: &Path) -> Option<Outcome> {
+    let entries = match (runner.entries)(folder) {
+        Ok(entries) => entries,
+        Err(error) => return Some(unreadable_folder(folder, &error)),
+    };
+
+    match entries.first() {
+        None => None,
+        Some(Ok(_)) => Some(nonempty_folder(folder)),
+        Some(Err(error)) => Some(unreadable_folder(folder, error)),
+    }
+}
+
+fn nonempty_folder(folder: &Path) -> Outcome {
+    Outcome::Failed {
+        step: "folder",
+        output: format!(
+            "{} must be empty; remove its contents before running the check.",
+            folder.display()
+        ),
+    }
+}
+
+fn unreadable_folder(folder: &Path, error: &io::Error) -> Outcome {
+    Outcome::Failed {
+        step: "folder",
+        output: format!("Could not read {}: {error}", folder.display()),
+    }
+}
+
 fn compare_pin(text: &str, version: &str, commit: &str) -> Outcome {
     let expected = format!("{PIN_PREFIX}{commit} # v{version}");
     let found = pin_lines(text);
+    let exactly_the_expected_pin = found.as_slice() == [expected.as_str()];
 
-    if found.contains(&expected.as_str()) {
+    if exactly_the_expected_pin {
         return Outcome::Passed;
     }
 
@@ -144,6 +181,13 @@ fn run_init(binary: &Path, folder: &Path) -> io::Result<Output> {
 
 fn read_entry(path: &Path) -> io::Result<String> {
     fs::read_to_string(path)
+}
+
+fn read_entries(folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>> {
+    let entries = fs::read_dir(folder)?;
+    let paths = entries.map(|entry| entry.map(|entry| entry.path()));
+
+    Ok(paths.collect())
 }
 
 fn parse_arguments(arguments: &[String]) -> Option<Arguments> {

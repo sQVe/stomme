@@ -29,15 +29,21 @@ struct Fake {
 thread_local! {
     static FAKE: RefCell<Fake> = RefCell::new(Fake::default());
     static READS: RefCell<usize> = const { RefCell::new(0) };
+    static RUNS: RefCell<usize> = const { RefCell::new(0) };
 }
 
 fn install(fake: Fake) {
     FAKE.with(|installed| *installed.borrow_mut() = fake);
     READS.with(|reads| *reads.borrow_mut() = 0);
+    RUNS.with(|runs| *runs.borrow_mut() = 0);
 }
 
 fn read_count() -> usize {
     READS.with(|reads| *reads.borrow())
+}
+
+fn run_count() -> usize {
+    RUNS.with(|runs| *runs.borrow())
 }
 
 fn output(code: i32, stderr: &str) -> Output {
@@ -49,6 +55,8 @@ fn output(code: i32, stderr: &str) -> Output {
 }
 
 fn fake_run(_binary: &Path, _folder: &Path) -> io::Result<Output> {
+    RUNS.with(|runs| *runs.borrow_mut() += 1);
+
     let fake = FAKE.with(|fake| fake.borrow().clone());
 
     if fake.fails {
@@ -64,11 +72,26 @@ fn counting_read(path: &Path) -> io::Result<String> {
     std::fs::read_to_string(path)
 }
 
-fn runner() -> Runner {
+fn failed_directory_open(_folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>> {
+    Err(io::Error::new(io::ErrorKind::NotFound, "no such folder"))
+}
+
+fn failed_entry(_folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>> {
+    let error = io::Error::new(io::ErrorKind::PermissionDenied, "unreadable entry");
+
+    Ok(vec![Err(error)])
+}
+
+fn runner_with_entries(entries: fn(&Path) -> io::Result<Vec<io::Result<PathBuf>>>) -> Runner {
     Runner {
         run: fake_run,
         read: counting_read,
+        entries,
     }
+}
+
+fn runner() -> Runner {
+    runner_with_entries(read_entries)
 }
 
 #[test]
@@ -196,10 +219,114 @@ fn release_pin_reports_a_missing_workflow() {
 }
 
 #[test]
-fn release_pin_accepts_one_matching_pin_among_several() {
+fn release_pin_rejects_a_folder_that_already_holds_a_file() {
+    let folder = temporary_directory();
+    let file = folder.path().join("keep.txt");
+    std::fs::write(&file, "previous run").expect("write a file");
+    install(Fake::default());
+
+    let outcome = check_pin(
+        &runner(),
+        Path::new("/stomme"),
+        VERSION,
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the check");
+
+    assert_eq!(run_count(), 0);
+
+    let contents = std::fs::read_to_string(&file).expect("read the file back");
+    assert_eq!(contents, "previous run");
+
+    let Outcome::Failed { step, output } = outcome else {
+        panic!("expected a folder failure");
+    };
+
+    assert_eq!(step, "folder");
+    assert!(
+        output.contains(&folder.path().display().to_string()),
+        "{output}"
+    );
+}
+
+#[test]
+fn release_pin_reports_a_folder_that_cannot_be_opened() {
+    let folder = temporary_directory();
+    install(Fake::default());
+
+    let outcome = check_pin(
+        &runner_with_entries(failed_directory_open),
+        Path::new("/stomme"),
+        VERSION,
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the check");
+
+    assert_eq!(run_count(), 0);
+
+    let Outcome::Failed { step, output } = outcome else {
+        panic!("expected a folder failure");
+    };
+
+    assert_eq!(step, "folder");
+    assert!(output.contains("no such folder"), "{output}");
+    assert!(
+        output.contains(&folder.path().display().to_string()),
+        "{output}"
+    );
+}
+
+#[test]
+fn release_pin_reports_a_folder_entry_that_cannot_be_read() {
+    let folder = temporary_directory();
+    install(Fake::default());
+
+    let outcome = check_pin(
+        &runner_with_entries(failed_entry),
+        Path::new("/stomme"),
+        VERSION,
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the check");
+
+    assert_eq!(run_count(), 0);
+
+    let Outcome::Failed { step, output } = outcome else {
+        panic!("expected a folder failure");
+    };
+
+    assert_eq!(step, "folder");
+    assert!(output.contains("unreadable entry"), "{output}");
+    assert!(
+        output.contains(&folder.path().display().to_string()),
+        "{output}"
+    );
+}
+
+#[test]
+fn release_pin_rejects_a_second_pin_beside_the_expected_one() {
     let other = pin_line(OTHER_COMMIT, VERSION);
     let expected = pin_line(COMMIT, VERSION);
     let text = format!("jobs:\n  sync:\n    {other}\n  copy:\n    {expected}\n");
+
+    let outcome = compare_pin(&text, VERSION, COMMIT);
+
+    let Outcome::Failed { step, output } = outcome else {
+        panic!("expected a pin failure");
+    };
+
+    assert_eq!(step, "pin");
+    assert!(output.contains(&other), "{output}");
+    assert!(output.contains(&expected), "{output}");
+}
+
+#[test]
+fn release_pin_passes_for_exactly_one_correct_pin() {
+    let expected = pin_line(COMMIT, VERSION);
+    let text = format!("jobs:\n  sync:\n    {expected}\n  copy:\n    run: echo done\n");
 
     assert_eq!(compare_pin(&text, VERSION, COMMIT), Outcome::Passed);
 }
