@@ -296,15 +296,20 @@ fn workflow_manager_rewrites_both_workflows_in_one_file() {
     let preset = renovate_preset();
     let manager = workflow_manager(&preset);
     let text = format!(
-        "jobs:\n  sync:\n    uses: {SYNC_WORKFLOW_REFERENCE}@{OLD_RELEASE_COMMIT} # v0.2.0\n  review:\n    uses: {OCR_WORKFLOW_REFERENCE}@v0.2.0\n"
+        "jobs:\n  sync:\n    uses: {SYNC_WORKFLOW_REFERENCE}@v0.2.0\n  review:\n    uses: {OCR_WORKFLOW_REFERENCE}@v0.2.0\n"
     );
 
+    assert_ne!(
+        manager["matchStringsStrategy"].as_str(),
+        Some("combination"),
+        "the combination strategy merges every call into one dependency"
+    );
     assert_eq!(
         extract_all(manager, &text),
         [
             Dependency {
                 dep_type: SYNC_WORKFLOW.to_string(),
-                digest: Some(OLD_RELEASE_COMMIT.to_string()),
+                digest: None,
                 value: "v0.2.0".to_string(),
             },
             Dependency {
