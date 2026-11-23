@@ -191,6 +191,14 @@ fn reported(problems: &[Problem], path: &str) -> bool {
         .any(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
 }
 
+fn message<'a>(problems: &'a [Problem], path: &str) -> &'a str {
+    problems
+        .iter()
+        .find(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
+        .map(|problem| problem.message.as_str())
+        .unwrap_or_else(|| panic!("{path} is reported: {problems:?}"))
+}
+
 #[test]
 fn check_reports_a_missing_synced_file() {
     let root = complete_project();
@@ -239,8 +247,14 @@ fn check_reports_a_malformed_record_with_an_invalid_project_rule_file() {
     let problems =
         check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
-    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
-    assert!(reported(&problems, RECORD_FILE), "{problems:?}");
+    assert!(
+        message(&problems, PROJECT_RULE_FILE).contains("is not valid JSON"),
+        "{problems:?}"
+    );
+    assert!(
+        message(&problems, RECORD_FILE).contains("is malformed"),
+        "{problems:?}"
+    );
 }
 
 #[test]
@@ -254,8 +268,14 @@ fn check_reports_a_nested_parent_file_with_an_invalid_project_rule_file() {
     let problems =
         check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
-    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
-    assert!(reported(&problems, "docs/stomme/shared"), "{problems:?}");
+    assert!(
+        message(&problems, PROJECT_RULE_FILE).contains("is not valid JSON"),
+        "{problems:?}"
+    );
+    assert!(
+        message(&problems, "docs/stomme/shared").contains("is not a regular file"),
+        "{problems:?}"
+    );
 }
 
 #[test]

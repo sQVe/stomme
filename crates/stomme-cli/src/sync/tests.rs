@@ -94,16 +94,20 @@ fn guide_block(guide: &str) -> String {
     format!("File: {guide}\n\n{}", bundled_content(guide).trim_end())
 }
 
-fn assert_guide_blocks_in_order(text: &str, guides: &[&str]) {
-    let mut offset = 0;
+fn assert_guide_section(text: &str, guides: &[&str]) {
+    let section = guides
+        .iter()
+        .map(|guide| guide_block(guide))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    assert!(
+        text.contains(&section),
+        "the guide blocks follow each other in order"
+    );
 
     for guide in guides {
-        let block = guide_block(guide);
-        let found = text[offset..]
-            .find(&block)
-            .unwrap_or_else(|| panic!("{guide} follows the previous guide as a whole block"));
-
-        offset += found + block.len();
+        assert_eq!(text.matches(&guide_block(guide)).count(), 1, "{guide}");
     }
 }
 
@@ -180,7 +184,7 @@ fn sync_writes_the_ocr_rule_file() {
         "docs/stomme/layers/gpui/guide.md",
     ];
 
-    assert_guide_blocks_in_order(rule, &guides);
+    assert_guide_section(rule, &guides);
 
     for unselected in [
         "docs/stomme/languages/typescript/guide.md",
@@ -226,7 +230,13 @@ fn sync_merges_project_ocr_rules() {
     assert_eq!(rules[1]["path"], "tests/**");
     assert_eq!(rules[2]["path"], "**/*.rs");
 
+    let guides = [
+        "docs/stomme/shared/coding.md",
+        "docs/stomme/languages/rust/guide.md",
+    ];
     let system_rule = rules[2]["rule"].as_str().expect("the rule is text");
+
+    assert_guide_section(system_rule, &guides);
 
     for (index, marker) in ["Keep modules small.", "Name the behavior."]
         .into_iter()
@@ -236,6 +246,7 @@ fn sync_merges_project_ocr_rules() {
         let expected = format!("{marker}\n\n{system_rule}");
 
         assert_eq!(rule, &expected, "{marker}");
+        assert_guide_section(&rule[marker.len()..], &guides);
     }
 
     assert_eq!(document["exclude"], serde_json::json!(["fixtures/**"]));
