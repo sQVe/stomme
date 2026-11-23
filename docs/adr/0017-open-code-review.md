@@ -33,9 +33,9 @@ required check whose findings are advice.
 - Renovate bumps that pin in its `stomme` group, with the `stomme.toml` version and the binary pin,
   so the review settings move with the rules they enforce.
 - The job classifies the review with the `stomme` binary that the project pins in its `mise.toml`.
-  Renovate moves that pin with the workflow tag, so the classification matches the workflow.
-  stomme's own workflow builds the binary from the same checkout, so its pull requests classify
-  with the code in the change.
+  Renovate moves that pin with the release commit the workflow calls, so the classification matches
+  the workflow. stomme's own workflow builds the binary from the same checkout, so its pull requests
+  classify with the code in the change.
 - The Action's checkout step passes no `ref`, so a pull request run checks out the merge commit.
   The rule file and stomme's own build come from the change, not from the base branch.
 - A fork pull request gets no secrets, so it cannot run the review. Fork pull requests are not
