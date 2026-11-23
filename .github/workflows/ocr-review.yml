@@ -434,7 +434,10 @@ jobs:
           if [ "$FINAL" != "0" ] && [ -f /tmp/ocr-coverage.err ]; then
             while IFS= read -r line; do
               case "$line" in
-                *": not reviewed ("*) echo "::error::${line#stomme: }" ;;
+                *": not reviewed ("*)
+                  message="${line#stomme: }"
+                  echo "::error::${message//%/%25}"
+                  ;;
               esac
             done < /tmp/ocr-coverage.err
           fi
@@ -445,7 +448,7 @@ jobs:
           if [ "$FINAL" = "2" ]; then
             echo "::error::the OCR review left selected files unreviewed"
           elif [ -n "$REASON" ]; then
-            echo "::error::the OCR review failed: $REASON"
+            echo "::error::the OCR review failed: ${REASON//%/%25}"
           else
             echo "::error::the OCR review failed"
           fi

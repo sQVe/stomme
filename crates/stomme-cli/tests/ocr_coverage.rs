@@ -70,7 +70,7 @@ fn a_failed_result_fails_and_lists_every_file() {
             "\n",
             "Not reviewed:\n",
             "\n",
-            "- `main.rs`: provider, provider or subtask request failed\n",
+            "- `main.rs`: `provider`, `provider or subtask request failed`\n",
         )
     );
     assert_eq!(
@@ -97,7 +97,7 @@ fn a_skipped_result_passes_without_a_model_call() {
             "<details>\n",
             "<summary>1 file excluded by the review rules</summary>\n",
             "\n",
-            "- `main.rs`: user_exclude\n",
+            "- `main.rs`: `user_exclude`\n",
             "</details>\n",
         )
     );
@@ -110,9 +110,8 @@ fn a_skipped_result_passes_without_a_model_call() {
 #[test]
 fn a_missing_result_file_is_refused() {
     let root = tempfile::tempdir().expect("create a temporary directory");
-    let path = root.path().join("missing.json");
 
-    let output = stomme(&path);
+    let output = stomme_in(root.path(), Path::new("missing.json"));
 
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(stdout(&output), "");
@@ -121,15 +120,61 @@ fn a_missing_result_file_is_refused() {
 
     assert_eq!(lines.len(), 1);
     assert!(
-        lines[0].starts_with(&format!("stomme: could not read {}: ", path.display())),
+        lines[0].starts_with("stomme: could not read missing.json: "),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_terminal_state_with_a_line_break_stays_on_one_stderr_line() {
+    let bytes = std::fs::read(fixture("failed.json")).expect("read the fixture");
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).expect("the fixture is JSON");
+
+    value["manifest"]["terminal_state"] = serde_json::json!("failed\n");
+
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let path = root.path().join("failed.json");
+    let edited = serde_json::to_vec(&value).expect("the edited result is JSON");
+
+    std::fs::write(&path, edited).expect("write the edited result");
+
+    let output = stomme_in(root.path(), Path::new("failed.json"));
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr_lines(&output),
+        vec!["stomme: failed.json status failed differs from manifest terminal state failed\\n"]
+    );
+}
+
+#[test]
+fn a_missing_path_with_a_line_break_stays_on_one_stderr_line() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    let output = stomme_in(root.path(), Path::new("missing\n.json"));
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stdout(&output), "");
+
+    let lines = stderr_lines(&output);
+
+    assert_eq!(lines.len(), 1);
+    assert!(
+        lines[0].starts_with("stomme: could not read missing\\n.json: "),
         "{lines:?}"
     );
 }
 
 fn stomme(result: &Path) -> Output {
+    stomme_in(Path::new("."), result)
+}
+
+fn stomme_in(directory: &Path, result: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_stomme"))
         .args(["ocr-coverage"])
         .arg(result)
+        .current_dir(directory)
         .output()
         .expect("run stomme")
 }
@@ -159,23 +204,23 @@ fn partial_fragment() -> String {
         "\n",
         "Not reviewed:\n",
         "\n",
-        "- `crates/stomme-cli/src/sync.rs`: budget, reached the maximum tool-request rounds without finishing\n",
+        "- `crates/stomme-cli/src/sync.rs`: `budget`, `reached the maximum tool-request rounds without finishing`\n",
         "\n",
         "<details>\n",
         "<summary>12 files excluded by the review rules</summary>\n",
         "\n",
-        "- `crates/stomme-cli/src/check/synced_files/tests.rs`: default_path\n",
-        "- `crates/stomme-cli/src/guides/tests.rs`: default_path\n",
-        "- `crates/stomme-cli/src/ocr_rules/tests.rs`: default_path\n",
-        "- `crates/stomme-cli/src/owned/tests.rs`: default_path\n",
-        "- `crates/stomme-cli/src/sync/tests.rs`: default_path\n",
-        "- `docs/adr/0002-purpose-and-design.md`: unsupported_ext\n",
-        "- `docs/adr/0013-consumer-guides.md`: unsupported_ext\n",
-        "- `docs/adr/0016-open-code-review.md`: unsupported_ext\n",
-        "- `docs/adr/README.md`: unsupported_ext\n",
-        "- `docs/development.md`: unsupported_ext\n",
-        "- `docs/stomme/.sync-record.toml`: user_exclude\n",
-        "- `docs/stomme/ocr-rules.json`: user_exclude\n",
+        "- `crates/stomme-cli/src/check/synced_files/tests.rs`: `default_path`\n",
+        "- `crates/stomme-cli/src/guides/tests.rs`: `default_path`\n",
+        "- `crates/stomme-cli/src/ocr_rules/tests.rs`: `default_path`\n",
+        "- `crates/stomme-cli/src/owned/tests.rs`: `default_path`\n",
+        "- `crates/stomme-cli/src/sync/tests.rs`: `default_path`\n",
+        "- `docs/adr/0002-purpose-and-design.md`: `unsupported_ext`\n",
+        "- `docs/adr/0013-consumer-guides.md`: `unsupported_ext`\n",
+        "- `docs/adr/0016-open-code-review.md`: `unsupported_ext`\n",
+        "- `docs/adr/README.md`: `unsupported_ext`\n",
+        "- `docs/development.md`: `unsupported_ext`\n",
+        "- `docs/stomme/.sync-record.toml`: `user_exclude`\n",
+        "- `docs/stomme/ocr-rules.json`: `user_exclude`\n",
         "</details>\n",
     )
     .to_string()

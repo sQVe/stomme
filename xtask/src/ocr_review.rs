@@ -81,7 +81,11 @@ case "$2" in
     ;;
 esac
 echo "coverage from $2"
-echo "stomme: $2: not reviewed (demo)" >&2
+if [ -n "${STOMME_STDERR_LINE:-}" ]; then
+  echo "$STOMME_STDERR_LINE" >&2
+else
+  echo "stomme: $2: not reviewed (demo)" >&2
+fi
 case "$2" in
   *ocr-result.json) exit "${STOMME_FIRST_CODE:-0}" ;;
   *ocr-resume.json) exit "${STOMME_RESUME_CODE:-0}" ;;
@@ -390,6 +394,7 @@ struct Run<'a> {
     resumed: i32,
     resume_result: Option<&'a str>,
     resume_unusable: bool,
+    stderr_line: Option<&'a str>,
 }
 
 impl Default for Run<'_> {
@@ -402,6 +407,7 @@ impl Default for Run<'_> {
             resumed: 0,
             resume_result: None,
             resume_unusable: false,
+            stderr_line: None,
         }
     }
 }
@@ -516,6 +522,10 @@ impl Classifier {
 
         if run.resume_unusable {
             command.env("STOMME_RESUME_UNUSABLE", "1");
+        }
+
+        if let Some(line) = run.stderr_line {
+            command.env("STOMME_STDERR_LINE", line);
         }
 
         let completed = command
@@ -771,12 +781,46 @@ fn report_decides_the_check_result() {
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
+        reason: "provider 50%0A",
+        ..Report::default()
+    });
+
+    assert_eq!(exit, 1);
+    assert!(
+        stdout.contains("::error::the OCR review failed: provider 50%250A"),
+        "{stdout}"
+    );
+
+    let (exit, stdout) = classifier.report(Report {
+        status: "1",
         ..Report::default()
     });
 
     assert_eq!(exit, 1);
     assert!(
         stdout.contains("::error::the OCR review failed\n"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn report_escapes_a_percent_in_a_not_reviewed_line() {
+    let classifier = Classifier::new();
+    classifier.run(Run {
+        first: 1,
+        result: Some(SESSION_RESULT),
+        stderr_line: Some("stomme: 50%0A.rs: not reviewed (demo)"),
+        ..Run::default()
+    });
+
+    let (exit, stdout) = classifier.report(Report {
+        status: "1",
+        ..Report::default()
+    });
+
+    assert_eq!(exit, 1);
+    assert!(
+        stdout.contains("::error::50%250A.rs: not reviewed (demo)"),
         "{stdout}"
     );
 }

@@ -204,7 +204,10 @@ fn run_ocr_coverage(path: &Path) -> ExitCode {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("stomme: could not read {label}: {error}");
+            eprintln!(
+                "stomme: could not read {}: {error}",
+                ocr_coverage::escaped_text(&label)
+            );
             return ExitCode::FAILURE;
         }
     };
