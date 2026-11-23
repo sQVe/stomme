@@ -30,7 +30,10 @@ Projects own their capability names, module import tables, and project decisions
 holds the pinned version, language, layers, role paths, module table, and bounded exceptions.
 `docs/stomme/` holds synced shared text that projects never edit. Its layout mirrors the source
 tree under `foundation/`, with `shared/`, `languages/<language>/`, and `layers/<name>/`, so relative
-links keep working.
+links keep working. The owned set also holds one generated file, `docs/stomme/ocr-rules.json`,
+built from the selection and the project's optional `.opencodereview/rule.json`. It is not part of
+the tree that mirrors `foundation/`, and link validation covers only the Markdown files.
+[ADR 0017](./0017-open-code-review.md) records the review and the rule file's format.
 `docs/stomme/.sync-record.toml` records the pinned version and a content hash for each synced path,
 and `sync` writes it last. `AGENTS.md` holds one managed block between `<!-- stomme:start -->` and
 `<!-- stomme:end -->` markers, and the record holds a hash of that block. Text outside the markers
@@ -57,11 +60,12 @@ keeps the two versions equal. A consumer loads coding guides from the project's 
 its bundled guides only when stomme is absent, not broken. [ADR 0013](./0013-consumer-guides.md)
 defines the bundle and its record.
 
-`sync` writes only the owned set for the project's version, language, and layers. It also writes the
-managed `AGENTS.md` block and leaves the text outside its markers alone. It sets every stomme npm
-package the project already declares in `package.json` to the version recorded for the release, and
-never adds a package. It validates every relative link in that set before writing, refuses a file
-whose bytes match neither the record nor the new content, and writes the record last.
+`sync` writes only the owned set for the project's version, language, and layers, which includes
+the generated `docs/stomme/ocr-rules.json`. It also writes the managed `AGENTS.md` block and leaves
+the text outside its markers alone. It sets every stomme npm package the project already declares
+in `package.json` to the version recorded for the release, and never adds a package. It validates
+every relative link in that set's Markdown files before writing, refuses a file whose bytes match
+neither the record nor the new content, and writes the record last.
 
 Checks reject changed synced text, missing required files, invalid ADR indexes, broken layout or
 imports, and dependency version drift. Existing projects may record violations by path and rule,

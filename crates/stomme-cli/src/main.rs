@@ -10,6 +10,7 @@ mod full_check;
 mod guides;
 mod init;
 mod layer;
+mod ocr_rules;
 mod owned;
 mod packages;
 mod rule;

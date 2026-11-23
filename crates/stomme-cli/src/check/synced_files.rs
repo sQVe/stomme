@@ -10,6 +10,7 @@ use crate::agents_block;
 use crate::config::Selection;
 use crate::full_check;
 use crate::layer::Catalog;
+use crate::ocr_rules;
 use crate::owned;
 use crate::rule::Rule;
 use crate::sync::{self, RECORD_FILE, Record, RecordState};
@@ -20,19 +21,33 @@ pub(super) fn check(
     selection: &Selection,
     catalog: &Catalog,
 ) -> anyhow::Result<Vec<Problem>> {
-    let owned = owned::owned_set(selection, catalog);
+    let mut problems = Vec::new();
+    let mut invalid_project_rules = false;
+    let project = match ocr_rules::read_project(root) {
+        Ok(project) => project,
+        Err(error) => {
+            problems.push(problem(ocr_rules::PROJECT_RULE_FILE, &error.to_string()));
+            invalid_project_rules = true;
+
+            None
+        }
+    };
+    let owned = owned::owned_set(selection, catalog, project.as_ref());
 
     if let Some(problem) = parent_problem(root, RECORD_FILE) {
-        return Ok(vec![problem]);
+        problems.push(problem);
+
+        return Ok(problems);
     }
 
     for file in &owned {
         if let Some(problem) = parent_problem(root, &file.path) {
-            return Ok(vec![problem]);
+            problems.push(problem);
+
+            return Ok(problems);
         }
     }
 
-    let mut problems = Vec::new();
     let record = match Record::read(root) {
         Ok(Some(record)) => record,
         Ok(None) => {
@@ -59,12 +74,12 @@ pub(super) fn check(
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
     let owned_keys: BTreeSet<&str> = owned
         .iter()
-        .filter_map(|file| sync::record_key(&file.path))
+        .filter_map(|file| owned::record_key(&file.path))
         .collect();
     let recorded_paths: BTreeSet<String> = record
         .files
         .keys()
-        .map(|key| sync::project_path(key))
+        .map(|key| owned::project_path(key))
         .collect();
     let known_paths: BTreeSet<&str> = owned_paths
         .iter()
@@ -73,12 +88,22 @@ pub(super) fn check(
         .collect();
 
     for file in &owned {
-        check_owned_file(root, file, &record, &mut problems)?;
+        let Some(actual) = read_owned_file(root, file, &mut problems)? else {
+            continue;
+        };
+
+        if invalid_project_rules && file.path == ocr_rules::RULE_FILE {
+            check_owned_record(file, &actual, &record, &mut problems);
+
+            continue;
+        }
+
+        check_owned_file(file, &actual, &record, &mut problems);
     }
 
     for key in record.files.keys() {
         if !owned_keys.contains(key.as_str()) {
-            let path = sync::project_path(key);
+            let path = owned::project_path(key);
 
             problems.push(problem(
                 &path,
@@ -175,19 +200,18 @@ fn check_block(
     Ok(())
 }
 
-fn check_owned_file(
+fn read_owned_file(
     root: &Path,
     file: &owned::OwnedFile,
-    record: &Record,
     problems: &mut Vec<Problem>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     let path = root.join(&file.path);
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             problems.push(problem(&file.path, "is missing; run `stomme sync`"));
 
-            return Ok(());
+            return Ok(None);
         }
         Err(error) => {
             return Err(error).with_context(|| format!("Could not read {}", path.display()));
@@ -200,11 +224,20 @@ fn check_owned_file(
             "is not a regular file; run `stomme sync`",
         ));
 
-        return Ok(());
+        return Ok(None);
     }
 
     let bytes = fs::read(&path).with_context(|| format!("Could not read {}", path.display()))?;
-    let actual = sync::hash(&bytes);
+
+    Ok(Some(sync::hash(&bytes)))
+}
+
+fn check_owned_file(
+    file: &owned::OwnedFile,
+    actual: &str,
+    record: &Record,
+    problems: &mut Vec<Problem>,
+) {
     let expected = sync::hash(file.content.as_bytes());
 
     if actual != expected {
@@ -213,12 +246,21 @@ fn check_owned_file(
             "differs from the synced content; run `stomme sync`",
         ));
 
-        return Ok(());
+        return;
     }
 
-    let key = sync::record_key(&file.path).expect("an owned path is under docs/stomme");
+    check_owned_record(file, actual, record, problems);
+}
 
-    match sync::record_state(Some(record), key, &actual) {
+fn check_owned_record(
+    file: &owned::OwnedFile,
+    actual: &str,
+    record: &Record,
+    problems: &mut Vec<Problem>,
+) {
+    let key = owned::record_key(&file.path).expect("an owned path is under docs/stomme");
+
+    match sync::record_state(Some(record), key, actual) {
         RecordState::Matches => {}
         RecordState::Differs => problems.push(problem(
             &file.path,
@@ -229,8 +271,6 @@ fn check_owned_file(
             "is not in the ownership record; run `stomme sync`",
         )),
     }
-
-    Ok(())
 }
 
 fn check_extra_files(

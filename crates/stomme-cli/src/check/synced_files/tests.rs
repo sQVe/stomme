@@ -4,6 +4,7 @@ use std::path::Path;
 use super::*;
 use crate::config::{self, Installation};
 use crate::layer;
+use crate::ocr_rules::PROJECT_RULE_FILE;
 use crate::rule::Rule;
 use crate::test_support::{complete_project, write_file};
 
@@ -30,6 +31,141 @@ fn check_reports_an_edited_synced_file() {
             .any(|problem| problem.path == path && problem.rule == Rule::SyncedFiles),
         "{problems:?}"
     );
+}
+
+#[test]
+fn check_reports_a_stale_ocr_rule_file() {
+    let root = complete_project();
+    let path = "docs/stomme/ocr-rules.json";
+
+    write_file(
+        root.path(),
+        PROJECT_RULE_FILE,
+        r#"{"rules":[{"path":"src/**","rule":"Keep modules small."}]}"#,
+    );
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path)
+        .expect("the rule file is reported");
+
+    assert!(
+        problem.message.contains("differs from the synced content"),
+        "{problem:?}"
+    );
+}
+
+#[test]
+fn check_reports_an_invalid_project_rule_file() {
+    let root = complete_project();
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == PROJECT_RULE_FILE)
+        .expect("the project rule file is reported");
+
+    assert_eq!(problem.rule, Rule::SyncedFiles);
+    assert!(problem.key.is_none(), "{problem:?}");
+
+    fs::remove_dir_all(root.path().join("docs/stomme")).expect("remove the synced output");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
+    assert!(reported(&problems, RECORD_FILE), "{problems:?}");
+}
+
+#[test]
+fn check_reports_an_invalid_project_rule_file_without_a_stale_rule_problem() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        PROJECT_RULE_FILE,
+        r#"{"rules":[{"path":"src/**","rule":"Keep modules small."}]}"#,
+    );
+    crate::sync_project(root.path());
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].path, PROJECT_RULE_FILE);
+    assert_eq!(problems[0].rule, Rule::SyncedFiles);
+    assert!(
+        !reported(&problems, "docs/stomme/ocr-rules.json"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn check_reports_a_directory_at_the_rule_file_with_an_invalid_project_rule_file() {
+    let root = complete_project();
+    let path = "docs/stomme/ocr-rules.json";
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+    fs::remove_file(root.path().join(path)).expect("remove the rule file");
+    fs::create_dir(root.path().join(path)).expect("create a directory in its place");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
+        .expect("the output path is reported");
+
+    assert!(
+        problem.message.contains("not a regular file"),
+        "{problem:?}"
+    );
+}
+
+#[test]
+fn check_reports_an_invalid_project_rule_file_when_the_output_parent_is_a_file() {
+    let root = complete_project();
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+    fs::remove_dir_all(root.path().join("docs/stomme")).expect("remove the synced output");
+    write_file(root.path(), "docs/stomme", "not a folder\n");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
+    assert!(reported(&problems, "docs/stomme"), "{problems:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_symlinked_shared_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::rename(
+        root.path().join("docs/stomme/shared"),
+        outside.path().join("shared"),
+    )
+    .expect("move shared outside the project");
+    symlink(
+        outside.path().join("shared"),
+        root.path().join("docs/stomme/shared"),
+    )
+    .expect("create the symlink");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, "docs/stomme/shared"), "{problems:?}");
 }
 
 fn rewrite_record(root: &Path, change: impl FnOnce(&mut Record)) {
@@ -126,7 +262,7 @@ fn check_reports_a_record_hash_that_differs() {
     let path = "docs/stomme/shared/coding.md";
 
     rewrite_record(root.path(), |record| {
-        let key = sync::record_key(path).expect("a project path");
+        let key = owned::record_key(path).expect("a project path");
 
         record.files.insert(key.to_string(), "0".repeat(64));
     });
@@ -145,7 +281,7 @@ fn check_reports_a_synced_file_missing_from_the_record() {
     rewrite_record(root.path(), |record| {
         record
             .files
-            .remove(sync::record_key(path).expect("a project path"));
+            .remove(owned::record_key(path).expect("a project path"));
     });
 
     let problems =
@@ -193,7 +329,7 @@ fn check_reports_a_recorded_file_that_is_not_owned() {
     let path = "docs/stomme/old.md";
 
     rewrite_record(root.path(), |record| {
-        let key = sync::record_key(path).expect("a project path");
+        let key = owned::record_key(path).expect("a project path");
 
         record.files.insert(key.to_string(), "0".repeat(64));
     });

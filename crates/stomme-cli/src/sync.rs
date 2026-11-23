@@ -12,7 +12,8 @@ use crate::agents_block::{self, BlockError};
 use crate::config::{self, Installation, Selection};
 use crate::full_check;
 use crate::layer::Catalog;
-use crate::owned::{self, DOCS_FOLDER, LinkError, OwnedFile};
+use crate::ocr_rules::{self, OcrRulesError};
+use crate::owned::{self, LinkError, OwnedFile};
 use crate::synced_tree;
 use crate::synced_tree::WalkError;
 
@@ -51,6 +52,8 @@ pub(crate) enum SyncError {
     Broken { reason: config::Reason },
     #[error(transparent)]
     Link(#[from] LinkError),
+    #[error(transparent)]
+    OcrRules(#[from] OcrRulesError),
     #[error("the ownership record {path} is malformed: {reason}")]
     MalformedRecord { path: String, reason: String },
     #[error("{path} is not a regular file")]
@@ -104,7 +107,8 @@ pub(crate) fn run(
         Installation::NoStomme => return Err(SyncError::NoStomme),
         Installation::Broken(reason) => return Err(SyncError::Broken { reason }),
     };
-    let owned = owned::owned_set(&selection, catalog);
+    let project = ocr_rules::read_project(root)?;
+    let owned = owned::owned_set(&selection, catalog, project.as_ref());
 
     sync(root, &selection, &owned)
 }
@@ -199,7 +203,7 @@ impl PreviousRecord {
                 continue;
             }
 
-            let Some(key) = record_key(&path) else {
+            let Some(key) = owned::record_key(&path) else {
                 return Err(malformed(
                     label,
                     format!("names `{path}`, which is not a synced file"),
@@ -232,16 +236,6 @@ fn malformed(path: &str, reason: String) -> SyncError {
     }
 }
 
-pub(crate) fn record_key(project_path: &str) -> Option<&str> {
-    let rest = project_path.strip_prefix(DOCS_FOLDER)?;
-
-    rest.strip_prefix('/')
-}
-
-pub(crate) fn project_path(key: &str) -> String {
-    format!("{DOCS_FOLDER}/{key}")
-}
-
 fn valid_key(key: &str) -> bool {
     let reserved = key == ".sync-record.toml" || key == agents_block::PATH;
     let clean = !key.starts_with('/')
@@ -268,14 +262,16 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
     let owned_keys: BTreeSet<&str> = owned
         .iter()
-        .filter_map(|file| record_key(&file.path))
+        .filter_map(|file| owned::record_key(&file.path))
         .collect();
     let recorded_keys: BTreeSet<&str> = record
         .as_ref()
         .map(|record| record.files.keys().map(String::as_str).collect())
         .unwrap_or_default();
-    let recorded_paths: BTreeSet<String> =
-        recorded_keys.iter().map(|key| project_path(key)).collect();
+    let recorded_paths: BTreeSet<String> = recorded_keys
+        .iter()
+        .map(|key| owned::project_path(key))
+        .collect();
 
     for path in owned_paths
         .iter()
@@ -395,7 +391,7 @@ fn plan_writes(
     let mut files = BTreeMap::new();
 
     for file in owned {
-        let key = record_key(&file.path).expect("an owned path is under docs/stomme");
+        let key = owned::record_key(&file.path).expect("an owned path is under docs/stomme");
 
         files.insert(key.to_string(), hash(file.content.as_bytes()));
 
@@ -437,7 +433,7 @@ fn plan_deletes(
             continue;
         }
 
-        let path = project_path(key);
+        let path = owned::project_path(key);
         let Some(existing) = read_existing(root, &path)? else {
             continue;
         };
