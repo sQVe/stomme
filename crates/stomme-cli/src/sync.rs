@@ -591,6 +591,12 @@ fn stale_staging_in(base: &Path, folder: &Path) -> Result<Vec<String>, SyncError
             continue;
         }
 
+        let is_file = entry.file_type().is_ok_and(|file_type| file_type.is_file());
+
+        if !is_file {
+            continue;
+        }
+
         let Some(relative) = synced_tree::relative_path(base, &entry.path()) else {
             continue;
         };
@@ -681,7 +687,9 @@ pub(crate) fn write_file(root: &Path, path: &str, content: &str) -> Result<(), S
 fn stage(root: &Path, target: &Path, content: &str, path: &str) -> Result<Staging, SyncError> {
     let permissions = writable_permissions(root, path)?;
     let (staging, mut file) = create_staging(target, permissions.as_ref(), path)?;
-    let written = file.write_all(content.as_bytes());
+    let written = file
+        .write_all(content.as_bytes())
+        .and_then(|()| file.sync_all());
 
     drop(file);
 
@@ -777,7 +785,7 @@ fn create_exclusive(
     if let Some(permissions) = permissions {
         use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 
-        options.mode(permissions.mode());
+        options.mode(permissions.mode() & 0o7777);
     }
 
     let file = match options.open(staging) {
@@ -813,13 +821,13 @@ impl Drop for Staging {
         reason = "no caller can take the cleanup error after a failed write"
     )]
     fn drop(&mut self) {
-        match fs::remove_file(&self.path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => eprintln!(
+        if let Err(error) = fs::remove_file(&self.path)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            eprintln!(
                 "could not remove the staging file {}: {error}",
                 self.path.display()
-            ),
+            );
         }
     }
 }

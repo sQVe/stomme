@@ -322,15 +322,56 @@ fn guides_removes_a_stale_staging_file_beside_an_unchanged_guide() {
 
     run(root.path(), layer::catalog()).expect("write the bundle");
 
+    let guide = root.path().join("shared/coding.md");
+    let stale = root
+        .path()
+        .join("shared")
+        .join(".stomme-staging.4242.0.coding.md");
+    let before = fs::read(&guide).expect("read the unchanged guide");
+
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+    run(root.path(), layer::catalog()).expect("rewrite the bundle");
+
+    assert!(!stale.exists());
+    assert_eq!(fs::read(&guide).expect("read the unchanged guide"), before);
+}
+
+#[test]
+fn guides_removes_a_stale_staging_file_beside_the_record() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    run(root.path(), layer::catalog()).expect("write the bundle");
+
+    let stale = root.path().join(".stomme-staging.4242.0..sync-record.toml");
+
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+    run(root.path(), layer::catalog()).expect("rewrite the bundle");
+
+    assert!(!stale.exists());
+}
+
+#[test]
+fn guides_keeps_a_stale_staging_file_when_it_refuses() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    run(root.path(), layer::catalog()).expect("write the bundle");
+
     let stale = root
         .path()
         .join("shared")
         .join(".stomme-staging.4242.0.coding.md");
 
     fs::write(&stale, "partial\n").expect("write the stale staging file");
-    run(root.path(), layer::catalog()).expect("rewrite the bundle");
+    fs::write(root.path().join("shared/coding.md"), "local\n").expect("edit the guide");
 
-    assert!(!stale.exists());
+    let before = snapshot(root.path());
+    let error = run(root.path(), layer::catalog()).expect_err("the run refuses");
+
+    assert!(
+        matches!(error, GuidesError::Edited { ref path } if path == "shared/coding.md"),
+        "{error:?}"
+    );
+    assert_eq!(snapshot(root.path()), before);
 }
 
 #[test]
@@ -351,9 +392,7 @@ fn guides_removes_a_stale_staging_file_beside_a_dropped_guide() {
         .files
         .insert("layers/old/guide.md".to_string(), sync::hash(b"old\n"));
 
-    let text = toml::to_string(&saved).expect("serialize the record");
-
-    fs::write(root.path().join(BUNDLE_RECORD), text).expect("write the record");
+    save_record(root.path(), &saved);
     run(root.path(), layer::catalog()).expect("rewrite the bundle");
 
     assert!(!guide.exists());
