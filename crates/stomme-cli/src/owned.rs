@@ -6,7 +6,7 @@ use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
 use crate::config::Selection;
 use crate::layer::Catalog;
-use crate::ocr_rules::{self, ProjectRules};
+use crate::ocr_rules::{self, Guide, Guides, LanguageGuides, ProjectRules};
 
 pub(crate) const DOCS_FOLDER: &str = "docs/stomme";
 
@@ -69,16 +69,22 @@ const SHARED: &[(&str, &str)] = &[
     ),
 ];
 
-const LANGUAGE_GUIDES: &[(&str, &str)] = &[
-    (
-        "languages/rust/guide.md",
-        include_str!("../../../foundation/languages/rust/guide.md"),
-    ),
-    (
-        "languages/typescript/guide.md",
-        include_str!("../../../foundation/languages/typescript/guide.md"),
-    ),
-];
+struct LanguageGuide {
+    path: &'static str,
+    text: &'static str,
+}
+
+const RUST_GUIDE: LanguageGuide = LanguageGuide {
+    path: "languages/rust/guide.md",
+    text: include_str!("../../../foundation/languages/rust/guide.md"),
+};
+
+const TYPESCRIPT_GUIDE: LanguageGuide = LanguageGuide {
+    path: "languages/typescript/guide.md",
+    text: include_str!("../../../foundation/languages/typescript/guide.md"),
+};
+
+const LANGUAGE_GUIDES: &[LanguageGuide] = &[RUST_GUIDE, TYPESCRIPT_GUIDE];
 
 pub(crate) struct OwnedFile {
     pub(crate) path: String,
@@ -110,18 +116,15 @@ pub(crate) fn owned_set(
         .map(|&(path, content)| owned(path, content))
         .collect();
 
-    for (path, text) in &guides {
-        files.push(OwnedFile {
-            path: path.clone(),
-            content: (*text).to_string(),
-        });
+    files.push(guide_file(&guides.general));
+    let selected = guides.language(selection.language);
+    files.push(guide_file(selected));
+
+    for layer in &guides.layers {
+        files.push(guide_file(layer));
     }
 
-    let render_guides: Vec<(&str, &str)> = guides
-        .iter()
-        .map(|(path, text)| (path.as_str(), *text))
-        .collect();
-    let rules = ocr_rules::render(selection.language, &render_guides, project);
+    let rules = ocr_rules::render(selection.language, &guides, project);
     let key = record_key(ocr_rules::RULE_FILE).expect("the rule file lies under docs/stomme");
 
     files.push(owned(key, rules));
@@ -140,37 +143,61 @@ pub(crate) fn project_path(key: &str) -> String {
     format!("{DOCS_FOLDER}/{key}")
 }
 
-fn selected_guides(selection: &Selection, catalog: &Catalog) -> Vec<(String, &'static str)> {
+fn selected_guides(selection: &Selection, catalog: &Catalog) -> Guides {
     let coding = SHARED
         .iter()
         .find(|&&(path, _)| path == "shared/coding.md")
         .expect("the shared coding guide is embedded");
-    let language = format!("languages/{}/guide.md", selection.language);
-    let language = LANGUAGE_GUIDES
+    let general = project_guide(coding.0, coding.1);
+
+    let languages = LanguageGuides {
+        rust: project_guide(RUST_GUIDE.path, RUST_GUIDE.text),
+        typescript: project_guide(TYPESCRIPT_GUIDE.path, TYPESCRIPT_GUIDE.text),
+    };
+
+    let layers = selection
+        .layers
         .iter()
-        .find(|&&(path, _)| path == language)
-        .expect("the selected language has a guide");
-    let mut guides = vec![
-        (project_path(coding.0), coding.1),
-        (project_path(language.0), language.1),
-    ];
+        .map(|layer| {
+            let guide = catalog
+                .guide(layer)
+                .expect("the selection names a registered layer");
+            let path = format!("layers/{layer}/guide.md");
 
-    for layer in &selection.layers {
-        let guide = catalog
-            .guide(layer)
-            .expect("the selection names a registered layer");
+            project_guide(&path, guide)
+        })
+        .collect();
 
-        guides.push((project_path(&format!("layers/{layer}/guide.md")), guide));
+    Guides {
+        general,
+        languages,
+        layers,
     }
+}
 
-    guides
+fn project_guide(path: &str, text: &'static str) -> Guide {
+    Guide {
+        path: project_path(path),
+        text,
+    }
+}
+
+fn guide_file(guide: &Guide) -> OwnedFile {
+    OwnedFile {
+        path: guide.path.clone(),
+        content: guide.text.to_string(),
+    }
 }
 
 pub(crate) fn bundle_set(catalog: &Catalog) -> Vec<OwnedFile> {
     let mut files: Vec<OwnedFile> = SHARED
         .iter()
-        .chain(LANGUAGE_GUIDES)
         .map(|&(path, content)| owned(path, content))
+        .chain(
+            LANGUAGE_GUIDES
+                .iter()
+                .map(|guide| owned(guide.path, guide.text)),
+        )
         .collect();
 
     for (name, guide) in catalog.guides() {
@@ -447,7 +474,7 @@ pub(crate) fn link_targets(text: &str) -> Vec<String> {
 #[cfg(test)]
 fn embedded_paths() -> BTreeSet<String> {
     let shared = SHARED.iter().map(|&(path, _)| path.to_string());
-    let languages = LANGUAGE_GUIDES.iter().map(|&(path, _)| path.to_string());
+    let languages = LANGUAGE_GUIDES.iter().map(|guide| guide.path.to_string());
     let layers = crate::layer::catalog()
         .guides()
         .map(|(name, _)| format!("layers/{name}/guide.md"));
