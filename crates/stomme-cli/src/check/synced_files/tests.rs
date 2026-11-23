@@ -4,6 +4,7 @@ use std::path::Path;
 use super::*;
 use crate::config::{self, Installation};
 use crate::layer;
+use crate::ocr_rules::PROJECT_RULE_FILE;
 use crate::rule::Rule;
 use crate::test_support::{complete_project, write_file};
 
@@ -30,6 +31,55 @@ fn check_reports_an_edited_synced_file() {
             .any(|problem| problem.path == path && problem.rule == Rule::SyncedFiles),
         "{problems:?}"
     );
+}
+
+#[test]
+fn check_reports_a_stale_ocr_rule_file() {
+    let root = complete_project();
+    let path = "docs/stomme/ocr-rules.json";
+
+    write_file(
+        root.path(),
+        PROJECT_RULE_FILE,
+        r#"{"rules":[{"path":"src/**","rule":"Keep modules small."}]}"#,
+    );
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path)
+        .expect("the rule file is reported");
+
+    assert!(
+        problem.message.contains("differs from the synced content"),
+        "{problem:?}"
+    );
+}
+
+#[test]
+fn check_reports_an_invalid_project_rule_file() {
+    let root = complete_project();
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == PROJECT_RULE_FILE)
+        .expect("the project rule file is reported");
+
+    assert_eq!(problem.rule, Rule::SyncedFiles);
+    assert!(problem.key.is_none(), "{problem:?}");
+
+    fs::remove_file(root.path().join(RECORD_FILE)).expect("remove the record");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
+    assert!(reported(&problems, RECORD_FILE), "{problems:?}");
 }
 
 fn rewrite_record(root: &Path, change: impl FnOnce(&mut Record)) {

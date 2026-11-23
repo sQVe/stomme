@@ -12,6 +12,7 @@ use crate::agents_block::{self, BlockError};
 use crate::config::{self, Installation, Selection};
 use crate::full_check;
 use crate::layer::Catalog;
+use crate::ocr_rules::{self, OcrRulesError};
 use crate::owned::{self, DOCS_FOLDER, LinkError, OwnedFile};
 use crate::synced_tree;
 use crate::synced_tree::WalkError;
@@ -51,6 +52,8 @@ pub(crate) enum SyncError {
     Broken { reason: config::Reason },
     #[error(transparent)]
     Link(#[from] LinkError),
+    #[error(transparent)]
+    OcrRules(#[from] OcrRulesError),
     #[error("the ownership record {path} is malformed: {reason}")]
     MalformedRecord { path: String, reason: String },
     #[error("{path} is not a regular file")]
@@ -104,7 +107,8 @@ pub(crate) fn run(
         Installation::NoStomme => return Err(SyncError::NoStomme),
         Installation::Broken(reason) => return Err(SyncError::Broken { reason }),
     };
-    let owned = owned::owned_set(&selection, catalog);
+    let project = ocr_rules::read_project(root)?;
+    let owned = owned::owned_set(&selection, catalog, project.as_ref());
 
     sync(root, &selection, &owned)
 }

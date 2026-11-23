@@ -4,6 +4,7 @@ agents = "d7de3d051e5670f07bf04075e751232785e1d598c9136d54cf92fb21fec94600"
 
 [files]
 "languages/rust/guide.md" = "1461932c26db7081a0cfe660bdcb5f2796638d6e748fea3748befad42cdd80cb"
+"ocr-rules.json" = "1cd36f9cebbfec3d14857c29d5b69aa92a98a102e4ed487c43b9fd11b2d3200f"
 "shared/adr/0001-documentation-scope.md" = "4b32e3d006224eb541fb43852692cd7bf05a279c33b366cec856e246ba191297"
 "shared/adr/0002-capability-modules.md" = "70beb0336937fbcd9ded53b535068c0de8bef4f6b0959a133278017bf114831c"
 "shared/adr/0003-owner-folders-and-file-names.md" = "0d26b102337e44c74af89e4f935d8db6db5d7594d8f0a1b860d7d7393fe0d727"

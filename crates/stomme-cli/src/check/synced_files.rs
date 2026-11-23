@@ -10,6 +10,7 @@ use crate::agents_block;
 use crate::config::Selection;
 use crate::full_check;
 use crate::layer::Catalog;
+use crate::ocr_rules;
 use crate::owned;
 use crate::rule::Rule;
 use crate::sync::{self, RECORD_FILE, Record, RecordState};
@@ -20,19 +21,31 @@ pub(super) fn check(
     selection: &Selection,
     catalog: &Catalog,
 ) -> anyhow::Result<Vec<Problem>> {
-    let owned = owned::owned_set(selection, catalog);
+    let mut problems = Vec::new();
+    let project = match ocr_rules::read_project(root) {
+        Ok(project) => project,
+        Err(error) => {
+            problems.push(problem(ocr_rules::PROJECT_RULE_FILE, &error.to_string()));
+
+            None
+        }
+    };
+    let owned = owned::owned_set(selection, catalog, project.as_ref());
 
     if let Some(problem) = parent_problem(root, RECORD_FILE) {
-        return Ok(vec![problem]);
+        problems.push(problem);
+
+        return Ok(problems);
     }
 
     for file in &owned {
         if let Some(problem) = parent_problem(root, &file.path) {
-            return Ok(vec![problem]);
+            problems.push(problem);
+
+            return Ok(problems);
         }
     }
 
-    let mut problems = Vec::new();
     let record = match Record::read(root) {
         Ok(Some(record)) => record,
         Ok(None) => {

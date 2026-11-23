@@ -81,6 +81,16 @@ fn guides_writes_every_file_and_a_matching_record() {
 }
 
 #[test]
+fn guides_bundle_has_no_ocr_rule_file() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    run(root.path(), layer::catalog()).expect("write the bundle");
+
+    assert!(!root.path().join("ocr-rules.json").exists());
+    assert!(!record(root.path()).files.contains_key("ocr-rules.json"));
+}
+
+#[test]
 fn guides_twice_changes_nothing() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 

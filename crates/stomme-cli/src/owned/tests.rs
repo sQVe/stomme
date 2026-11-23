@@ -53,7 +53,7 @@ fn source_files() -> BTreeSet<String> {
 fn file(path: &str, content: &'static str) -> OwnedFile {
     OwnedFile {
         path: path.to_string(),
-        content,
+        content: content.to_string(),
     }
 }
 
@@ -68,6 +68,13 @@ fn validate_links_accepts_a_link_inside_the_set() {
         file("docs/stomme/shared/one.md", "[two](./two.md#part)\n"),
         file("docs/stomme/shared/two.md", "# Two\n\n## Part\n"),
     ];
+
+    assert_eq!(validate_links(&files), Ok(()));
+}
+
+#[test]
+fn validate_links_skips_files_that_are_not_markdown() {
+    let files = [file("docs/stomme/ocr-rules.json", "[x](./missing.md)\n")];
 
     assert_eq!(validate_links(&files), Ok(()));
 }
@@ -598,7 +605,7 @@ fn owned_set_reads_the_given_catalog() {
         modules: BTreeMap::new(),
     };
 
-    let files = owned_set(&selection, &catalog);
+    let files = owned_set(&selection, &catalog, None);
 
     assert!(
         files
@@ -611,7 +618,7 @@ fn smallest_selection_links(catalog: &Catalog, name: &str) -> Result<(), LinkErr
     let selection = smallest_selection(catalog, name)
         .expect("the smallest selection passes the real selection rules");
 
-    validate_links(&owned_set(&selection, catalog))
+    validate_links(&owned_set(&selection, catalog, None))
 }
 
 #[test]

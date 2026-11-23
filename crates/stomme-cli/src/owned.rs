@@ -6,6 +6,7 @@ use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
 use crate::config::Selection;
 use crate::layer::Catalog;
+use crate::ocr_rules::{self, ProjectRules};
 
 pub(crate) const DOCS_FOLDER: &str = "docs/stomme";
 
@@ -81,7 +82,7 @@ const LANGUAGE_GUIDES: &[(&str, &str)] = &[
 
 pub(crate) struct OwnedFile {
     pub(crate) path: String,
-    pub(crate) content: &'static str,
+    pub(crate) content: String,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -97,7 +98,11 @@ pub(crate) enum LinkError {
     },
 }
 
-pub(crate) fn owned_set(selection: &Selection, catalog: &Catalog) -> Vec<OwnedFile> {
+pub(crate) fn owned_set(
+    selection: &Selection,
+    catalog: &Catalog,
+    project: Option<&ProjectRules>,
+) -> Vec<OwnedFile> {
     let mut files: Vec<OwnedFile> = SHARED
         .iter()
         .map(|&(path, content)| owned(path, content))
@@ -120,9 +125,47 @@ pub(crate) fn owned_set(selection: &Selection, catalog: &Catalog) -> Vec<OwnedFi
         files.push(owned(&path, guide));
     }
 
+    let pairs = guide_pairs(selection, catalog);
+    let guides: Vec<(&str, &str)> = pairs
+        .iter()
+        .map(|(path, text)| (path.as_str(), *text))
+        .collect();
+    let rules = ocr_rules::render(selection.language, &guides, project);
+    let key = ocr_rules::RULE_FILE
+        .strip_prefix(DOCS_FOLDER)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .expect("the rule file lies under docs/stomme");
+
+    files.push(owned(key, rules));
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
     files
+}
+
+fn guide_pairs(selection: &Selection, catalog: &Catalog) -> Vec<(String, &'static str)> {
+    let language = format!("languages/{}/guide.md", selection.language);
+    let coding = SHARED
+        .iter()
+        .find(|&&(path, _)| path == "shared/coding.md")
+        .expect("the shared coding guide is embedded");
+    let language = LANGUAGE_GUIDES
+        .iter()
+        .find(|&&(path, _)| path == language)
+        .expect("the selected language has a guide");
+    let mut pairs = vec![
+        (synced_path(coding.0), coding.1),
+        (synced_path(language.0), language.1),
+    ];
+
+    for layer in &selection.layers {
+        let guide = catalog
+            .guide(layer)
+            .expect("the selection names a registered layer");
+
+        pairs.push((synced_path(&format!("layers/{layer}/guide.md")), guide));
+    }
+
+    pairs
 }
 
 pub(crate) fn bundle_set(catalog: &Catalog) -> Vec<OwnedFile> {
@@ -145,9 +188,13 @@ pub(crate) fn validate_links(files: &[OwnedFile]) -> Result<(), LinkError> {
     let index = OwnedIndex::new(files);
 
     for file in files {
+        if !file.path.ends_with(".md") {
+            continue;
+        }
+
         let base = file.path.rsplit_once('/').map_or("", |(parent, _)| parent);
 
-        for target in link_targets(file.content) {
+        for target in link_targets(&file.content) {
             check_link(file, &target, base, &index)?;
         }
     }
@@ -164,12 +211,12 @@ impl<'a> OwnedIndex<'a> {
     fn new(files: &'a [OwnedFile]) -> Self {
         let contents = files
             .iter()
-            .map(|file| (file.path.as_str(), file.content))
+            .map(|file| (file.path.as_str(), file.content.as_str()))
             .collect();
         let anchors = files
             .iter()
             .filter(|file| file.path.ends_with(".md"))
-            .map(|file| (file.path.as_str(), heading_slugs(file.content)))
+            .map(|file| (file.path.as_str(), heading_slugs(&file.content)))
             .collect();
 
         Self { contents, anchors }
@@ -222,11 +269,15 @@ fn check_link(
     Ok(())
 }
 
-fn owned(path: &str, content: &'static str) -> OwnedFile {
+fn owned(path: &str, content: impl Into<String>) -> OwnedFile {
     OwnedFile {
-        path: format!("{DOCS_FOLDER}/{path}"),
-        content,
+        path: synced_path(path),
+        content: content.into(),
     }
+}
+
+fn synced_path(path: &str) -> String {
+    format!("{DOCS_FOLDER}/{path}")
 }
 
 fn broken_link(file: &OwnedFile, target: &str) -> LinkError {
