@@ -13,8 +13,10 @@ A shared foundation for project structure, coding rules, and documentation. Read
 
 - stomme owns shared rules and checks. Projects own their modules, nouns, and project decisions.
   See [ADR 0002](docs/adr/0002-purpose-and-design.md).
-- `crates/stomme-cli` is the `stomme` CLI, with four commands: `stomme check`, `stomme sync`,
-  `stomme guides`, and `stomme init`.
+- `crates/stomme-cli` is the `stomme` CLI, with five commands: `stomme check`, `stomme sync`,
+  `stomme guides`, `stomme init`, and `stomme ocr-coverage`. `stomme ocr-coverage <result-file>`
+  reads an Open Code Review result and exits 0 when every selected file was reviewed, 2 for a
+  partial review, and 1 for a failed run or an unusable file.
   `xtask` holds repository checks and mutation tooling.
 - `packages/style` is the TypeScript style package, published as `@sqve/stomme-ts-style`.
 - `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in

@@ -10,6 +10,7 @@ mod full_check;
 mod guides;
 mod init;
 mod layer;
+mod ocr_coverage;
 mod ocr_rules;
 mod owned;
 mod packages;
@@ -25,7 +26,7 @@ fn sync_project(root: &std::path::Path) {
         .expect("sync the fixture project");
 }
 
-const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]>\n\nCheck or sync the project in the current directory, write the guides to a folder, or create a project.";
+const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]|ocr-coverage <result-file>>\n\nCheck or sync the project in the current directory, write the guides to a folder, create a project, or classify an Open Code Review result. The ocr-coverage command exits 0 when every selected file was reviewed, 2 for a partial review, and 1 for a failed run or an unusable file.";
 
 #[expect(
     clippy::print_stderr,
@@ -52,6 +53,7 @@ fn main() -> ExitCode {
         [command] if command == "sync" => run_sync(),
         [command, directory] if command == "guides" => run_guides(directory),
         [command, options @ ..] if command == "init" => run_init(options),
+        [command, path] if command == "ocr-coverage" => run_ocr_coverage(path),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::FAILURE
@@ -171,4 +173,35 @@ fn run_init(arguments: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the markdown fragment and status lines are the command's output"
+)]
+fn run_ocr_coverage(path: &str) -> ExitCode {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("stomme: could not read {path}: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let coverage = match ocr_coverage::parse(&bytes, path) {
+        Ok(coverage) => coverage,
+        Err(error) => {
+            eprintln!("stomme: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    print!("{}", coverage.fragment());
+    eprintln!("stomme: {}", coverage.status_line());
+
+    for line in coverage.unreviewed_lines() {
+        eprintln!("stomme: {line}");
+    }
+
+    ExitCode::from(coverage.exit_code())
 }
