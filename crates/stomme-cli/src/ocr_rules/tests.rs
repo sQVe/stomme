@@ -152,6 +152,32 @@ fn read_project_refuses_unknown_key() {
 }
 
 #[test]
+fn read_project_refuses_a_duplicate_member() {
+    let root = project(r#"{"rules":[{"path":" ","path":"src/**","rule":"x"}]}"#);
+
+    let error = read_project(root.path()).expect_err("refuse a duplicate path");
+
+    assert!(matches!(
+        error,
+        OcrRulesError::Shape { path, reason }
+            if path == PROJECT_RULE_FILE && reason.contains("duplicate field `path`")
+    ));
+}
+
+#[test]
+fn read_project_refuses_a_nested_merge_system_rule() {
+    let root = project(r#"{"rules":[{"path":"src/**","rule":"x","merge_system_rule":true}]}"#);
+
+    let error = read_project(root.path()).expect_err("refuse a nested merge flag");
+
+    assert!(matches!(
+        error,
+        OcrRulesError::Shape { path, reason }
+            if path == PROJECT_RULE_FILE && reason.contains("merge_system_rule")
+    ));
+}
+
+#[test]
 fn read_project_refuses_empty_path() {
     let root = project(r#"{"rules":[{"path":"src/**","rule":"x"},{"path":" ","rule":"y"}]}"#);
 
@@ -196,6 +222,28 @@ fn read_project_refuses_a_whitespace_rule() {
     assert!(matches!(
         error,
         OcrRulesError::EmptyRule { path, index } if path == PROJECT_RULE_FILE && index == 1
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn read_project_refuses_an_unreadable_rule_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = project(r#"{"rules":[]}"#);
+    let folder = root.path().join(".opencodereview");
+
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o000))
+        .expect("remove the folder permissions");
+
+    let error = read_project(root.path()).expect_err("refuse an unreadable rule file");
+
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o755))
+        .expect("restore the folder permissions");
+
+    assert!(matches!(
+        error,
+        OcrRulesError::Read { path, .. } if path == PROJECT_RULE_FILE
     ));
 }
 

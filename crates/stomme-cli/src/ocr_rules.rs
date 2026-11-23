@@ -95,7 +95,7 @@ pub(crate) fn read_project(root: &Path) -> Result<Option<ProjectRules>, OcrRules
         }
     }
 
-    let project: ProjectRules = serde_json::from_value(value).map_err(shape_error)?;
+    let project: ProjectRules = serde_json::from_slice(&bytes).map_err(shape_error)?;
 
     for (position, rule) in project.rules.iter().enumerate() {
         check_rule(rule, position + 1)?;

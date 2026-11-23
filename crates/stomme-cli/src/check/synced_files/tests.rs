@@ -73,13 +73,53 @@ fn check_reports_an_invalid_project_rule_file() {
     assert_eq!(problem.rule, Rule::SyncedFiles);
     assert!(problem.key.is_none(), "{problem:?}");
 
-    fs::remove_file(root.path().join(RECORD_FILE)).expect("remove the record");
+    fs::remove_dir_all(root.path().join("docs/stomme")).expect("remove the synced output");
 
     let problems =
         check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
     assert!(reported(&problems, RECORD_FILE), "{problems:?}");
+}
+
+#[test]
+fn check_reports_an_invalid_project_rule_file_when_the_output_parent_is_a_file() {
+    let root = complete_project();
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+    fs::remove_dir_all(root.path().join("docs/stomme")).expect("remove the synced output");
+    write_file(root.path(), "docs/stomme", "not a folder\n");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
+    assert!(reported(&problems, "docs/stomme"), "{problems:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_reports_a_symlinked_shared_folder() {
+    use std::os::unix::fs::symlink;
+
+    let root = complete_project();
+    let outside = tempfile::tempdir().expect("create an outside directory");
+
+    fs::rename(
+        root.path().join("docs/stomme/shared"),
+        outside.path().join("shared"),
+    )
+    .expect("move shared outside the project");
+    symlink(
+        outside.path().join("shared"),
+        root.path().join("docs/stomme/shared"),
+    )
+    .expect("create the symlink");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, "docs/stomme/shared"), "{problems:?}");
 }
 
 fn rewrite_record(root: &Path, change: impl FnOnce(&mut Record)) {
