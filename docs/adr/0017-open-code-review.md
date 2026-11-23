@@ -112,12 +112,24 @@ the token comes from the `MORPH_API_KEY` repository secret.
 - The resumed review posts its result once, including the comments of the first run for the files
   it reused. Its summary keeps the previous checkpoint marker, so the next push reviews from the
   old head: a wider range, never a wrong one.
-- The summary comment starts with the coverage section that the command prints. It names each
-  unreviewed file with OCR's reason, and it lists the excluded files in a collapsed block. The
-  workflow puts the same section at the top of the job summary, and inserts it after the marker of
-  the summary comment that this run posted, found by that post's URL, so the comment stays findable
-  and keeps its single checkpoint marker. When the run posted no summary comment, the coverage
-  goes only to the job summary.
+- A push whose head the checkpoint already records is a no-op run: OCR reviews an empty range and
+  writes nothing. The checkpoint moves on OCR's own completeness, which is a different measure from
+  the coverage record: `stomme ocr-coverage` counts a selected file that the record does not list
+  as reviewed, so a checkpointed head can hold files that the check counts as unreviewed. A rerun
+  of that head therefore has no new evidence to offer. Instead the workflow reads the coverage
+  section that this head's run inserted into the summary comment, copies that section to the top of
+  the job summary, and passes only when the section reports every selected file as reviewed. A
+  missing section, unreviewed files, or a failed run fails the check, and its error says that the
+  same head cannot be reviewed again, so the change needs a new commit.
+- The summary comment starts with the coverage section that the command prints. The workflow writes
+  a hidden verdict line above it that names the run's classification and the head the section
+  covers, so a later run reads the result and its head from the comment instead of its prose. A
+  section that names another head is not evidence for this one. The section names each unreviewed
+  file with OCR's reason, and it lists the excluded files in a collapsed block. The workflow puts
+  the same section at the top of the job summary, and inserts it after the marker of the summary
+  comment that this run posted, found by that post's URL, so the comment stays findable and keeps
+  its single checkpoint marker. When the run posted no summary comment, the coverage goes only to
+  the job summary.
 - Findings stay advisory, as with the size and mutation signals in
   [ADR 0009 (Advisory mutation testing and size as a review signal)](../stomme/shared/adr/0009-advisory-review-signals.md).
 - Low-severity findings go to the summary comment. Tau needs no review-bot entry, because OCR
@@ -137,8 +149,8 @@ the token comes from the `MORPH_API_KEY` repository secret.
   `stomme sync` runs.
 - Each repository sets the secret and the required check by hand.
 - An OCR or provider outage fails the check, so merges wait until the review runs.
-- A review that leaves files unreviewed after its resume blocks the merge until a rerun reviews
-  every file.
+- A review that leaves files unreviewed after its resume blocks the merge until a new commit
+  reviews them, because a rerun of the same head reviews nothing.
 - A model that stops early while OCR records the file as completed passes the check, because the
   check trusts OCR's coverage record.
 - Findings depend on a model, so the review does not replace a person's review.
@@ -175,6 +187,14 @@ advice, and the check then passes on code that no one reviewed.
 
 Let the check pass when OCR reviewed most of the selected files. Rejected because any threshold
 lets an unread file through, and it counts a large file the same as a small one.
+
+### Read the verdict from the classification command
+
+Let `stomme ocr-coverage` print the hidden verdict line, so one program owns the classification.
+Rejected because the workflow is live at merge while the classifier comes from the release pin that
+`mise.toml` holds. A project, stomme included, would then run the new reader against an older
+binary that prints no verdict and fail every no-op run until the next release. The workflow writes
+the line from the classification it already reads, so the writer and the reader ship in one file.
 
 ### Read the result with a script in the workflow
 

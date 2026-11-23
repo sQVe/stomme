@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
@@ -10,9 +10,13 @@ use crate::test_support::temporary_directory;
 
 const OCR_REVIEW: &str = include_str!("../../.github/workflows/ocr-review.yml");
 const OCR_CALLER: &str = include_str!("../../.github/workflows/ocr.yml");
+const POSTING_HELPER: &str = include_str!("../fixtures/ocr-post-review-comments-exports.js");
 const CLASSIFY_STEP: &str = "Classify and resume the review";
 const COVERAGE_STEP: &str = "Add the coverage section";
+const CHECKPOINT_STEP: &str = "Read the checkpointed coverage";
+const POST_STEP: &str = "Post the resumed review";
 const REPORT_STEP: &str = "Report the OCR result";
+const HEAD_SHA: &str = "8c6c9a2f49891c7f86c7a82f380f5c32519c52a6";
 const SESSION_RESULT: &str = r#"{"session_id":"session-1"}"#;
 const EMPTY_RESULT: &str = "{}";
 const MIXED_RESULT: &str = r#"{
@@ -94,8 +98,35 @@ printf '%s\n' "$body"
 exit "${OCR_RESUME_CODE:-0}"
 "#;
 
-const HELPER_STUB: &str = r#"const SUMMARY_MARKER = '<!-- ocr-summary -->';
-module.exports = { SUMMARY_MARKER };
+const EXPORTS_PROBE: &str = r#"const helper = require(process.env.PINNED_HELPER);
+process.stdout.write(JSON.stringify({
+  marker: helper.SUMMARY_MARKER,
+  exports: Object.keys(helper).sort(),
+}));
+"#;
+
+const POSTING_HELPER_RECORD: &str = r#"const fs = require('fs');
+const injected = ['github', 'context', 'core', 'fs'];
+module.exports = {
+  ...require(process.env.PINNED_HELPER),
+  runPostReviewComments: async (options) => {
+    const recorded = {};
+    for (const [key, value] of Object.entries(options)) {
+      recorded[key] = injected.includes(key) ? typeof value : value;
+    }
+    fs.writeFileSync(process.env.RECORD_LOG, JSON.stringify(recorded));
+  },
+};
+"#;
+
+const CHECKPOINT_HELPER: &str = r#"const fs = require('fs');
+module.exports = {
+  ...require(process.env.PINNED_HELPER),
+  findSummaryIssueComment: async () => {
+    if (!fs.existsSync(process.env.COMMENT_FILE)) return null;
+    return JSON.parse(fs.readFileSync(process.env.COMMENT_FILE, 'utf8'));
+  },
+};
 "#;
 
 const RUNNER_PREFIX: &str = r#"const fs = require('fs');
@@ -103,6 +134,7 @@ const chunks = [];
 globalThis.core = {
   info: (line) => fs.appendFileSync(process.env.INFO_LOG, `${line}\n`),
   warning: (line) => fs.appendFileSync(process.env.WARNING_LOG, `${line}\n`),
+  setOutput: (name, value) => fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`),
   summary: {
     addRaw: (text) => {
       chunks.push(text);
@@ -160,6 +192,12 @@ fn step_text(workflow: &str, step: &str) -> String {
     format!("{}\n", lines[start..end].join("\n"))
 }
 
+fn step_guard(step: &str) -> &str {
+    step.lines()
+        .find_map(|line| line.trim().strip_prefix("if: "))
+        .expect("the step has a guard")
+}
+
 fn step_block(workflow: &str, step: &str, key: &str) -> String {
     let (lines, start, end) = step_range(workflow, step);
     let key_line = format!("{key}: |");
@@ -214,6 +252,53 @@ fn read(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
 }
 
+fn posting_helper_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/ocr-post-review-comments-exports.js")
+}
+
+fn verdict_line(verdict: &str) -> String {
+    format!("<!-- stomme-ocr-coverage-verdict: {verdict} head={HEAD_SHA} -->")
+}
+
+fn write_posting_helper(workspace: &Path, text: &str) {
+    let helper = workspace
+        .join(".ocr-action")
+        .join("scripts")
+        .join("github-actions")
+        .join("post-review-comments.js");
+    fs::create_dir_all(helper.parent().expect("the helper has a folder"))
+        .expect("create the helper folder");
+    fs::write(&helper, text).expect("write the helper");
+}
+
+fn github_script_runner(script: &str) -> String {
+    format!(
+        "{RUNNER_PREFIX}\n(async () => {{\n{script}}})().catch((error) => {{\n  console.error(error);\n  process.exit(1);\n}});\n"
+    )
+}
+
+fn write_github_script(folder: &Path, step: &str) {
+    let script = step_block(OCR_REVIEW, step, "script");
+    fs::write(folder.join("runner.js"), github_script_runner(&script)).expect("write the runner");
+}
+
+fn run_github_script(folder: &Path, environment: &[(&str, String)]) -> Output {
+    let mut command = Command::new("node");
+    command
+        .arg(folder.join("runner.js"))
+        .current_dir(folder)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default());
+
+    for (key, value) in environment {
+        command.env(key, value);
+    }
+
+    command
+        .output()
+        .expect("run the extracted script with node")
+}
+
 fn remove_stale(path: &Path) -> io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -264,6 +349,25 @@ fn heredoc_delimiter(line: &str) -> Option<&str> {
     let valid_delimiter = !delimiter.is_empty() && !delimiter.contains(char::is_whitespace);
 
     (valid_name && valid_delimiter).then_some(delimiter)
+}
+
+#[derive(Clone, Copy)]
+struct Report<'a> {
+    range_reason: &'a str,
+    status: &'a str,
+    reason: &'a str,
+    verdict: &'a str,
+}
+
+impl Default for Report<'_> {
+    fn default() -> Self {
+        Self {
+            range_reason: "ok",
+            status: "0",
+            reason: "",
+            verdict: "",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -322,6 +426,10 @@ impl Observation {
 
     fn coverage_source(&self) -> Option<String> {
         last_output(&self.output, "coverage_source")
+    }
+
+    fn coverage_verdict(&self) -> Option<String> {
+        last_output(&self.output, "coverage_verdict")
     }
 }
 
@@ -415,7 +523,7 @@ impl Classifier {
         }
     }
 
-    fn report(&self, range_reason: &str, status: &str, reason: &str) -> (i32, String) {
+    fn report(&self, report: Report<'_>) -> (i32, String) {
         let root = self.folder.path();
         let completed = Command::new("/bin/bash")
             .arg("-e")
@@ -423,9 +531,10 @@ impl Classifier {
             .current_dir(root)
             .env_clear()
             .env("PATH", search_path(&root.join("bin")))
-            .env("RANGE_REASON", range_reason)
-            .env("FINAL", status)
-            .env("REASON", reason)
+            .env("RANGE_REASON", report.range_reason)
+            .env("FINAL", report.status)
+            .env("REASON", report.reason)
+            .env("CHECKPOINT_VERDICT", report.verdict)
             .output()
             .expect("run the extracted report script");
 
@@ -511,15 +620,114 @@ fn workflow_routes_the_job_from_its_predicates() {
 }
 
 #[test]
+fn the_pinned_posting_helper_exports_what_the_workflow_reads() {
+    let completed = Command::new("node")
+        .arg("-e")
+        .arg(EXPORTS_PROBE)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("PINNED_HELPER", posting_helper_path())
+        .output()
+        .expect("run node");
+
+    assert!(
+        completed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&completed.stderr)
+    );
+
+    let printed: serde_json::Value =
+        serde_json::from_slice(&completed.stdout).expect("node prints JSON");
+
+    assert_eq!(printed["marker"], "<!-- ocr-summary -->");
+    assert_eq!(
+        printed["exports"],
+        serde_json::json!([
+            "SUMMARY_MARKER",
+            "findSummaryIssueComment",
+            "runPostReviewComments"
+        ])
+    );
+}
+
+#[test]
+fn the_pinned_posting_helper_copy_names_the_commit_the_workflow_checks_out() {
+    let commit = POSTING_HELPER
+        .lines()
+        .find_map(|line| line.strip_prefix("// commit: "))
+        .expect("the pinned copy names its commit");
+
+    assert!(
+        OCR_REVIEW.contains(&format!("alibaba/open-code-review@{commit}")),
+        "the workflow reviews with {commit}"
+    );
+    assert!(
+        OCR_REVIEW.contains(&format!("ref: {commit}")),
+        "the workflow checks the posting helper out at {commit}"
+    );
+}
+
+#[test]
+fn workflow_reads_the_checkpointed_coverage_of_a_no_op_run() {
+    let read = step_text(OCR_REVIEW, CHECKPOINT_STEP);
+
+    assert!(read.contains("if: always() && steps.ocr.outputs.range_reason == 'same_head_noop'"));
+    assert!(read.contains("helper.findSummaryIssueComment"));
+    assert!(read.contains("core.setOutput('verdict'"));
+
+    let checkout = step_text(OCR_REVIEW, "Check out the OCR posting helper");
+
+    assert_eq!(
+        step_guard(&checkout),
+        "always() && (steps.outcome.outputs.final != '' || steps.ocr.outputs.range_reason == 'same_head_noop')",
+        "the helper is checked out on the first-run route and the no-op route"
+    );
+
+    let report = step_text(OCR_REVIEW, REPORT_STEP);
+
+    assert!(report.contains("steps.checkpoint-coverage.outputs.verdict"));
+    assert!(report.contains("cannot review the same head again"));
+}
+
+#[test]
+fn workflow_passes_the_coverage_verdict_from_the_classifier_to_the_insert() {
+    let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
+    let insert = step_text(OCR_REVIEW, COVERAGE_STEP);
+
+    for source in ["$final", "$resumed"] {
+        let line =
+            format!("echo \"coverage_verdict=$(verdict \"{source}\")\" >> \"$GITHUB_OUTPUT\"");
+
+        assert!(
+            classify.lines().any(|candidate| candidate.trim() == line),
+            "the classifier records the {source} verdict:\n{classify}"
+        );
+    }
+
+    let mapping = "COVERAGE_VERDICT: ${{ steps.outcome.outputs.coverage_verdict }}";
+
+    assert!(
+        insert.lines().any(|candidate| candidate.trim() == mapping),
+        "the insert reads the recorded verdict:\n{insert}"
+    );
+}
+
+#[test]
 fn report_decides_the_check_result() {
     let classifier = Classifier::new();
 
-    let (exit, stdout) = classifier.report("ok", "0", "");
+    let (exit, stdout) = classifier.report(Report {
+        status: "0",
+        ..Report::default()
+    });
 
     assert_eq!(exit, 0);
     assert!(stdout.contains("covered every selected file"), "{stdout}");
 
-    let (exit, stdout) = classifier.report("ok", "2", "");
+    let (exit, stdout) = classifier.report(Report {
+        status: "2",
+        ..Report::default()
+    });
 
     assert_eq!(exit, 1);
     assert!(
@@ -527,7 +735,11 @@ fn report_decides_the_check_result() {
         "{stdout}"
     );
 
-    let (exit, stdout) = classifier.report("ok", "1", "provider");
+    let (exit, stdout) = classifier.report(Report {
+        status: "1",
+        reason: "provider",
+        ..Report::default()
+    });
 
     assert_eq!(exit, 1);
     assert!(
@@ -535,17 +747,16 @@ fn report_decides_the_check_result() {
         "{stdout}"
     );
 
-    let (exit, stdout) = classifier.report("ok", "1", "");
+    let (exit, stdout) = classifier.report(Report {
+        status: "1",
+        ..Report::default()
+    });
 
     assert_eq!(exit, 1);
     assert!(
         stdout.contains("::error::the OCR review failed\n"),
         "{stdout}"
     );
-
-    let (exit, _) = classifier.report("same_head_noop", "", "");
-
-    assert_eq!(exit, 0);
 }
 
 #[test]
@@ -558,6 +769,7 @@ fn classifier_passes_a_complete_first_result() {
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("0"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("complete"));
     assert!(!observation.resumed());
     assert!(
         observation
@@ -581,6 +793,7 @@ fn classifier_fails_a_missing_result() {
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("failed"));
     assert!(!observation.resumed());
     assert_eq!(observation.coverage, None);
     assert_eq!(observation.ocr_arguments, None);
@@ -597,6 +810,11 @@ fn classifier_warns_and_fails_a_partial_without_a_session() {
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.coverage_verdict().as_deref(),
+        Some("partial"),
+        "the verdict follows the coverage file, not the job result"
+    );
     assert!(!observation.resumed());
     assert!(
         observation
@@ -631,6 +849,7 @@ fn classifier_does_not_resume_a_provider_failure() {
     );
     assert_eq!(observation.reason().as_deref(), Some("provider"));
     assert_eq!(observation.coverage_source().as_deref(), Some("first"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
     assert!(
         observation
             .coverage
@@ -638,7 +857,11 @@ fn classifier_does_not_resume_a_provider_failure() {
             .contains("ocr-result.json")
     );
 
-    let (exit, stdout) = classifier.report("ok", "1", "provider");
+    let (exit, stdout) = classifier.report(Report {
+        status: "1",
+        reason: "provider",
+        ..Report::default()
+    });
 
     assert_eq!(exit, 1);
     assert!(
@@ -727,6 +950,7 @@ fn classifier_uses_the_complete_resumed_result() {
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("0"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("complete"));
     assert!(observation.resumed());
     assert!(observation.post_resumed());
     assert!(
@@ -756,6 +980,7 @@ fn classifier_reports_a_partial_resumed_result() {
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("2"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
     assert!(observation.resumed());
     assert!(observation.post_resumed());
 }
@@ -806,7 +1031,11 @@ fn classifier_posts_a_partial_resume_that_exits_nonzero() {
             .contains("ocr-resume.json")
     );
 
-    let (exit, stdout) = classifier.report("ok", "1", "provider");
+    let (exit, stdout) = classifier.report(Report {
+        status: "1",
+        reason: "provider",
+        ..Report::default()
+    });
 
     assert_eq!(exit, 1);
     assert!(stdout.contains("not reviewed"), "{stdout}");
@@ -826,6 +1055,11 @@ fn classifier_keeps_the_first_coverage_when_the_resume_is_unusable() {
     assert_eq!(observation.final_status().as_deref(), Some("1"));
     assert!(!observation.post_resumed());
     assert_eq!(observation.coverage_source().as_deref(), Some("first"));
+    assert_eq!(
+        observation.coverage_verdict().as_deref(),
+        Some("partial"),
+        "the unusable resume keeps the first file's verdict"
+    );
     assert!(
         observation
             .coverage
@@ -861,34 +1095,44 @@ struct CoverageObservation {
     summary: Option<String>,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 struct CoverageRun<'a> {
     coverage: Option<&'a str>,
     comment: Option<&'a str>,
     first_url: Option<&'a str>,
     resumed_url: Option<&'a str>,
     from_resume: bool,
+    verdict: &'a str,
+    head: &'a str,
+}
+
+impl Default for CoverageRun<'_> {
+    fn default() -> Self {
+        Self {
+            coverage: None,
+            comment: None,
+            first_url: None,
+            resumed_url: None,
+            from_resume: false,
+            verdict: "complete",
+            head: HEAD_SHA,
+        }
+    }
 }
 
 impl Coverage {
     fn new() -> Self {
         let folder = temporary_directory();
         let workspace = folder.path().join("workspace");
-        let helper = workspace
-            .join(".ocr-action")
-            .join("scripts")
-            .join("github-actions")
-            .join("post-review-comments.js");
-        fs::create_dir_all(helper.parent().expect("the helper has a folder"))
-            .expect("create the helper folder");
-        fs::write(&helper, HELPER_STUB).expect("write the helper stub");
+        write_posting_helper(&workspace, POSTING_HELPER);
 
         let script = step_block(OCR_REVIEW, COVERAGE_STEP, "script")
             .replace("/tmp/", &format!("{}/", folder.path().display()));
-        let runner = format!(
-            "{RUNNER_PREFIX}\n(async () => {{\n{script}}})().catch((error) => {{\n  console.error(error);\n  process.exit(1);\n}});\n"
-        );
-        fs::write(folder.path().join("runner.js"), runner).expect("write the runner");
+        fs::write(
+            folder.path().join("runner.js"),
+            github_script_runner(&script),
+        )
+        .expect("write the runner");
 
         Coverage { folder, workspace }
     }
@@ -929,27 +1173,31 @@ impl Coverage {
             fs::write(&comment_file, comment.to_string()).expect("write the comment file");
         }
 
-        let completed = Command::new("node")
-            .arg(root.join("runner.js"))
-            .current_dir(root)
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .env("GITHUB_WORKSPACE", &self.workspace)
-            .env("COMMENT_FILE", &comment_file)
-            .env("UPDATED_BODY", &updated_file)
-            .env("GET_LOG", &get_file)
-            .env("UPDATE_LOG", &update_file)
-            .env("INFO_LOG", &info_file)
-            .env("WARNING_LOG", &warning_file)
-            .env("SUMMARY_LOG", &summary_file)
-            .env("FIRST_COMMENT_URL", run.first_url.unwrap_or_default())
-            .env("RESUMED_COMMENT_URL", run.resumed_url.unwrap_or_default())
-            .env(
+        let environment = [
+            ("GITHUB_WORKSPACE", self.workspace.display().to_string()),
+            ("COMMENT_FILE", comment_file.display().to_string()),
+            ("UPDATED_BODY", updated_file.display().to_string()),
+            ("GET_LOG", get_file.display().to_string()),
+            ("UPDATE_LOG", update_file.display().to_string()),
+            ("INFO_LOG", info_file.display().to_string()),
+            ("WARNING_LOG", warning_file.display().to_string()),
+            ("SUMMARY_LOG", summary_file.display().to_string()),
+            (
+                "FIRST_COMMENT_URL",
+                run.first_url.unwrap_or_default().to_string(),
+            ),
+            (
+                "RESUMED_COMMENT_URL",
+                run.resumed_url.unwrap_or_default().to_string(),
+            ),
+            (
                 "COVERAGE_SOURCE",
-                if run.from_resume { "resumed" } else { "first" },
-            )
-            .output()
-            .expect("run the coverage script with node");
+                if run.from_resume { "resumed" } else { "first" }.to_string(),
+            ),
+            ("COVERAGE_VERDICT", run.verdict.to_string()),
+            ("HEAD_SHA", run.head.to_string()),
+        ];
+        let completed = run_github_script(root, &environment);
 
         assert!(
             completed.status.success(),
@@ -982,13 +1230,13 @@ fn coverage_inserts_the_block_after_the_summary_marker() {
         ..CoverageRun::default()
     });
 
-    assert_eq!(observation.exit, 0);
-    assert_eq!(
-        observation.updated.as_deref(),
-        Some(
-            "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary text"
-        )
+    let expected = format!(
+        "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary text",
+        verdict_line("complete")
     );
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.updated.as_deref(), Some(expected.as_str()));
 }
 
 #[test]
@@ -1001,13 +1249,13 @@ fn coverage_inserts_the_block_after_the_run_tag() {
         ..CoverageRun::default()
     });
 
-    assert_eq!(observation.exit, 0);
-    assert_eq!(
-        observation.updated.as_deref(),
-        Some(
-            "<!-- ocr-summary -->\n<!-- ocr-summary-run: 123 -->\n<!-- ocr-coverage:start -->\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary text"
-        )
+    let expected = format!(
+        "<!-- ocr-summary -->\n<!-- ocr-summary-run: 123 -->\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary text",
+        verdict_line("complete")
     );
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.updated.as_deref(), Some(expected.as_str()));
 }
 
 #[test]
@@ -1022,12 +1270,34 @@ fn coverage_replaces_an_existing_block() {
         ..CoverageRun::default()
     });
 
+    let expected = format!(
+        "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary",
+        verdict_line("complete")
+    );
+
     assert_eq!(observation.exit, 0);
-    assert_eq!(
-        observation.updated.as_deref(),
-        Some(
-            "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary"
-        )
+    assert_eq!(observation.updated.as_deref(), Some(expected.as_str()));
+}
+
+#[test]
+fn coverage_names_the_verdict_and_head_of_the_run() {
+    let coverage = Coverage::new();
+    let observation = coverage.run(CoverageRun {
+        coverage: Some("Covered: src/lib.rs"),
+        comment: Some("<!-- ocr-summary -->\nSummary text"),
+        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        verdict: "partial",
+        ..CoverageRun::default()
+    });
+
+    let updated = observation.updated.expect("the posted comment is updated");
+
+    assert!(
+        updated.contains(&format!(
+            "\n{}\nCovered: src/lib.rs\n",
+            verdict_line("partial")
+        )),
+        "{updated}"
     );
 }
 
@@ -1060,6 +1330,7 @@ fn coverage_uses_the_resumed_post_url() {
         first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-41"),
         resumed_url: Some("https://github.com/owner/repository/pull/7#issuecomment-43"),
         from_resume: true,
+        ..CoverageRun::default()
     });
 
     assert_eq!(observation.get.as_deref(), Some("43\n"));
@@ -1163,4 +1434,298 @@ fn coverage_warns_when_the_summary_has_no_marker() {
             .warnings
             .contains("The summary comment has no marker; not inserting the coverage section.")
     );
+}
+
+struct ResumedPost {
+    folder: TempDir,
+    workspace: PathBuf,
+}
+
+struct ResumedPostObservation {
+    exit: i32,
+    recorded: Option<serde_json::Value>,
+}
+
+impl ResumedPost {
+    fn new() -> Self {
+        let folder = temporary_directory();
+        let workspace = folder.path().join("workspace");
+        write_posting_helper(&workspace, POSTING_HELPER_RECORD);
+        write_github_script(folder.path(), POST_STEP);
+
+        ResumedPost { folder, workspace }
+    }
+
+    fn run(&self) -> ResumedPostObservation {
+        let root = self.folder.path();
+        let record = root.join("record.json");
+        remove_stale(&record).expect("remove the stale record");
+
+        let environment = [
+            ("GITHUB_WORKSPACE", self.workspace.display().to_string()),
+            ("PINNED_HELPER", posting_helper_path().display().to_string()),
+            ("RECORD_LOG", record.display().to_string()),
+            ("PR_NUMBER", "7".to_string()),
+            ("OCR_STICKY_SUMMARY", "true".to_string()),
+            ("OCR_INCREMENTAL", "true".to_string()),
+            ("OCR_ROUTE_SEVERITY_BELOW", "low".to_string()),
+            ("OCR_CHECKPOINT_RANGE", "true".to_string()),
+            ("OCR_APP_SLUG", "github-actions".to_string()),
+            ("RESOLVE_OUTDATED", "true".to_string()),
+            ("BASE_REF", "origin/main".to_string()),
+            ("MERGE_BASE", "merge-base".to_string()),
+            ("RANGE_MODE", "checkpoint".to_string()),
+            ("RANGE_FROM", "range-from".to_string()),
+            ("RANGE_TO", "head-sha".to_string()),
+        ];
+        let completed = run_github_script(root, &environment);
+
+        assert!(
+            completed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&completed.stderr)
+        );
+
+        ResumedPostObservation {
+            exit: completed.status.code().expect("the script exits normally"),
+            recorded: read(&record)
+                .map(|text| serde_json::from_str(&text).expect("the helper records JSON")),
+        }
+    }
+}
+
+#[test]
+fn resumed_post_passes_the_posting_helper_its_options() {
+    let post = ResumedPost::new();
+    let observation = post.run();
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(
+        observation.recorded,
+        Some(serde_json::json!({
+            "github": "object",
+            "context": "object",
+            "core": "object",
+            "fs": "object",
+            "prNumber": 7,
+            "resultPath": "/tmp/ocr-resume.json",
+            "stderrPath": "/tmp/ocr-resume.err",
+            "stickySummary": true,
+            "incremental": true,
+            "routeSeverityBelow": "low",
+            "checkpointEnabled": true,
+            "checkpointCarry": "",
+            "checkpointBaseRef": "origin/main",
+            "checkpointMergeBase": "merge-base",
+            "checkpointFingerprint": "",
+            "checkpointNoop": false,
+            "rangeMode": "checkpoint",
+            "rangeFrom": "range-from",
+            "rangeTo": "head-sha",
+            "resolveOutdated": "true",
+            "appSlug": "github-actions",
+        }))
+    );
+}
+
+struct CheckpointedCoverage {
+    folder: TempDir,
+    workspace: PathBuf,
+}
+
+struct CheckpointedCoverageObservation {
+    exit: i32,
+    verdict: Option<String>,
+    warnings: String,
+    summary: Option<String>,
+}
+
+impl CheckpointedCoverage {
+    fn new() -> Self {
+        let folder = temporary_directory();
+        let workspace = folder.path().join("workspace");
+        write_posting_helper(&workspace, CHECKPOINT_HELPER);
+        write_github_script(folder.path(), CHECKPOINT_STEP);
+
+        CheckpointedCoverage { folder, workspace }
+    }
+
+    fn run(&self, body: Option<&str>) -> CheckpointedCoverageObservation {
+        let root = self.folder.path();
+        let comment_file = root.join("comment.json");
+        let output_file = root.join("output");
+        let info_file = root.join("info.txt");
+        let warning_file = root.join("warning.txt");
+        let summary_file = root.join("summary.txt");
+        for path in [
+            &comment_file,
+            &output_file,
+            &info_file,
+            &warning_file,
+            &summary_file,
+        ] {
+            remove_stale(path).expect("remove the stale checkpointed output");
+        }
+
+        if let Some(body) = body {
+            let comment = serde_json::json!({ "id": 1, "body": body });
+            fs::write(&comment_file, comment.to_string()).expect("write the comment file");
+        }
+
+        let environment = [
+            ("GITHUB_WORKSPACE", self.workspace.display().to_string()),
+            ("PINNED_HELPER", posting_helper_path().display().to_string()),
+            ("COMMENT_FILE", comment_file.display().to_string()),
+            ("GITHUB_OUTPUT", output_file.display().to_string()),
+            ("INFO_LOG", info_file.display().to_string()),
+            ("WARNING_LOG", warning_file.display().to_string()),
+            ("SUMMARY_LOG", summary_file.display().to_string()),
+            ("PR_NUMBER", "7".to_string()),
+            ("OCR_APP_SLUG", "github-actions".to_string()),
+            ("HEAD_SHA", HEAD_SHA.to_string()),
+        ];
+        let completed = run_github_script(root, &environment);
+
+        assert!(
+            completed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&completed.stderr)
+        );
+
+        CheckpointedCoverageObservation {
+            exit: completed.status.code().expect("the script exits normally"),
+            verdict: read(&output_file).and_then(|text| last_output(&text, "verdict")),
+            warnings: read(&warning_file).unwrap_or_default(),
+            summary: read(&summary_file),
+        }
+    }
+}
+
+fn coverage_section(verdict: &str) -> String {
+    format!(
+        "<!-- ocr-summary -->\n\
+         <!-- ocr-summary-run: 123 -->\n\
+         <!-- ocr-coverage:start -->\n\
+         {}\n\
+         ### Review coverage\n\
+         \n\
+         OCR reviewed 1 of 1 selected file.\n\
+         <!-- ocr-coverage:end -->\n\
+         Summary text",
+        verdict_line(verdict)
+    )
+}
+
+#[test]
+fn a_no_op_run_passes_with_a_complete_coverage_section() {
+    let checkpoint = CheckpointedCoverage::new();
+    let classifier = Classifier::new();
+    let observation = checkpoint.run(Some(&coverage_section("complete")));
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.verdict.as_deref(), Some("complete"));
+    assert!(
+        observation
+            .summary
+            .expect("the section goes to the job summary")
+            .contains("### Review coverage")
+    );
+
+    let (exit, stdout) = classifier.report(Report {
+        range_reason: "same_head_noop",
+        verdict: "complete",
+        ..Report::default()
+    });
+
+    assert_eq!(exit, 0);
+    assert!(
+        stdout.contains("every selected file as reviewed"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn a_no_op_run_fails_with_a_partial_coverage_section() {
+    let checkpoint = CheckpointedCoverage::new();
+    let classifier = Classifier::new();
+    let observation = checkpoint.run(Some(&coverage_section("partial")));
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.verdict.as_deref(), Some("partial"));
+
+    let (exit, stdout) = classifier.report(Report {
+        range_reason: "same_head_noop",
+        verdict: "partial",
+        ..Report::default()
+    });
+
+    assert_eq!(exit, 1);
+    assert!(stdout.contains("unreviewed files"), "{stdout}");
+    assert!(stdout.contains("Push a new commit"), "{stdout}");
+}
+
+#[test]
+fn a_no_op_run_fails_with_a_failed_coverage_section() {
+    let checkpoint = CheckpointedCoverage::new();
+    let classifier = Classifier::new();
+    let observation = checkpoint.run(Some(&coverage_section("failed")));
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.verdict.as_deref(), Some("failed"));
+
+    let (exit, stdout) = classifier.report(Report {
+        range_reason: "same_head_noop",
+        verdict: "failed",
+        ..Report::default()
+    });
+
+    assert_eq!(exit, 1);
+    assert!(stdout.contains("failed run"), "{stdout}");
+    assert!(stdout.contains("Push a new commit"), "{stdout}");
+}
+
+#[test]
+fn a_no_op_run_fails_without_a_readable_coverage_section() {
+    let checkpoint = CheckpointedCoverage::new();
+    let classifier = Classifier::new();
+    let cases = [
+        ("no summary comment".to_string(), None),
+        (
+            "a section without a verdict".to_string(),
+            Some(
+                "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n### Review coverage\n<!-- ocr-coverage:end -->"
+                    .to_string(),
+            ),
+        ),
+        (
+            "a start marker without an end marker".to_string(),
+            Some("<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n### Review coverage\n".to_string()),
+        ),
+        (
+            "a section that covers another head".to_string(),
+            Some(format!(
+                "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n<!-- stomme-ocr-coverage-verdict: complete head={} -->\n### Review coverage\n<!-- ocr-coverage:end -->",
+                "0".repeat(40)
+            )),
+        ),
+    ];
+
+    for (name, body) in cases {
+        let observation = checkpoint.run(body.as_deref());
+
+        assert_eq!(observation.exit, 0, "{name}");
+        assert_eq!(observation.verdict.as_deref(), Some("missing"), "{name}");
+        assert_eq!(observation.summary, None, "{name}");
+        assert!(!observation.warnings.is_empty(), "{name}");
+
+        let (exit, stdout) = classifier.report(Report {
+            range_reason: "same_head_noop",
+            verdict: "missing",
+            ..Report::default()
+        });
+
+        assert_eq!(exit, 1, "{name}");
+        assert!(stdout.contains("no coverage section"), "{name}: {stdout}");
+        assert!(stdout.contains("Push a new commit"), "{name}: {stdout}");
+    }
 }

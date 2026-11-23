@@ -93,6 +93,14 @@ jobs:
             fi
           }
 
+          verdict() {
+            case "$1" in
+              0) echo complete ;;
+              2) echo partial ;;
+              *) echo failed ;;
+            esac
+          }
+
           final=0
           if [ -f /tmp/ocr-result.json ]; then
             "$STOMME" ocr-coverage /tmp/ocr-result.json \
@@ -103,6 +111,9 @@ jobs:
           cp /tmp/ocr-coverage.md /tmp/ocr-first-coverage.md 2>/dev/null || true
           echo "final=$final" >> "$GITHUB_OUTPUT"
           echo "coverage_source=first" >> "$GITHUB_OUTPUT"
+          # The verdict names the classification of the coverage file that the
+          # insert step puts into the summary comment, not the job result.
+          echo "coverage_verdict=$(verdict "$final")" >> "$GITHUB_OUTPUT"
 
           # OCR exits 0 only for a complete review or a budget-only partial. A
           # nonzero or missing code is an operational failure, so it is never
@@ -183,6 +194,7 @@ jobs:
           mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
           mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
           echo "coverage_source=resumed" >> "$GITHUB_OUTPUT"
+          echo "coverage_verdict=$(verdict "$resumed")" >> "$GITHUB_OUTPUT"
           echo "resumed=true" >> "$GITHUB_OUTPUT"
           if [ "$resumed" = "0" ] || [ "$resumed" = "2" ]; then
             echo "post_resumed=true" >> "$GITHUB_OUTPUT"
@@ -200,7 +212,7 @@ jobs:
           fi
 
       - name: Check out the OCR posting helper
-        if: always() && steps.outcome.outputs.final != ''
+        if: always() && (steps.outcome.outputs.final != '' || steps.ocr.outputs.range_reason == 'same_head_noop')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: alibaba/open-code-review
@@ -260,6 +272,7 @@ jobs:
           FIRST_COMMENT_URL: ${{ steps.ocr.outputs.summary_comment_url }}
           RESUMED_COMMENT_URL: ${{ steps.resume-post.outputs.summary_comment_url }}
           COVERAGE_SOURCE: ${{ steps.outcome.outputs.coverage_source }}
+          COVERAGE_VERDICT: ${{ steps.outcome.outputs.coverage_verdict }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -306,7 +319,12 @@ jobs:
             // keeps its single checkpoint marker.
             const start = '<!-- ocr-coverage:start -->';
             const end = '<!-- ocr-coverage:end -->';
-            const block = `${start}\n${coverage}\n${end}`;
+            // The hidden verdict line names the classification and the head the
+            // section covers, so a same-head run reads this section as evidence
+            // for its own head instead of trusting whichever section is newest.
+            const verdict = process.env.COVERAGE_VERDICT || 'failed';
+            const head = process.env.HEAD_SHA || '';
+            const block = `${start}\n<!-- stomme-ocr-coverage-verdict: ${verdict} head=${head} -->\n${coverage}\n${end}`;
             let body = comment.body || '';
             const startAt = body.indexOf(start);
             const endAt = body.indexOf(end);
@@ -334,16 +352,76 @@ jobs:
             });
             core.info(`Inserted the coverage section into ${commentUrl}.`);
 
+      - name: Read the checkpointed coverage
+        id: checkpoint-coverage
+        if: always() && steps.ocr.outputs.range_reason == 'same_head_noop'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const path = require('path');
+            const helper = require(path.join(
+              process.env.GITHUB_WORKSPACE,
+              '.ocr-action',
+              'scripts',
+              'github-actions',
+              'post-review-comments.js',
+            ));
+            // The summary comment of the run that checkpointed this head holds
+            // the coverage section of the files it reviewed.
+            const comment = await helper.findSummaryIssueComment({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              prNumber: Number(process.env.PR_NUMBER),
+              sticky: true,
+              appSlug: process.env.OCR_APP_SLUG,
+              log: (line) => core.info(line),
+            });
+            const start = '<!-- ocr-coverage:start -->';
+            const end = '<!-- ocr-coverage:end -->';
+            const body = (comment && comment.body) || '';
+            const startAt = body.indexOf(start);
+            const endAt = body.indexOf(end);
+            if (startAt === -1 || endAt < startAt) {
+              core.warning('The summary comment of the checkpointed head has no coverage section.');
+              core.setOutput('verdict', 'missing');
+              return;
+            }
+            const section = body.slice(startAt + start.length, endAt).trim();
+            const verdict = /<!-- stomme-ocr-coverage-verdict: (complete|partial|failed) head=([0-9a-f]{40}) -->/.exec(section);
+            if (!verdict) {
+              core.warning('The coverage section of the checkpointed head names no verdict.');
+              core.setOutput('verdict', 'missing');
+              return;
+            }
+            if (verdict[2] !== process.env.HEAD_SHA) {
+              core.warning(`The newest coverage section covers ${verdict[2]}, not the checkpointed head.`);
+              core.setOutput('verdict', 'missing');
+              return;
+            }
+            await core.summary.addRaw(section).write();
+            core.setOutput('verdict', verdict[1]);
+
       - name: Report the OCR result
         if: always()
         env:
           RANGE_REASON: ${{ steps.ocr.outputs.range_reason }}
           FINAL: ${{ steps.outcome.outputs.final }}
           REASON: ${{ steps.outcome.outputs.reason }}
+          CHECKPOINT_VERDICT: ${{ steps.checkpoint-coverage.outputs.verdict }}
         run: |
           if [ "$RANGE_REASON" = "same_head_noop" ]; then
-            echo "The checkpoint already covers the head; nothing to review."
-            exit 0
+            if [ "$CHECKPOINT_VERDICT" = "complete" ]; then
+              echo "The checkpoint already covers the head, and its coverage section reports every selected file as reviewed."
+              exit 0
+            fi
+            case "$CHECKPOINT_VERDICT" in
+              partial) detail="its coverage section reports unreviewed files" ;;
+              failed) detail="its coverage section reports a failed run" ;;
+              *) detail="this head has no coverage section" ;;
+            esac
+            echo "::error::the OCR review cannot review the same head again, because $detail. Push a new commit to review this change."
+            exit 1
           fi
           if [ "$FINAL" != "0" ] && [ -f /tmp/ocr-coverage.err ]; then
             while IFS= read -r line; do
