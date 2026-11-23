@@ -72,12 +72,12 @@ pub(super) fn check(
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
     let owned_keys: BTreeSet<&str> = owned
         .iter()
-        .filter_map(|file| sync::record_key(&file.path))
+        .filter_map(|file| owned::record_key(&file.path))
         .collect();
     let recorded_paths: BTreeSet<String> = record
         .files
         .keys()
-        .map(|key| sync::project_path(key))
+        .map(|key| owned::project_path(key))
         .collect();
     let known_paths: BTreeSet<&str> = owned_paths
         .iter()
@@ -91,7 +91,7 @@ pub(super) fn check(
 
     for key in record.files.keys() {
         if !owned_keys.contains(key.as_str()) {
-            let path = sync::project_path(key);
+            let path = owned::project_path(key);
 
             problems.push(problem(
                 &path,
@@ -229,7 +229,7 @@ fn check_owned_file(
         return Ok(());
     }
 
-    let key = sync::record_key(&file.path).expect("an owned path is under docs/stomme");
+    let key = owned::record_key(&file.path).expect("an owned path is under docs/stomme");
 
     match sync::record_state(Some(record), key, &actual) {
         RecordState::Matches => {}

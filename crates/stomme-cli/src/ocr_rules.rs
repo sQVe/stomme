@@ -2,8 +2,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::layer::Language;
@@ -30,6 +30,22 @@ pub(crate) struct ProjectRules {
 struct ProjectRule {
     path: String,
     rule: String,
+}
+
+#[derive(Serialize)]
+struct Rendered {
+    rules: Vec<Entry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    include: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    exclude: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct Entry {
+    path: String,
+    rule: String,
+    merge_system_rule: bool,
 }
 
 #[derive(Debug, Error)]
@@ -95,25 +111,35 @@ pub(crate) fn render(
 ) -> String {
     let guide_text = guide_text(guides);
     let mut rules = Vec::new();
+    let mut include = Vec::new();
+    let mut exclude = Vec::new();
 
     if let Some(project) = project {
         for rule in &project.rules {
             let text = format!("{}\n\n{guide_text}", rule.rule);
 
-            rules.push(entry(&rule.path, &text));
+            rules.push(Entry {
+                path: rule.path.clone(),
+                rule: text,
+                merge_system_rule: true,
+            });
         }
+
+        include.clone_from(&project.include);
+        exclude.clone_from(&project.exclude);
     }
 
-    rules.push(entry(language_glob(language), &guide_text));
+    rules.push(Entry {
+        path: language_glob(language).to_string(),
+        rule: guide_text,
+        merge_system_rule: true,
+    });
 
-    let mut document = Map::new();
-
-    document.insert("rules".to_string(), Value::Array(rules));
-
-    if let Some(project) = project {
-        push_list(&mut document, "include", &project.include);
-        push_list(&mut document, "exclude", &project.exclude);
-    }
+    let document = Rendered {
+        rules,
+        include,
+        exclude,
+    };
 
     let mut text = serde_json::to_string_pretty(&document)
         .expect("a document of strings, lists, and booleans serializes");
@@ -208,22 +234,6 @@ fn language_glob(language: Language) -> &'static str {
         Language::Rust => "**/*.rs",
         Language::TypeScript => "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
     }
-}
-
-fn entry(path: &str, rule: &str) -> Value {
-    json!({
-        "path": path,
-        "rule": rule,
-        "merge_system_rule": true,
-    })
-}
-
-fn push_list(document: &mut Map<String, Value>, key: &str, items: &[String]) {
-    if items.is_empty() {
-        return;
-    }
-
-    document.insert(key.to_string(), json!(items));
 }
 
 #[cfg(test)]

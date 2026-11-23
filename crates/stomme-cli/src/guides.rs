@@ -94,7 +94,7 @@ fn plan(
     let mut hashes = BTreeMap::new();
 
     for file in files {
-        let key = sync::record_key(&file.path).expect("a bundle path is under docs/stomme");
+        let key = owned::record_key(&file.path).expect("a bundle path is under docs/stomme");
 
         hashes.insert(key.to_string(), sync::hash(file.content.as_bytes()));
         sync::check_parent_folders(directory, key)?;

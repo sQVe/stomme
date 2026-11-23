@@ -56,7 +56,7 @@ fn guides_writes_every_file_and_a_matching_record() {
     run(root.path(), layer::catalog()).expect("write the bundle");
 
     for file in &expected {
-        let key = sync::record_key(&file.path).expect("a bundle path is under docs/stomme");
+        let key = owned::record_key(&file.path).expect("a bundle path is under docs/stomme");
         let written = fs::read(root.path().join(key)).expect("read a bundled file");
 
         assert_eq!(written, file.content.as_bytes(), "{key}");
@@ -70,7 +70,7 @@ fn guides_writes_every_file_and_a_matching_record() {
     assert_eq!(record.files.len(), expected.len());
 
     for file in &expected {
-        let key = sync::record_key(&file.path).expect("a bundle path is under docs/stomme");
+        let key = owned::record_key(&file.path).expect("a bundle path is under docs/stomme");
 
         assert_eq!(
             record.files.get(key),

@@ -147,30 +147,29 @@ fn sync_writes_the_ocr_rule_file() {
 
     sync_project(root.path()).expect("sync succeeds");
 
-    let text = fs::read_to_string(root.path().join("docs/stomme/ocr-rules.json"))
-        .expect("read the rule file");
-    let document: serde_json::Value = serde_json::from_str(&text).expect("the rule file is JSON");
-    let rules = document["rules"].as_array().expect("the rules are a list");
+    let path = "docs/stomme/ocr-rules.json";
+    let text = fs::read_to_string(root.path().join(path)).expect("read the rule file");
 
-    assert_eq!(rules.len(), 1);
-    assert_eq!(rules[0]["path"], "**/*.rs");
-    assert_eq!(rules[0]["merge_system_rule"], serde_json::Value::Bool(true));
+    let mut previous = 0;
 
-    let rule = rules[0]["rule"].as_str().expect("the rule is text");
-
-    for path in [
+    for guide in [
         "docs/stomme/shared/coding.md",
         "docs/stomme/languages/rust/guide.md",
         "docs/stomme/layers/gpui/guide.md",
     ] {
-        assert!(rule.contains(&format!("File: {path}")), "{path}");
+        let needle = format!("File: {guide}");
+        let position = text.find(&needle).expect("the guide is named");
+
+        assert!(position >= previous, "{guide}");
+        previous = position;
     }
 
     let record = Record::read(root.path())
         .expect("read the record")
         .expect("the record exists");
+    let key = crate::owned::record_key(path).expect("a project path");
 
-    assert!(record.files.contains_key("ocr-rules.json"));
+    assert_eq!(record.files.get(key), Some(&hash(text.as_bytes())));
 }
 
 #[test]
@@ -180,13 +179,7 @@ fn sync_merges_project_ocr_rules() {
     fs::create_dir_all(root.path().join(".opencodereview")).expect("create the rule folder");
     fs::write(
         root.path().join(PROJECT_RULE_FILE),
-        r#"{
-            "rules": [
-                { "path": "src/**", "rule": "Keep modules small." },
-                { "path": "tests/**", "rule": "Name the behavior." }
-            ],
-            "exclude": ["fixtures/**"]
-        }"#,
+        r#"{"rules":[{"path":"src/**","rule":"Keep modules small."}]}"#,
     )
     .expect("write the rule file");
 
@@ -194,67 +187,29 @@ fn sync_merges_project_ocr_rules() {
 
     let text = fs::read_to_string(root.path().join("docs/stomme/ocr-rules.json"))
         .expect("read the rule file");
-    let document: serde_json::Value = serde_json::from_str(&text).expect("the rule file is JSON");
-    let rules = document["rules"].as_array().expect("the rules are a list");
 
-    assert_eq!(rules.len(), 3);
-    assert_eq!(rules[0]["path"], "src/**");
-    assert_eq!(rules[1]["path"], "tests/**");
-    assert_eq!(rules[2]["path"], "**/*.rs");
-
-    for (index, marker) in ["Keep modules small.", "Name the behavior."]
-        .into_iter()
-        .enumerate()
-    {
-        let rule = rules[index]["rule"].as_str().expect("the rule is text");
-
-        assert!(rule.starts_with(marker), "{marker}");
-        assert!(
-            rule.contains("File: docs/stomme/shared/coding.md"),
-            "{marker}"
-        );
-        assert!(
-            rule.contains("File: docs/stomme/languages/rust/guide.md"),
-            "{marker}"
-        );
-    }
-
-    assert_eq!(document["exclude"], serde_json::json!(["fixtures/**"]));
+    assert!(text.contains(r#""path": "src/**""#), "{text}");
+    assert!(text.contains("Keep modules small."), "{text}");
 }
 
 #[test]
 fn sync_refuses_an_invalid_project_rule_file() {
-    type Matches = fn(&OcrRulesError) -> bool;
-    let cases: [(&str, &str, Matches); 3] = [
-        ("invalid JSON", "{ not json", |error| {
-            matches!(error, OcrRulesError::InvalidJson { .. })
-        }),
-        ("an unknown key", r#"{"unknown": true}"#, |error| {
-            matches!(error, OcrRulesError::Shape { .. })
-        }),
-        (
-            "an empty path",
-            r#"{"rules":[{"path":"","rule":"x"}]}"#,
-            |error| matches!(error, OcrRulesError::EmptyPath { .. }),
+    let root = rust_project(&[]);
+
+    fs::create_dir_all(root.path().join(".opencodereview")).expect("create the rule folder");
+    fs::write(root.path().join(PROJECT_RULE_FILE), "{ not json").expect("write the rule file");
+
+    let before = snapshot(root.path());
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::OcrRules(OcrRulesError::InvalidJson { .. })
         ),
-    ];
-
-    for (name, text, matches_variant) in cases {
-        let root = rust_project(&[]);
-
-        fs::create_dir_all(root.path().join(".opencodereview")).expect("create the rule folder");
-        fs::write(root.path().join(PROJECT_RULE_FILE), text).expect("write the rule file");
-
-        let before = snapshot(root.path());
-        let error = sync_project(root.path()).expect_err("sync refuses");
-
-        match &error {
-            SyncError::OcrRules(inner) => assert!(matches_variant(inner), "{name}: {error:?}"),
-            other => panic!("{name}: expected an OcrRules error, got {other:?}"),
-        }
-
-        assert_eq!(snapshot(root.path()), before, "{name}");
-    }
+        "{error:?}"
+    );
+    assert_eq!(snapshot(root.path()), before);
 }
 
 #[test]

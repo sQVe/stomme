@@ -176,7 +176,7 @@ fn check_reports_a_record_hash_that_differs() {
     let path = "docs/stomme/shared/coding.md";
 
     rewrite_record(root.path(), |record| {
-        let key = sync::record_key(path).expect("a project path");
+        let key = owned::record_key(path).expect("a project path");
 
         record.files.insert(key.to_string(), "0".repeat(64));
     });
@@ -195,7 +195,7 @@ fn check_reports_a_synced_file_missing_from_the_record() {
     rewrite_record(root.path(), |record| {
         record
             .files
-            .remove(sync::record_key(path).expect("a project path"));
+            .remove(owned::record_key(path).expect("a project path"));
     });
 
     let problems =
@@ -243,7 +243,7 @@ fn check_reports_a_recorded_file_that_is_not_owned() {
     let path = "docs/stomme/old.md";
 
     rewrite_record(root.path(), |record| {
-        let key = sync::record_key(path).expect("a project path");
+        let key = owned::record_key(path).expect("a project path");
 
         record.files.insert(key.to_string(), "0".repeat(64));
     });
