@@ -97,6 +97,7 @@ impl From<BlockError> for SyncError {
 
 struct Plan {
     writes: Vec<(String, String)>,
+    staging: Vec<String>,
     deletes: Vec<String>,
     record: Record,
 }
@@ -288,14 +289,23 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
 
     check_parent_folders(root, agents_block::PATH)?;
     check_regular_file(root, agents_block::PATH)?;
-    remove_stale_staging(root, &owned_paths, &recorded_paths)?;
-    check_extra_files(root, &owned_paths, &recorded_paths)?;
+    let mut staging: BTreeSet<String> = check_extra_files(root, &owned_paths, &recorded_paths)?
+        .into_iter()
+        .collect();
 
     let (mut writes, files) = plan_writes(root, owned, record.as_ref())?;
     let agents = plan_block(root, selection, owned, record.as_ref(), &mut writes)?;
 
     if let Some(write) = package_pins::plan(root)? {
         writes.push(write);
+    }
+
+    staging.extend(stale_staging_in(root, root)?);
+
+    for (path, _) in &writes {
+        if let Some(folder) = root.join(path).parent() {
+            staging.extend(stale_staging_in(root, folder)?);
+        }
     }
 
     let deletes = plan_deletes(root, record.as_ref(), &owned_keys)?;
@@ -308,6 +318,7 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
 
     Ok(Plan {
         writes,
+        staging: staging.into_iter().collect(),
         deletes,
         record,
     })
@@ -456,6 +467,10 @@ fn plan_deletes(
 }
 
 fn execute(root: &Path, plan: Plan) -> Result<(), SyncError> {
+    for path in &plan.staging {
+        remove_file(root, path)?;
+    }
+
     for (path, content) in &plan.writes {
         write_file(root, path, content)?;
     }
@@ -510,38 +525,78 @@ fn check_extra_files(
     root: &Path,
     owned: &BTreeSet<&str>,
     recorded: &BTreeSet<String>,
-) -> Result<(), SyncError> {
-    for path in synced_files(root)? {
-        if !owned.contains(path.as_str()) && !recorded.contains(&path) {
-            return Err(SyncError::Extra { path });
-        }
-    }
+) -> Result<Vec<String>, SyncError> {
+    let mut staging = Vec::new();
 
-    Ok(())
-}
-
-fn remove_stale_staging(
-    root: &Path,
-    owned: &BTreeSet<&str>,
-    recorded: &BTreeSet<String>,
-) -> Result<(), SyncError> {
     for path in synced_files(root)? {
         if owned.contains(path.as_str()) || recorded.contains(&path) {
             continue;
         }
 
         if is_staging(&path) {
-            remove_file(root, &path)?;
+            staging.push(path);
+            continue;
         }
+
+        return Err(SyncError::Extra { path });
     }
 
-    Ok(())
+    Ok(staging)
+}
+
+pub(crate) fn stale_staging_in(base: &Path, folder: &Path) -> Result<Vec<String>, SyncError> {
+    let mut paths = Vec::new();
+
+    let entries = match fs::read_dir(folder) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(paths),
+        Err(source) => {
+            return Err(SyncError::Read {
+                path: synced_tree::describe_relative(base, folder),
+                source,
+            });
+        }
+    };
+
+    for entry in entries {
+        let entry = entry.map_err(|source| SyncError::Read {
+            path: synced_tree::describe_relative(base, folder),
+            source,
+        })?;
+
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+
+        if !is_staging_name(&name) {
+            continue;
+        }
+
+        let Some(relative) = synced_tree::relative_path(base, &entry.path()) else {
+            continue;
+        };
+
+        paths.push(relative);
+    }
+
+    Ok(paths)
 }
 
 fn is_staging(path: &str) -> bool {
-    path.rsplit('/')
-        .next()
-        .is_some_and(|name| name.starts_with(STAGING_PREFIX))
+    path.rsplit('/').next().is_some_and(is_staging_name)
+}
+
+fn is_staging_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix(STAGING_PREFIX) else {
+        return false;
+    };
+
+    let mut parts = rest.split('.');
+    let process = parts.next().and_then(|part| part.parse::<u32>().ok());
+    let attempt = parts.next().and_then(|part| part.parse::<u32>().ok());
+    let has_name = parts.next().is_some();
+
+    process.is_some() && attempt.is_some() && has_name
 }
 
 fn synced_files(root: &Path) -> Result<Vec<String>, SyncError> {
@@ -599,22 +654,24 @@ pub(crate) fn write_file(root: &Path, path: &str, content: &str) -> Result<(), S
         })?;
     }
 
+    let staging = stage(root, &target, content, path)?;
+
+    staging.publish(&target, path)
+}
+
+fn stage(root: &Path, target: &Path, content: &str, path: &str) -> Result<Staging, SyncError> {
     let permissions = writable_permissions(root, path)?;
-    let (staging, mut file) = create_staging(&target, permissions.as_ref(), path)?;
+    let (staging, mut file) = create_staging(target, permissions.as_ref(), path)?;
     let written = file.write_all(content.as_bytes());
 
     drop(file);
 
-    if let Err(source) = written {
-        discard(&staging);
+    written.map_err(|source| SyncError::Write {
+        path: path.to_string(),
+        source,
+    })?;
 
-        return Err(SyncError::Write {
-            path: path.to_string(),
-            source,
-        });
-    }
-
-    publish(&staging, &target, path).inspect_err(|_| discard(&staging))
+    Ok(staging)
 }
 
 fn writable_permissions(root: &Path, path: &str) -> Result<Option<fs::Permissions>, SyncError> {
@@ -643,20 +700,30 @@ fn create_staging(
     target: &Path,
     permissions: Option<&fs::Permissions>,
     path: &str,
-) -> Result<(PathBuf, fs::File), SyncError> {
+) -> Result<(Staging, fs::File), SyncError> {
     let folder = target.parent().expect("a synced path has a parent folder");
-    let name = target
-        .file_name()
-        .expect("a synced path names a file")
-        .to_string_lossy();
     let process = std::process::id();
 
     for attempt in 0..STAGING_ATTEMPTS {
-        let staging = folder.join(format!("{STAGING_PREFIX}{process}.{attempt}.{name}"));
+        let staging = folder.join(staging_name(target, process, attempt));
 
         let Some(file) = create_exclusive(&staging, permissions, path)? else {
             continue;
         };
+
+        let staging = Staging { path: staging };
+
+        // The umask can clear bits the creation mode asked for.
+        if let Some(permissions) = permissions
+            && let Err(source) = file.set_permissions(permissions.clone())
+        {
+            drop(file);
+
+            return Err(SyncError::Write {
+                path: path.to_string(),
+                source,
+            });
+        }
 
         return Ok((staging, file));
     }
@@ -668,6 +735,15 @@ fn create_staging(
             "every staging name in the folder is taken",
         ),
     })
+}
+
+fn staging_name(target: &Path, process: u32, attempt: u32) -> String {
+    let name = target
+        .file_name()
+        .expect("a synced path names a file")
+        .to_string_lossy();
+
+    format!("{STAGING_PREFIX}{process}.{attempt}.{name}")
 }
 
 fn create_exclusive(
@@ -696,39 +772,36 @@ fn create_exclusive(
         }
     };
 
-    // The umask can clear bits the creation mode asked for.
-    if let Some(permissions) = permissions
-        && let Err(source) = file.set_permissions(permissions.clone())
-    {
-        drop(file);
-        discard(staging);
-
-        return Err(SyncError::Write {
-            path: path.to_string(),
-            source,
-        });
-    }
-
     Ok(Some(file))
 }
 
-fn publish(staging: &Path, target: &Path, path: &str) -> Result<(), SyncError> {
-    fs::rename(staging, target).map_err(|source| SyncError::Write {
-        path: path.to_string(),
-        source,
-    })
+struct Staging {
+    path: PathBuf,
 }
 
-#[expect(
-    clippy::print_stderr,
-    reason = "no caller can take the cleanup error beside the error it returns"
-)]
-fn discard(staging: &Path) {
-    if let Err(error) = fs::remove_file(staging) {
-        eprintln!(
-            "could not remove the staging file {}: {error}",
-            staging.display()
-        );
+impl Staging {
+    fn publish(self, target: &Path, path: &str) -> Result<(), SyncError> {
+        fs::rename(&self.path, target).map_err(|source| SyncError::Write {
+            path: path.to_string(),
+            source,
+        })
+    }
+}
+
+impl Drop for Staging {
+    #[expect(
+        clippy::print_stderr,
+        reason = "no caller can take the cleanup error after a failed write"
+    )]
+    fn drop(&mut self) {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => eprintln!(
+                "could not remove the staging file {}: {error}",
+                self.path.display()
+            ),
+        }
     }
 }
 

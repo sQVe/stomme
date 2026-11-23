@@ -596,12 +596,19 @@ fn sync_keeps_the_permissions_of_a_synced_file() {
     sync_project(root.path()).expect("the first sync succeeds");
 
     let synced = root.path().join(path);
+    let before = fs::read(&synced).expect("read the synced file");
 
     fs::set_permissions(&synced, fs::Permissions::from_mode(0o640))
         .expect("set the permissions of the synced file");
     add_project_rule(root.path());
 
     sync_project(root.path()).expect("the second sync succeeds");
+
+    assert_ne!(
+        fs::read(&synced).expect("read the synced file"),
+        before,
+        "the second sync rewrites the file"
+    );
 
     let metadata = fs::metadata(&synced).expect("read the metadata of the synced file");
 
@@ -658,6 +665,69 @@ fn sync_removes_a_stale_staging_file() {
 }
 
 #[test]
+fn sync_removes_a_stale_staging_file_beside_the_agents_block() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let stale = root
+        .path()
+        .join(format!("{STAGING_PREFIX}4242.0.AGENTS.md"));
+
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+
+    sync_project(root.path()).expect("the second sync succeeds");
+
+    assert!(!stale.exists());
+}
+
+#[test]
+fn sync_keeps_a_stale_staging_file_when_it_refuses() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let stale = root
+        .path()
+        .join("docs/stomme/shared")
+        .join(format!("{STAGING_PREFIX}4242.0.coding.md"));
+    let extra = root.path().join("docs/stomme/shared/extra.md");
+
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+    fs::write(&extra, "extra\n").expect("write the extra file");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::Extra { ref path } if path == "docs/stomme/shared/extra.md"),
+        "{error:?}"
+    );
+    assert!(stale.exists());
+}
+
+#[test]
+fn sync_refuses_a_user_file_with_a_staging_prefix() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let user = root
+        .path()
+        .join("docs/stomme/shared")
+        .join(format!("{STAGING_PREFIX}notes"));
+
+    fs::write(&user, "mine\n").expect("write the user file");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::Extra { ref path } if path == "docs/stomme/shared/.stomme-staging.notes"),
+        "{error:?}"
+    );
+    assert!(user.exists());
+}
+
+#[test]
 fn sync_refuses_a_recorded_file_with_a_staging_name() {
     let root = rust_project(&[]);
     let path = format!("docs/stomme/{STAGING_PREFIX}notes");
@@ -668,13 +738,14 @@ fn sync_refuses_a_recorded_file_with_a_staging_name() {
         .expect("create docs/stomme");
     fs::write(&recorded, "edited\n").expect("write the recorded file");
 
+    let before = snapshot(root.path());
     let error = sync_project(root.path()).expect_err("sync refuses");
 
-    assert!(matches!(error, SyncError::Edited { .. }), "{error:?}");
-    assert_eq!(
-        fs::read_to_string(&recorded).expect("read the recorded file"),
-        "edited\n"
+    assert!(
+        matches!(error, SyncError::Edited { ref path } if path == "docs/stomme/.stomme-staging.notes"),
+        "{error:?}"
     );
+    assert_eq!(snapshot(root.path()), before);
 }
 
 #[test]
@@ -683,10 +754,7 @@ fn write_file_uses_a_free_staging_name() {
     let path = "docs/stomme/shared/coding.md";
     let target = root.path().join(path);
     let folder = root.path().join("docs/stomme/shared");
-    let taken = folder.join(format!(
-        "{STAGING_PREFIX}{}.0.coding.md",
-        std::process::id()
-    ));
+    let taken = folder.join(staging_name(&target, std::process::id(), 0));
 
     fs::create_dir_all(&folder).expect("create the folder");
     fs::write(&taken, "stale\n").expect("write the taken staging name");

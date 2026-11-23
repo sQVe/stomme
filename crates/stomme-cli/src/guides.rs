@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -36,21 +36,25 @@ pub(crate) fn run(directory: &Path, catalog: &Catalog) -> Result<(), GuidesError
     check_directory(directory)?;
 
     let record = Record::read_file(&directory.join(BUNDLE_RECORD), BUNDLE_RECORD)?;
-    let (writes, deletes, hashes) = plan(directory, &files, record.as_ref())?;
+    let plan = plan(directory, &files, record.as_ref())?;
 
-    for (path, content) in writes {
-        sync::write_file(directory, &path, &content)?;
+    for path in &plan.stale {
+        sync::remove_file(directory, path)?;
     }
 
-    for path in deletes {
-        sync::remove_file(directory, &path)?;
+    for (path, content) in &plan.writes {
+        sync::write_file(directory, path, content)?;
+    }
+
+    for path in &plan.deletes {
+        sync::remove_file(directory, path)?;
     }
 
     let record = Record {
         schema: RECORD_SCHEMA,
         version: env!("CARGO_PKG_VERSION").to_string(),
         agents: None,
-        files: hashes,
+        files: plan.hashes,
     };
     let text = toml::to_string(&record).expect("the bundle record serializes");
 
@@ -83,13 +87,18 @@ fn check_directory(directory: &Path) -> Result<(), GuidesError> {
     }
 }
 
-type BundlePlan = (Vec<(String, String)>, Vec<String>, BTreeMap<String, String>);
+struct Plan {
+    writes: Vec<(String, String)>,
+    stale: Vec<String>,
+    deletes: Vec<String>,
+    hashes: BTreeMap<String, String>,
+}
 
 fn plan(
     directory: &Path,
     files: &[OwnedFile],
     record: Option<&Record>,
-) -> Result<BundlePlan, GuidesError> {
+) -> Result<Plan, GuidesError> {
     let mut writes = Vec::new();
     let mut hashes = BTreeMap::new();
 
@@ -125,9 +134,34 @@ fn plan(
         }
     }
 
+    let stale = staging_in(directory, &writes)?;
     let deletes = plan_deletes(directory, record, &hashes)?;
 
-    Ok((writes, deletes, hashes))
+    Ok(Plan {
+        writes,
+        stale,
+        deletes,
+        hashes,
+    })
+}
+
+fn staging_in(directory: &Path, writes: &[(String, String)]) -> Result<Vec<String>, GuidesError> {
+    let mut folders = BTreeSet::new();
+    let mut stale = BTreeSet::new();
+
+    folders.insert(directory.to_path_buf());
+
+    for (path, _) in writes {
+        if let Some(folder) = Path::new(path).parent() {
+            folders.insert(directory.join(folder));
+        }
+    }
+
+    for folder in folders {
+        stale.extend(sync::stale_staging_in(directory, &folder)?);
+    }
+
+    Ok(stale.into_iter().collect())
 }
 
 fn plan_deletes(

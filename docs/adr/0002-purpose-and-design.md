@@ -37,9 +37,10 @@ the tree that mirrors `foundation/`, and link validation covers only the Markdow
 `docs/stomme/.sync-record.toml` records the pinned version and a content hash for each synced path,
 and `sync` writes it last. `sync` replaces a synced file through a staging file beside it, named
 with the reserved prefix `.stomme-staging.`, so a write never changes another name for the same
-content and a crash leaves no half-written synced file. A later `sync` removes files with that
-prefix from the `docs/stomme` tree it has already validated as its own, and never removes a path the
-record names. `AGENTS.md` holds one managed block between `<!-- stomme:start -->` and
+content and a crash leaves no half-written synced file. A later run removes files with that prefix
+from the folders it writes to, after its checks pass and before it writes, and never removes a path
+the record names or a name outside that grammar. `stomme guides` does the same in its output folder.
+`AGENTS.md` holds one managed block between `<!-- stomme:start -->` and
 `<!-- stomme:end -->` markers, and the record holds a hash of that block. Text outside the markers
 belongs to the project. `docs/adr/` holds only project ADRs, with independent numbering.
 
