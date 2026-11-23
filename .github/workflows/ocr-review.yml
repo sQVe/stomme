@@ -109,12 +109,20 @@ jobs:
           # resumed.
           if [ "${OCR_EXIT_CODE:-}" != "0" ]; then
             echo "final=1" >> "$GITHUB_OUTPUT"
-            echo "reason=$(failure_reason /tmp/ocr-result.json)" >> "$GITHUB_OUTPUT"
+            {
+              echo 'reason<<OCR_REASON'
+              failure_reason /tmp/ocr-result.json
+              echo 'OCR_REASON'
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [ "$final" = "1" ]; then
-            echo "reason=$(failure_reason /tmp/ocr-result.json)" >> "$GITHUB_OUTPUT"
+            {
+              echo 'reason<<OCR_REASON'
+              failure_reason /tmp/ocr-result.json
+              echo 'OCR_REASON'
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -126,7 +134,11 @@ jobs:
           if [ -z "$session_id" ]; then
             echo "::warning::The partial review recorded no session to resume."
             echo "final=1" >> "$GITHUB_OUTPUT"
-            echo "reason=the partial review recorded no session to resume" >> "$GITHUB_OUTPUT"
+            {
+              echo 'reason<<OCR_REASON'
+              echo 'the partial review recorded no session to resume'
+              echo 'OCR_REASON'
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -160,7 +172,11 @@ jobs:
           if [ ! -s /tmp/ocr-resume-coverage.md ]; then
             cp /tmp/ocr-first-coverage.md /tmp/ocr-coverage.md 2>/dev/null || true
             echo "final=1" >> "$GITHUB_OUTPUT"
-            echo "reason=$(failure_reason /tmp/ocr-resume.json)" >> "$GITHUB_OUTPUT"
+            {
+              echo 'reason<<OCR_REASON'
+              failure_reason /tmp/ocr-resume.json
+              echo 'OCR_REASON'
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -174,7 +190,11 @@ jobs:
 
           if [ "$status" != "0" ] || [ "$resumed" = "1" ]; then
             echo "final=1" >> "$GITHUB_OUTPUT"
-            echo "reason=$(failure_reason /tmp/ocr-resume.json)" >> "$GITHUB_OUTPUT"
+            {
+              echo 'reason<<OCR_REASON'
+              failure_reason /tmp/ocr-resume.json
+              echo 'OCR_REASON'
+            } >> "$GITHUB_OUTPUT"
           else
             echo "final=$resumed" >> "$GITHUB_OUTPUT"
           fi

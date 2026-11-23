@@ -54,6 +54,12 @@ const TIMEOUT_RESULT: &str = r#"{
   }
 }"#;
 
+const MULTILINE_RESULT: &str = r#"{
+  "manifest": {
+    "run_failure": {"classification": "timeout", "reason": "first line\nsecond line"}
+  }
+}"#;
+
 const STOMME_FAKE: &str = r#"#!/bin/bash
 case "$2" in
   *ocr-resume.json)
@@ -211,13 +217,25 @@ fn remove_stale(path: &Path) -> io::Result<()> {
 }
 
 fn last_output(output: &str, key: &str) -> Option<String> {
+    let lines: Vec<&str> = output.lines().collect();
     let prefix = format!("{key}=");
+    let delimiter_prefix = format!("{key}<<");
+    let start = lines
+        .iter()
+        .rposition(|line| line.starts_with(&prefix) || line.starts_with(&delimiter_prefix))?;
+    let first = lines[start];
 
-    output
-        .lines()
-        .filter_map(|line| line.strip_prefix(&prefix))
-        .next_back()
-        .map(ToString::to_string)
+    if let Some(value) = first.strip_prefix(&prefix) {
+        return Some(value.to_string());
+    }
+
+    let delimiter = first.strip_prefix(&delimiter_prefix)?;
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| *line == delimiter)
+        .map(|offset| start + 1 + offset)?;
+
+    Some(lines[start + 1..end].join("\n"))
 }
 
 #[derive(Clone, Copy)]
@@ -633,6 +651,23 @@ fn classifier_takes_the_run_failure_reason_first() {
         Some("the global deadline elapsed")
     );
     assert_eq!(observation.ocr_arguments, None);
+}
+
+#[test]
+fn classifier_keeps_a_reason_that_spans_lines() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(MULTILINE_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("first line\nsecond line")
+    );
 }
 
 #[test]
