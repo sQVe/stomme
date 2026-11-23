@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -24,6 +25,9 @@ pub(crate) use record_state::{RecordState, record_state};
 
 pub(crate) const RECORD_FILE: &str = "docs/stomme/.sync-record.toml";
 pub(crate) const RECORD_SCHEMA: i64 = 1;
+
+const STAGING_PREFIX: &str = ".stomme-staging.";
+const STAGING_ATTEMPTS: u32 = 16;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -284,6 +288,7 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
 
     check_parent_folders(root, agents_block::PATH)?;
     check_regular_file(root, agents_block::PATH)?;
+    remove_stale_staging(root, &owned_paths, &recorded_paths)?;
     check_extra_files(root, &owned_paths, &recorded_paths)?;
 
     let (mut writes, files) = plan_writes(root, owned, record.as_ref())?;
@@ -506,20 +511,52 @@ fn check_extra_files(
     owned: &BTreeSet<&str>,
     recorded: &BTreeSet<String>,
 ) -> Result<(), SyncError> {
-    for item in synced_tree::files(root, RECORD_FILE) {
-        let path = match item {
-            Ok(path) => path,
-            Err(WalkError::MissingRoot { .. }) => return Ok(()),
-            Err(WalkError::Read { path, source }) => return Err(SyncError::Read { path, source }),
-            Err(WalkError::NotUtf8 { path }) => return Err(SyncError::NotText { path }),
-        };
-
+    for path in synced_files(root)? {
         if !owned.contains(path.as_str()) && !recorded.contains(&path) {
             return Err(SyncError::Extra { path });
         }
     }
 
     Ok(())
+}
+
+fn remove_stale_staging(
+    root: &Path,
+    owned: &BTreeSet<&str>,
+    recorded: &BTreeSet<String>,
+) -> Result<(), SyncError> {
+    for path in synced_files(root)? {
+        if owned.contains(path.as_str()) || recorded.contains(&path) {
+            continue;
+        }
+
+        if is_staging(&path) {
+            remove_file(root, &path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn is_staging(path: &str) -> bool {
+    path.rsplit('/')
+        .next()
+        .is_some_and(|name| name.starts_with(STAGING_PREFIX))
+}
+
+fn synced_files(root: &Path) -> Result<Vec<String>, SyncError> {
+    let mut paths = Vec::new();
+
+    for item in synced_tree::files(root, RECORD_FILE) {
+        match item {
+            Ok(path) => paths.push(path),
+            Err(WalkError::MissingRoot { .. }) => return Ok(Vec::new()),
+            Err(WalkError::Read { path, source }) => return Err(SyncError::Read { path, source }),
+            Err(WalkError::NotUtf8 { path }) => return Err(SyncError::NotText { path }),
+        }
+    }
+
+    Ok(paths)
 }
 
 fn metadata(root: &Path, path: &str) -> Result<Option<fs::Metadata>, SyncError> {
@@ -562,10 +599,138 @@ pub(crate) fn write_file(root: &Path, path: &str, content: &str) -> Result<(), S
         })?;
     }
 
-    fs::write(&target, content).map_err(|source| SyncError::Write {
+    let permissions = writable_permissions(root, path)?;
+    let (staging, mut file) = create_staging(&target, permissions.as_ref(), path)?;
+    let written = file.write_all(content.as_bytes());
+
+    // The rename needs the handle closed.
+    drop(file);
+
+    if let Err(source) = written {
+        discard(&staging);
+
+        return Err(SyncError::Write {
+            path: path.to_string(),
+            source,
+        });
+    }
+
+    publish(&staging, &target, path).inspect_err(|_| discard(&staging))
+}
+
+fn writable_permissions(root: &Path, path: &str) -> Result<Option<fs::Permissions>, SyncError> {
+    let Some(metadata) = metadata(root, path)? else {
+        return Ok(None);
+    };
+
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+
+    // Sync replaces the target instead of writing into it, which would succeed on a file the user
+    // made read-only. Probing the open keeps the refusal the in-place write gave.
+    fs::OpenOptions::new()
+        .write(true)
+        .open(root.join(path))
+        .map_err(|source| SyncError::Write {
+            path: path.to_string(),
+            source,
+        })?;
+
+    Ok(Some(metadata.permissions()))
+}
+
+fn create_staging(
+    target: &Path,
+    permissions: Option<&fs::Permissions>,
+    path: &str,
+) -> Result<(PathBuf, fs::File), SyncError> {
+    let folder = target.parent().expect("a synced path has a parent folder");
+    let name = target
+        .file_name()
+        .expect("a synced path names a file")
+        .to_string_lossy();
+    let process = std::process::id();
+
+    for attempt in 0..STAGING_ATTEMPTS {
+        let staging = folder.join(format!("{STAGING_PREFIX}{process}.{attempt}.{name}"));
+
+        let Some(file) = create_exclusive(&staging, permissions, path)? else {
+            continue;
+        };
+
+        return Ok((staging, file));
+    }
+
+    Err(SyncError::Write {
+        path: path.to_string(),
+        source: io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "every staging name in the folder is taken",
+        ),
+    })
+}
+
+fn create_exclusive(
+    staging: &Path,
+    permissions: Option<&fs::Permissions>,
+    path: &str,
+) -> Result<Option<fs::File>, SyncError> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+
+    #[cfg(unix)]
+    if let Some(permissions) = permissions {
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+        options.mode(permissions.mode());
+    }
+
+    let file = match options.open(staging) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(None),
+        Err(source) => {
+            return Err(SyncError::Write {
+                path: path.to_string(),
+                source,
+            });
+        }
+    };
+
+    // The umask can clear bits the creation mode asked for.
+    if let Some(permissions) = permissions
+        && let Err(source) = file.set_permissions(permissions.clone())
+    {
+        drop(file);
+        discard(staging);
+
+        return Err(SyncError::Write {
+            path: path.to_string(),
+            source,
+        });
+    }
+
+    Ok(Some(file))
+}
+
+fn publish(staging: &Path, target: &Path, path: &str) -> Result<(), SyncError> {
+    fs::rename(staging, target).map_err(|source| SyncError::Write {
         path: path.to_string(),
         source,
     })
+}
+
+#[expect(
+    clippy::print_stderr,
+    reason = "no caller can take the cleanup error beside the error it returns"
+)]
+fn discard(staging: &Path) {
+    if let Err(error) = fs::remove_file(staging) {
+        eprintln!(
+            "could not remove the staging file {}: {error}",
+            staging.display()
+        );
+    }
 }
 
 pub(crate) fn remove_file(root: &Path, path: &str) -> Result<(), SyncError> {

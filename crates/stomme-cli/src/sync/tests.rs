@@ -475,6 +475,13 @@ fn sync_refuses_a_symlinked_docs_stomme_folder() {
     let root = rust_project(&[]);
     let outside = tempfile::tempdir().expect("create an outside directory");
 
+    fs::write(
+        outside.path().join(format!("{STAGING_PREFIX}1.0.notes")),
+        "outside\n",
+    )
+    .expect("write the outside file");
+    let before = snapshot(outside.path());
+
     fs::create_dir(root.path().join("docs")).expect("create docs");
     symlink(outside.path(), root.path().join("docs/stomme"))
         .expect("create the docs/stomme symlink");
@@ -485,7 +492,7 @@ fn sync_refuses_a_symlinked_docs_stomme_folder() {
         matches!(error, SyncError::SymlinkedFolder { ref path } if path == "docs/stomme"),
         "{error:?}"
     );
-    assert_eq!(snapshot(outside.path()), BTreeMap::new());
+    assert_eq!(snapshot(outside.path()), before);
 }
 
 #[cfg(unix)]
@@ -555,6 +562,188 @@ fn sync_writes_a_missing_owned_file() {
     sync_project(root.path()).expect("the second sync succeeds");
 
     assert!(path.is_file());
+}
+
+#[test]
+fn sync_does_not_write_through_a_hard_link() {
+    let root = rust_project(&[]);
+    let outside = tempfile::tempdir().expect("create a temporary directory");
+    let path = "docs/stomme/ocr-rules.json";
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let synced = root.path().join(path);
+    let alias = outside.path().join("ocr-rules.json");
+    let before = fs::read(&synced).expect("read the synced file");
+
+    fs::hard_link(&synced, &alias).expect("link the synced file");
+    add_project_rule(root.path());
+
+    sync_project(root.path()).expect("the second sync succeeds");
+
+    assert_eq!(fs::read(&alias).expect("read the linked file"), before);
+    assert_ne!(fs::read(&synced).expect("read the synced file"), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_keeps_the_permissions_of_a_synced_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = rust_project(&[]);
+    let path = "docs/stomme/ocr-rules.json";
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let synced = root.path().join(path);
+
+    fs::set_permissions(&synced, fs::Permissions::from_mode(0o640))
+        .expect("set the permissions of the synced file");
+    add_project_rule(root.path());
+
+    sync_project(root.path()).expect("the second sync succeeds");
+
+    let metadata = fs::metadata(&synced).expect("read the metadata of the synced file");
+
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o640);
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_refuses_a_read_only_owned_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = rust_project(&[]);
+    let path = "docs/stomme/ocr-rules.json";
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let synced = root.path().join(path);
+    let before = fs::read(&synced).expect("read the synced file");
+
+    fs::set_permissions(&synced, fs::Permissions::from_mode(0o400))
+        .expect("set the read-only mode");
+    add_project_rule(root.path());
+
+    if fs::OpenOptions::new().write(true).open(&synced).is_ok() {
+        // A user that ignores file modes, such as root, cannot show the refusal.
+        return;
+    }
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::Write { ref path, .. } if path == "docs/stomme/ocr-rules.json"),
+        "{error:?}"
+    );
+    assert_eq!(fs::read(&synced).expect("read the synced file"), before);
+}
+
+#[test]
+fn sync_removes_a_stale_staging_file() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let stale = root
+        .path()
+        .join("docs/stomme/shared")
+        .join(format!("{STAGING_PREFIX}4242.0.coding.md"));
+
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+
+    sync_project(root.path()).expect("the second sync succeeds");
+
+    assert!(!stale.exists());
+}
+
+#[test]
+fn sync_refuses_a_recorded_file_with_a_staging_name() {
+    let root = rust_project(&[]);
+    let path = format!("docs/stomme/{STAGING_PREFIX}notes");
+    let recorded = root.path().join(&path);
+
+    write_record(root.path(), &path);
+    fs::create_dir_all(recorded.parent().expect("the file has a parent"))
+        .expect("create docs/stomme");
+    fs::write(&recorded, "edited\n").expect("write the recorded file");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(matches!(error, SyncError::Edited { .. }), "{error:?}");
+    assert_eq!(
+        fs::read_to_string(&recorded).expect("read the recorded file"),
+        "edited\n"
+    );
+}
+
+#[test]
+fn write_file_uses_a_free_staging_name() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let path = "docs/stomme/shared/coding.md";
+    let target = root.path().join(path);
+    let folder = root.path().join("docs/stomme/shared");
+    let taken = folder.join(format!(
+        "{STAGING_PREFIX}{}.0.coding.md",
+        std::process::id()
+    ));
+
+    fs::create_dir_all(&folder).expect("create the folder");
+    fs::write(&taken, "stale\n").expect("write the taken staging name");
+
+    write_file(root.path(), path, "current\n").expect("the write succeeds");
+
+    assert_eq!(
+        fs::read_to_string(&target).expect("read the target"),
+        "current\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&taken).expect("read the taken staging name"),
+        "stale\n"
+    );
+    assert_eq!(
+        fs::read_dir(&folder).expect("read the folder").count(),
+        2,
+        "the folder holds the target and the taken name"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn create_exclusive_applies_the_permissions_before_the_first_write() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let path = "docs/stomme/shared/coding.md";
+    let target = root.path().join(path);
+    let staging = root.path().join("staging");
+
+    fs::create_dir_all(target.parent().expect("the target has a parent"))
+        .expect("create the folder");
+    fs::write(&target, "old\n").expect("write the target");
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).expect("set the target mode");
+    let permissions = fs::metadata(&target)
+        .expect("read the target metadata")
+        .permissions();
+
+    let file = create_exclusive(&staging, Some(&permissions), path)
+        .expect("create the staging file")
+        .expect("the staging name is free");
+    let metadata = fs::metadata(&staging).expect("read the staging metadata");
+
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    assert_eq!(metadata.len(), 0);
+
+    drop(file);
+}
+
+fn add_project_rule(root: &Path) {
+    fs::create_dir_all(root.join(".opencodereview")).expect("create the rule folder");
+    fs::write(
+        root.join(PROJECT_RULE_FILE),
+        r#"{ "rules": [{ "path": "src/**", "rule": "Keep modules small." }] }"#,
+    )
+    .expect("write the project rule file");
 }
 
 #[test]
