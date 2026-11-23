@@ -439,6 +439,17 @@ fn init_pins_the_sync_workflow_to_the_release_commit() {
 }
 
 #[test]
+fn init_pins_the_ocr_workflow_to_the_release_commit() {
+    let root = initialized("ruta");
+    let workflow = fs::read_to_string(root.path().join(".github/workflows/ocr.yml"))
+        .expect("read the OCR workflow");
+    let commit = embedded_release_commit().unwrap_or(FAKE_COMMIT);
+    let pin = format!("ocr-review.yml@{commit} # v{}", env!("CARGO_PKG_VERSION"));
+
+    assert!(workflow.contains(&pin), "{workflow}");
+}
+
+#[test]
 fn init_accepts_a_folder_with_only_git() {
     let root = project_root();
 

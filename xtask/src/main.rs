@@ -1,5 +1,7 @@
 mod check;
 mod mutation;
+#[cfg(test)]
+mod ocr_review;
 mod ocr_smoke;
 mod release_check;
 mod release_gate;

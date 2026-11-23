@@ -103,4 +103,35 @@ jobs:
 The TypeScript style package in [packages/style](packages/style/README.md) is published as
 `@sqve/stomme-ts-style` with its own version.
 
+## Review pull requests with OCR
+
+`stomme init` writes `.github/workflows/ocr.yml`, which calls the reusable OCR workflow in stomme by
+release commit with a version comment:
+
+```yaml
+name: OCR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  review:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: sQVe/stomme/.github/workflows/ocr-review.yml@<commit> # v0.2.3
+    secrets:
+      model-token: ${{ secrets.MORPH_API_KEY }}
+```
+
+Set the `MORPH_API_KEY` repository secret to the Morph token. The caller grants `contents: write`
+and `pull-requests: write`. The review posts its findings as a pull request comment.
+
+Require the `review / OCR review` check in branch protection, so a pull request merges only after
+the review covers every selected file. The check fails until the secret is set. A fork pull request
+gets no secrets, so it fails the check too; fork pull requests are not supported.
+
+See [ADR 0017](docs/adr/0017-open-code-review.md) for the review rules and the coverage check.
+
 See [the documentation](docs/README.md) for the development guide and architecture decisions.

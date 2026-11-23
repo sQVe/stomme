@@ -41,6 +41,10 @@ static COMMON: Source = Source {
                 "../../../../foundation/common/skeleton/files/.github/workflows/sync-update.yml"
             ),
         ),
+        (
+            ".github/workflows/ocr.yml",
+            include_str!("../../../../foundation/common/skeleton/files/.github/workflows/ocr.yml"),
+        ),
     ],
     merges: &[],
 };

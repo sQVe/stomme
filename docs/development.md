@@ -68,8 +68,8 @@
   candidate `stomme` binary against one project as its update would, and exits 1 only when an
   adopted project fails.
 - `cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>`
-  runs the candidate's `stomme init` in an empty folder and exits 1 unless the written sync
-  workflow equals the common skeleton with `{{commit}}` and `{{version}}` replaced.
+  runs the candidate's `stomme init` in an empty folder and exits 1 unless the written sync and OCR
+  workflows equal their common skeletons with `{{commit}}` and `{{version}}` replaced.
 - `packages/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
 - `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
   `stomme.toml`.
@@ -211,7 +211,7 @@ candidate binary against every adopted project's `main` and against `release/con
 project that fails stops the host job, so the GitHub Release is created only when every gate job
 passes. A project without `stomme.toml` is reported without blocking the release. The gate also
 checks the init pin: it runs the candidate binary's `stomme init` in an empty folder and fails
-unless the written sync workflow pins the tag commit.
+unless the written sync and OCR workflows pin the tag commit.
 
 Install a published binary with mise:
 

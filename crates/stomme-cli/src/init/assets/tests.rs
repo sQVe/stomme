@@ -25,6 +25,7 @@ fn plan_writes_the_common_files() {
         "docs/adr/TEMPLATE.md",
         "renovate.json",
         ".github/workflows/sync-update.yml",
+        ".github/workflows/ocr.yml",
     ] {
         assert!(plan.files.contains_key(path), "missing {path}");
     }
@@ -38,6 +39,18 @@ fn plan_pins_the_sync_workflow_to_the_release_commit() {
 
     assert!(workflow.contains(&pin), "{workflow}");
     assert!(!workflow.contains("sync-update.yml@v"));
+    assert!(!workflow.contains("{{commit}}"));
+    assert!(!workflow.contains("{{version}}"));
+}
+
+#[test]
+fn plan_pins_the_ocr_workflow_to_the_release_commit() {
+    let plan = common_plan();
+    let workflow = &plan.files[".github/workflows/ocr.yml"];
+    let pin = format!("ocr-review.yml@{TEST_COMMIT} # v{VERSION}");
+
+    assert!(workflow.contains(&pin), "{workflow}");
+    assert!(!workflow.contains("ocr-review.yml@v"));
     assert!(!workflow.contains("{{commit}}"));
     assert!(!workflow.contains("{{version}}"));
 }

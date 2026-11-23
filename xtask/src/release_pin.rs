@@ -11,9 +11,16 @@ const USAGE: &str = "\
 Usage:
   cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>";
 
-const WORKFLOW: &str = ".github/workflows/sync-update.yml";
-const SKELETON: &str =
-    include_str!("../../foundation/common/skeleton/files/.github/workflows/sync-update.yml");
+const WORKFLOWS: [(&str, &str); 2] = [
+    (
+        ".github/workflows/sync-update.yml",
+        include_str!("../../foundation/common/skeleton/files/.github/workflows/sync-update.yml"),
+    ),
+    (
+        ".github/workflows/ocr.yml",
+        include_str!("../../foundation/common/skeleton/files/.github/workflows/ocr.yml"),
+    ),
+];
 const COMMIT_OVERRIDE: &str = "STOMME_RELEASE_COMMIT";
 const COMMIT_LENGTH: usize = 40;
 
@@ -88,18 +95,7 @@ fn check_pin(
         });
     }
 
-    let workflow = folder.join(WORKFLOW);
-    let text = match (runner.read)(&workflow) {
-        Ok(text) => text,
-        Err(error) => {
-            return Ok(Outcome::Failed {
-                step: "pin",
-                output: format!("Could not read {}: {error}", workflow.display()),
-            });
-        }
-    };
-
-    Ok(compare_workflow(&text, version, commit))
+    Ok(check_workflows(runner, version, commit, folder))
 }
 
 fn refuse_nonempty_folder(runner: &Runner, folder: &Path) -> Option<Outcome> {
@@ -132,10 +128,36 @@ fn unreadable_folder(folder: &Path, error: &io::Error) -> Outcome {
     }
 }
 
-fn compare_workflow(text: &str, version: &str, commit: &str) -> Outcome {
-    let expected = expected_workflow(version, commit);
+fn check_workflows(runner: &Runner, version: &str, commit: &str, folder: &Path) -> Outcome {
+    let mut failures = Vec::new();
 
-    match first_difference(&expected, text) {
+    for (path, skeleton) in WORKFLOWS {
+        let workflow = folder.join(path);
+        let text = match (runner.read)(&workflow) {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(format!("Could not read {}: {error}", workflow.display()));
+                continue;
+            }
+        };
+
+        if let Outcome::Failed { output, .. } = compare_workflow(skeleton, &text, version, commit) {
+            failures.push(format!("{} differs.\n{output}", workflow.display()));
+        }
+    }
+
+    if failures.is_empty() {
+        return Outcome::Passed;
+    }
+
+    Outcome::Failed {
+        step: "pin",
+        output: failures.join("\n"),
+    }
+}
+
+fn compare_workflow(skeleton: &str, text: &str, version: &str, commit: &str) -> Outcome {
+    match first_difference(&expected_workflow(skeleton, version, commit), text) {
         None => Outcome::Passed,
         Some(output) => Outcome::Failed {
             step: "pin",
@@ -144,8 +166,8 @@ fn compare_workflow(text: &str, version: &str, commit: &str) -> Outcome {
     }
 }
 
-fn expected_workflow(version: &str, commit: &str) -> String {
-    SKELETON
+fn expected_workflow(skeleton: &str, version: &str, commit: &str) -> String {
+    skeleton
         .replace("{{commit}}", commit)
         .replace("{{version}}", version)
 }
