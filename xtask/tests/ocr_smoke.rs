@@ -4,8 +4,6 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-// The integration target cannot reach the binary crate's `test_support` module without a library
-// target.
 fn temporary_directory() -> TempDir {
     tempfile::Builder::new()
         .prefix("stomme-ocr-smoke-caller-")
@@ -13,7 +11,6 @@ fn temporary_directory() -> TempDir {
         .expect("create a temporary directory")
 }
 
-// The integration target cannot read the binary crate's list without a library target.
 const REPOSITORY_VARIABLES: &[&str] = &[
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES",
