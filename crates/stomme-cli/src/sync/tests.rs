@@ -707,6 +707,24 @@ fn sync_keeps_a_stale_staging_file_when_it_refuses() {
 }
 
 #[test]
+fn sync_leaves_a_directory_with_a_staging_name() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let folder = root
+        .path()
+        .join("docs/stomme/shared")
+        .join(format!("{STAGING_PREFIX}4242.0.coding.md"));
+
+    fs::create_dir(&folder).expect("create the staging folder");
+
+    sync_project(root.path()).expect("the second sync succeeds");
+
+    assert!(folder.is_dir());
+}
+
+#[test]
 fn sync_refuses_a_user_file_with_a_staging_prefix() {
     let root = rust_project(&[]);
 

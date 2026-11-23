@@ -591,9 +591,12 @@ fn stale_staging_in(base: &Path, folder: &Path) -> Result<Vec<String>, SyncError
             continue;
         }
 
-        let is_file = entry.file_type().is_ok_and(|file_type| file_type.is_file());
+        let file_type = entry.file_type().map_err(|source| SyncError::Read {
+            path: synced_tree::describe_relative(base, &entry.path()),
+            source,
+        })?;
 
-        if !is_file {
+        if !file_type.is_file() {
             continue;
         }
 
