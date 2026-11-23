@@ -105,6 +105,7 @@ jobs:
           mise trust
           mise install http:herdr-app
           echo "$(mise where http:herdr-app)/herdr-app" >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
       - name: Mutate the pull request's diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -157,6 +158,7 @@ jobs:
           mise trust
           mise install http:herdr-app
           echo "$(mise where http:herdr-app)/herdr-app" >> "$GITHUB_PATH"
+      - run: pnpm install --frozen-lockfile
       - name: Mutate the whole workspace
         run: |
           status=0
