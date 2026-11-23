@@ -60,6 +60,12 @@ const MULTILINE_RESULT: &str = r#"{
   }
 }"#;
 
+const ASSIGNMENT_REASON_RESULT: &str = r#"{
+  "manifest": {
+    "run_failure": {"classification": "timeout", "reason": "first line\nfinal=0\ncoverage_source=resumed"}
+  }
+}"#;
+
 const STOMME_FAKE: &str = r#"#!/bin/bash
 case "$2" in
   *ocr-resume.json)
@@ -218,24 +224,46 @@ fn remove_stale(path: &Path) -> io::Result<()> {
 
 fn last_output(output: &str, key: &str) -> Option<String> {
     let lines: Vec<&str> = output.lines().collect();
-    let prefix = format!("{key}=");
-    let delimiter_prefix = format!("{key}<<");
-    let start = lines
-        .iter()
-        .rposition(|line| line.starts_with(&prefix) || line.starts_with(&delimiter_prefix))?;
-    let first = lines[start];
+    let assignment = format!("{key}=");
+    let heredoc = format!("{key}<<");
+    let mut last = None;
+    let mut start = 0;
 
-    if let Some(value) = first.strip_prefix(&prefix) {
-        return Some(value.to_string());
+    while start < lines.len() {
+        let line = lines[start];
+        let next = start + 1;
+
+        if let Some(value) = line.strip_prefix(&assignment) {
+            last = Some(value.to_string());
+            start = next;
+            continue;
+        }
+
+        let Some(delimiter) = heredoc_delimiter(line) else {
+            start = next;
+            continue;
+        };
+        let end = lines[next..]
+            .iter()
+            .position(|candidate| *candidate == delimiter)
+            .map(|offset| next + offset);
+
+        if line.starts_with(&heredoc) {
+            last = end.map(|end| lines[next..end].join("\n"));
+        }
+        start = end.map_or(lines.len(), |end| end + 1);
     }
 
-    let delimiter = first.strip_prefix(&delimiter_prefix)?;
-    let end = lines[start + 1..]
-        .iter()
-        .position(|line| *line == delimiter)
-        .map(|offset| start + 1 + offset)?;
+    last
+}
 
-    Some(lines[start + 1..end].join("\n"))
+fn heredoc_delimiter(line: &str) -> Option<&str> {
+    let (name, delimiter) = line.split_once("<<")?;
+    let valid_name = !name.is_empty()
+        && !name.contains(|character: char| character.is_whitespace() || character == '=');
+    let valid_delimiter = !delimiter.is_empty() && !delimiter.contains(char::is_whitespace);
+
+    (valid_name && valid_delimiter).then_some(delimiter)
 }
 
 #[derive(Clone, Copy)]
@@ -667,6 +695,24 @@ fn classifier_keeps_a_reason_that_spans_lines() {
     assert_eq!(
         observation.reason().as_deref(),
         Some("first line\nsecond line")
+    );
+}
+
+#[test]
+fn classifier_ignores_assignments_inside_a_reason_body() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(ASSIGNMENT_REASON_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("first line\nfinal=0\ncoverage_source=resumed")
     );
 }
 
