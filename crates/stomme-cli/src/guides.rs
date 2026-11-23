@@ -134,7 +134,11 @@ fn plan(
         }
     }
 
-    let stale = sync::stale_staging_beside(directory, hashes.keys().map(String::as_str))?;
+    let record_keys = record.into_iter().flat_map(|record| record.files.keys());
+    let stale = sync::stale_staging_beside(
+        directory,
+        hashes.keys().chain(record_keys).map(String::as_str),
+    )?;
     let deletes = plan_deletes(directory, record, &hashes)?;
 
     Ok(Plan {

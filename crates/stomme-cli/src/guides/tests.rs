@@ -317,6 +317,50 @@ fn guides_refuses_another_schema() {
 }
 
 #[test]
+fn guides_removes_a_stale_staging_file_beside_an_unchanged_guide() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    run(root.path(), layer::catalog()).expect("write the bundle");
+
+    let stale = root
+        .path()
+        .join("shared")
+        .join(".stomme-staging.4242.0.coding.md");
+
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+    run(root.path(), layer::catalog()).expect("rewrite the bundle");
+
+    assert!(!stale.exists());
+}
+
+#[test]
+fn guides_removes_a_stale_staging_file_beside_a_dropped_guide() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    run(root.path(), layer::catalog()).expect("write the bundle");
+
+    let mut saved = record(root.path());
+    let folder = root.path().join("layers/old");
+    let guide = folder.join("guide.md");
+    let stale = folder.join(".stomme-staging.4242.0.guide.md");
+
+    fs::create_dir_all(&folder).expect("create the layer folder");
+    fs::write(&guide, "old\n").expect("write the dropped guide");
+    fs::write(&stale, "partial\n").expect("write the stale staging file");
+    saved
+        .files
+        .insert("layers/old/guide.md".to_string(), sync::hash(b"old\n"));
+
+    let text = toml::to_string(&saved).expect("serialize the record");
+
+    fs::write(root.path().join(BUNDLE_RECORD), text).expect("write the record");
+    run(root.path(), layer::catalog()).expect("rewrite the bundle");
+
+    assert!(!guide.exists());
+    assert!(!stale.exists());
+}
+
+#[test]
 fn guides_removes_a_recorded_file_the_release_dropped() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
