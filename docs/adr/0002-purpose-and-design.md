@@ -33,7 +33,7 @@ tree under `foundation/`, with `shared/`, `languages/<language>/`, and `layers/<
 links keep working. The owned set also holds one generated file, `docs/stomme/ocr-rules.json`,
 built from the selection and the project's optional `.opencodereview/rule.json`. It is not part of
 the tree that mirrors `foundation/`, and link validation covers only the Markdown files.
-[ADR 0016](./0016-open-code-review.md) records the review and the rule file's format.
+[ADR 0017](./0017-open-code-review.md) records the review and the rule file's format.
 `docs/stomme/.sync-record.toml` records the pinned version and a content hash for each synced path,
 and `sync` writes it last. `AGENTS.md` holds one managed block between `<!-- stomme:start -->` and
 `<!-- stomme:end -->` markers, and the record holds a hash of that block. Text outside the markers

@@ -50,7 +50,7 @@
   [ADR 0010](./stomme/shared/adr/0010-recorded-violations.md). `stomme guides <dir>` writes every
   shared file and guide, plus `.sync-record.toml`, to `<dir>` for a consumer without a project.
   `stomme sync` also writes `docs/stomme/ocr-rules.json` from the guides and the optional
-  `.opencodereview/rule.json`, as [ADR 0016](./adr/0016-open-code-review.md) records. Run
+  `.opencodereview/rule.json`, as [ADR 0017](./adr/0017-open-code-review.md) records. Run
   `stomme check` on this repository with `cargo run -q -p stomme -- check`.
   `stomme init` creates a project in the current directory, which must be empty apart from `.git`:
 

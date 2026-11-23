@@ -1,4 +1,4 @@
-# ADR 0016: Review pull requests with Open Code Review
+# ADR 0017: Review pull requests with Open Code Review
 
 **Date**: 2026-11-23\
 **Status**: Accepted\
