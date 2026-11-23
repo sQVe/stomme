@@ -30,6 +30,8 @@ required check whose findings are advice.
   project holds one reference and no copy.
 - Renovate bumps that tag in its `stomme` group, with the `stomme.toml` version and the binary pin,
   so the review settings move with the rules they enforce.
+- The job classifies the review with the `stomme` binary that the project pins. Renovate moves that
+  pin with the workflow tag, so the classification matches the workflow.
 
 ### The rule file
 
@@ -71,9 +73,24 @@ the token comes from the `MORPH_API_KEY` repository secret.
 
 ### The check
 
-- The OCR job is a required check that runs on every pull request push. It passes when the review
-  ran, whatever OCR found. It fails when OCR cannot run, such as on a missing secret, a timeout, or
-  a model error.
+- The OCR job is a required check that runs on every pull request push. It passes only when OCR
+  reviewed every file it selected. Findings never change the result.
+- `stomme ocr-coverage` decides the result from the coverage record in OCR's JSON result, not from
+  OCR's exit code or its warnings. OCR exits 0 on a partial review that ran out of budget, and a
+  warning names its whole review group, not the files it left unreviewed.
+- A selected file counts as reviewed when the record lists it as completed, or as reused from an
+  earlier run of the same session. A failed or waived file counts as unreviewed. A file that the
+  rules exclude was never selected, so it leaves no gap.
+- When a run leaves files unreviewed, the workflow resumes the session once, and OCR reviews only
+  those files. The check fails when files stay unreviewed after the resume, because a pass would
+  let a change merge with code that no one read.
+- A partial review and a failed run both fail the check, and the command's exit code tells them
+  apart. A partial review needs another run, and its findings still reach the comment. A failed
+  run, such as on a missing secret, a timeout, or a provider error, stops the review and may keep
+  the files it already recorded as reviewed. It needs a fix to the setup, so the workflow does not
+  resume it.
+- The summary comment starts with the coverage section that the command prints. It names each
+  unreviewed file with OCR's reason, and it lists the excluded files in a collapsed block.
 - Findings stay advisory, as with the size and mutation signals in
   [ADR 0009 (Advisory mutation testing and size as a review signal)](../stomme/shared/adr/0009-advisory-review-signals.md).
 - Low-severity findings go to the summary comment. Tau needs no review-bot entry, because OCR
@@ -93,6 +110,10 @@ the token comes from the `MORPH_API_KEY` repository secret.
   `stomme sync` runs.
 - Each repository sets the secret and the required check by hand.
 - An OCR or provider outage fails the check, so merges wait until the review runs.
+- A review that leaves files unreviewed after its resume blocks the merge until a rerun reviews
+  every file.
+- A model that stops early while OCR records the file as completed passes the check, because the
+  check trusts OCR's coverage record.
 - Findings depend on a model, so the review does not replace a person's review.
 
 ## Alternatives considered
@@ -114,6 +135,22 @@ the read, and the review then runs without the rules.
 
 ### Compose the rules in CI with the stomme binary
 
-Build the rule file in the workflow with the `stomme` binary instead of syncing it. Rejected because
-CI must install the binary, and stomme's own pull requests would review with the rules of the last
-release, not the ones in the change.
+Build the rule file in the workflow with the `stomme` binary instead of syncing it. Rejected
+because stomme's own pull requests would review with the rules of the last release, not the ones in
+the change.
+
+### Pass a partial review with a list of unreviewed files
+
+Let the check pass and list the unreviewed files in the comment. Rejected because the list is
+advice, and the check then passes on code that no one reviewed.
+
+### Pass above a reviewed share
+
+Let the check pass when OCR reviewed most of the selected files. Rejected because any threshold
+lets an unread file through, and it counts a large file the same as a small one.
+
+### Read the result with a script in the workflow
+
+Classify the result with `jq` in the workflow instead of the binary. Rejected because the
+classification then has no tests against real result files, and a change in OCR's format breaks
+the check only at run time.
