@@ -9,3 +9,7 @@ overrides:
 peerDependencyRules:
   allowedVersions:
     vite: 0.3.0
+
+allowBuilds:
+  # The postinstall only downloads a binary that the platform package provides.
+  '@alibaba-group/open-code-review': false
