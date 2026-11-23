@@ -119,6 +119,27 @@ fn release_pin_passes_for_the_rendered_skeleton() {
 }
 
 #[test]
+fn release_pin_passes_for_the_rendered_workflows() {
+    let folder = temporary_directory();
+    let runner = Runner {
+        run: fake_run_writing_pinned_workflows,
+        read: read_entry,
+        entries: read_entries,
+    };
+
+    let outcome = check_pin(
+        &runner,
+        Path::new("/stomme"),
+        VERSION,
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the check");
+
+    assert_eq!(outcome, Outcome::Passed);
+}
+
+#[test]
 fn release_pin_fails_when_the_commit_differs() {
     let expected = sync_workflow(VERSION, COMMIT);
     let found = sync_workflow(VERSION, OTHER_COMMIT);
@@ -330,18 +351,33 @@ fn counting_read(path: &Path) -> io::Result<String> {
     std::fs::read_to_string(path)
 }
 
-fn fake_run_writing_workflows(_binary: &Path, folder: &Path) -> io::Result<Output> {
-    let workflows = [
-        (SYNC_WORKFLOW, sync_workflow(VERSION, COMMIT)),
-        (OCR_WORKFLOW, ocr_workflow(VERSION, OTHER_COMMIT)),
-    ];
-
+fn write_workflows(folder: &Path, workflows: [(&str, String); 2]) -> io::Result<()> {
     for (path, text) in workflows {
         let file = folder.join(path);
         let parent = file.parent().expect("a workflow path has a folder");
         std::fs::create_dir_all(parent)?;
         std::fs::write(file, text)?;
     }
+
+    Ok(())
+}
+
+fn fake_run_writing_workflows(_binary: &Path, folder: &Path) -> io::Result<Output> {
+    let workflows = [
+        (SYNC_WORKFLOW, sync_workflow(VERSION, COMMIT)),
+        (OCR_WORKFLOW, ocr_workflow(VERSION, OTHER_COMMIT)),
+    ];
+    write_workflows(folder, workflows)?;
+
+    Ok(output(0, ""))
+}
+
+fn fake_run_writing_pinned_workflows(_binary: &Path, folder: &Path) -> io::Result<Output> {
+    let workflows = [
+        (SYNC_WORKFLOW, sync_workflow(VERSION, COMMIT)),
+        (OCR_WORKFLOW, ocr_workflow(VERSION, COMMIT)),
+    ];
+    write_workflows(folder, workflows)?;
 
     Ok(output(0, ""))
 }
@@ -424,6 +460,7 @@ fn release_pin_reports_a_missing_workflow() {
 #[test]
 fn release_pin_reports_the_ocr_workflow_that_differs() {
     let folder = temporary_directory();
+    let expected = ocr_workflow(VERSION, COMMIT);
     let ocr = ocr_workflow(VERSION, OTHER_COMMIT);
     let runner = Runner {
         run: fake_run_writing_workflows,
@@ -447,6 +484,7 @@ fn release_pin_reports_the_ocr_workflow_that_differs() {
     assert_eq!(step, "pin");
     assert!(output.contains(OCR_WORKFLOW), "{output}");
     assert!(output.contains("Line 12"), "{output}");
+    assert!(output.contains(&line(&expected, 12)), "{output}");
     assert!(output.contains(&line(&ocr, 12)), "{output}");
     assert!(!output.contains(SYNC_WORKFLOW), "{output}");
 }
