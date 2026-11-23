@@ -288,12 +288,16 @@ jobs:
               core.info('The coverage file is empty; leaving the summary comment alone.');
               return;
             }
-            await core.summary.addRaw(coverage).write();
             const fromResume = process.env.COVERAGE_SOURCE === 'resumed';
             const commentUrl = fromResume
               ? process.env.RESUMED_COMMENT_URL || ''
               : process.env.FIRST_COMMENT_URL || '';
             const urlMatch = /#issuecomment-(\d+)$/.exec(commentUrl);
+            const head = process.env.HEAD_SHA || '';
+            if (urlMatch && !/^[0-9a-f]{40}$/.test(head)) {
+              throw new Error(`HEAD_SHA is not a full commit SHA: "${head}"`);
+            }
+            await core.summary.addRaw(coverage).write();
             if (!urlMatch) {
               core.info('This run posted no summary comment; the coverage section is only in the job summary.');
               return;
@@ -323,10 +327,6 @@ jobs:
             // section covers, so a same-head run reads this section as evidence
             // for its own head instead of trusting whichever section is newest.
             const verdict = process.env.COVERAGE_VERDICT || 'failed';
-            const head = process.env.HEAD_SHA || '';
-            if (!/^[0-9a-f]{40}$/.test(head)) {
-              throw new Error(`HEAD_SHA is not a full commit SHA: "${head}"`);
-            }
             const block = `${start}\n<!-- stomme-ocr-coverage-verdict: ${verdict} head=${head} -->\n${coverage}\n${end}`;
             let body = comment.body || '';
             const startAt = body.indexOf(start);

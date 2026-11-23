@@ -1160,7 +1160,7 @@ impl Coverage {
         self.observation(&completed)
     }
 
-    fn run_refused(&self, run: CoverageRun<'_>) -> String {
+    fn run_refused(&self, run: CoverageRun<'_>) -> (String, CoverageObservation) {
         let completed = self.execute(run);
 
         assert!(
@@ -1168,7 +1168,9 @@ impl Coverage {
             "the coverage script refuses the run"
         );
 
-        String::from_utf8_lossy(&completed.stderr).into_owned()
+        let stderr = String::from_utf8_lossy(&completed.stderr).into_owned();
+
+        (stderr, self.observation(&completed))
     }
 
     fn execute(&self, run: CoverageRun<'_>) -> Output {
@@ -1341,9 +1343,9 @@ fn coverage_names_the_verdict_and_head_of_the_run() {
 }
 
 #[test]
-fn coverage_refuses_a_run_without_a_full_head() {
+fn coverage_refuses_a_run_without_a_full_head_before_it_writes() {
     let coverage = Coverage::new();
-    let stderr = coverage.run_refused(CoverageRun {
+    let (stderr, observation) = coverage.run_refused(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
         first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
@@ -1354,6 +1356,18 @@ fn coverage_refuses_a_run_without_a_full_head() {
     assert!(
         stderr.contains("HEAD_SHA is not a full commit SHA"),
         "{stderr}"
+    );
+    assert_eq!(
+        observation.summary, None,
+        "no job summary for a refused run"
+    );
+    assert_eq!(
+        observation.updated, None,
+        "no comment update for a refused run"
+    );
+    assert_eq!(
+        observation.update, None,
+        "no comment update for a refused run"
     );
 }
 
