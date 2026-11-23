@@ -77,10 +77,7 @@ fn main() -> ExitCode {
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
 fn refuse_non_text(argument: &OsStr) -> ExitCode {
-    eprintln!(
-        "stomme: the argument `{}` is not valid UTF-8",
-        argument.to_string_lossy()
-    );
+    eprintln!("stomme: the argument {argument:?} is not valid UTF-8");
     ExitCode::FAILURE
 }
 
