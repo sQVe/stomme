@@ -751,8 +751,7 @@ fn report_decides_the_check_result() {
         report: Report<'a>,
         expected_exit: i32,
         expected_fragments: &'a [&'a str],
-        expected_annotation_count: Option<usize>,
-        absent_line_prefixes: &'a [&'a str],
+        expected_line_count: Option<usize>,
     }
 
     let classifier = Classifier::new();
@@ -765,8 +764,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 0,
             expected_fragments: &["covered every selected file"],
-            expected_annotation_count: None,
-            absent_line_prefixes: &[],
+            expected_line_count: Some(1),
         },
         Case {
             name: "an unreviewed run",
@@ -776,8 +774,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review left selected files unreviewed"],
-            expected_annotation_count: None,
-            absent_line_prefixes: &[],
+            expected_line_count: Some(1),
         },
         Case {
             name: "a failed run with a reason",
@@ -788,8 +785,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review failed: provider"],
-            expected_annotation_count: None,
-            absent_line_prefixes: &[],
+            expected_line_count: Some(1),
         },
         Case {
             name: "a failed run with encoded text in its reason",
@@ -800,8 +796,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review failed: provider 50%250A"],
-            expected_annotation_count: None,
-            absent_line_prefixes: &[],
+            expected_line_count: Some(1),
         },
         Case {
             name: "a failed run with a multi-line reason",
@@ -814,8 +809,7 @@ fn report_decides_the_check_result() {
             expected_fragments: &[
                 "::error::the OCR review failed: provider 50%250A%0D%0A::warning::forged",
             ],
-            expected_annotation_count: Some(1),
-            absent_line_prefixes: &["::warning::"],
+            expected_line_count: Some(1),
         },
         Case {
             name: "a failed run without a reason",
@@ -825,8 +819,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review failed\n"],
-            expected_annotation_count: None,
-            absent_line_prefixes: &[],
+            expected_line_count: Some(1),
         },
     ];
 
@@ -837,20 +830,9 @@ fn report_decides_the_check_result() {
         for fragment in case.expected_fragments {
             assert!(stdout.contains(fragment), "{}: {stdout}", case.name);
         }
-        if let Some(count) = case.expected_annotation_count {
-            assert_eq!(
-                stdout.matches("::error::the OCR review failed").count(),
-                count,
-                "{}: {stdout}",
-                case.name
-            );
-        }
-        for prefix in case.absent_line_prefixes {
-            assert!(
-                !stdout.lines().any(|line| line.starts_with(prefix)),
-                "{}: {stdout}",
-                case.name
-            );
+        if let Some(count) = case.expected_line_count {
+            let non_empty_lines = stdout.lines().filter(|line| !line.is_empty()).count();
+            assert_eq!(non_empty_lines, count, "{}: {stdout}", case.name);
         }
     }
 }
