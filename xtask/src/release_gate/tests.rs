@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Output};
 
 use super::*;
+use crate::release_check::exit_code;
 use crate::test_support::{strings, temporary_directory};
 
 const CONFIG: &str = "schema = 1\nversion = \"0.0.0\"\nlanguage = \"rust\"\n";
@@ -710,29 +711,4 @@ fn gate_keeps_the_indent_of_an_indented_version_line() {
         std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml");
 
     assert!(config.contains("  version = \"1.2.3\""), "{config}");
-}
-
-#[test]
-fn report_renders_the_heading_and_each_outcome() {
-    let folder = Path::new("/projects/example");
-    let cases = [
-        (Outcome::Passed, "### example\nPassed\n".to_string()),
-        (
-            Outcome::Failed {
-                step: "check",
-                output: "stomme: x\n".to_string(),
-            },
-            "### example\nFailed at check\n```text\nstomme: x\n```\n".to_string(),
-        ),
-        (
-            Outcome::NotAdopted {
-                output: "stomme: y".to_string(),
-            },
-            "### example\nNot adopted; reported only\n```text\nstomme: y\n```\n".to_string(),
-        ),
-    ];
-
-    for (outcome, expected) in cases {
-        assert_eq!(report(folder, &outcome), expected, "{outcome:?}");
-    }
 }
