@@ -11,6 +11,20 @@ use crate::test_support::{strings, temporary_directory};
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_COMMIT: &str = "89abcdef0123456789abcdef0123456789abcdef";
 const VERSION: &str = "1.2.3";
+const SYNC_WORKFLOW: &str = ".github/workflows/sync-update.yml";
+const OCR_WORKFLOW: &str = ".github/workflows/ocr.yml";
+const SYNC_SKELETON: &str =
+    include_str!("../../../foundation/common/skeleton/files/.github/workflows/sync-update.yml");
+const OCR_SKELETON: &str =
+    include_str!("../../../foundation/common/skeleton/files/.github/workflows/ocr.yml");
+
+fn sync_workflow(version: &str, commit: &str) -> String {
+    expected_workflow(SYNC_SKELETON, version, commit)
+}
+
+fn ocr_workflow(version: &str, commit: &str) -> String {
+    expected_workflow(OCR_SKELETON, version, commit)
+}
 
 fn line(text: &str, number: usize) -> String {
     let found = text
@@ -29,7 +43,7 @@ fn rendered_line(output: &str, marker: &str) -> String {
 }
 
 fn assert_pin_fails_at_line_12(expected: &str, found: &str) {
-    let outcome = compare_workflow(found, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, found, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -43,12 +57,12 @@ fn assert_pin_fails_at_line_12(expected: &str, found: &str) {
 
 #[test]
 fn release_pin_rejects_the_pin_inside_a_run_body() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let pin = line(&expected, 12);
     let run_step = format!("      - run: |\n          {}", pin.trim());
     let text = expected.replace(&pin, &run_step);
 
-    let outcome = compare_workflow(&text, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, &text, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -60,10 +74,10 @@ fn release_pin_rejects_the_pin_inside_a_run_body() {
 
 #[test]
 fn release_pin_rejects_a_workflow_without_a_sync_job() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let text = expected.replace("  sync:", "  copy:");
 
-    let outcome = compare_workflow(&text, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, &text, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -75,16 +89,16 @@ fn release_pin_rejects_a_workflow_without_a_sync_job() {
 
 #[test]
 fn release_pin_rejects_a_pin_in_a_folded_scalar() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let pin = line(&expected, 12);
-    let mut text = expected_workflow(VERSION, OTHER_COMMIT);
+    let mut text = sync_workflow(VERSION, OTHER_COMMIT);
     let folded_scalar = format!(
         "  probe:\n    steps:\n      - run: >-\n          {}",
         pin.trim()
     );
     text.push_str(&folded_scalar);
 
-    let outcome = compare_workflow(&text, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, &text, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -96,22 +110,25 @@ fn release_pin_rejects_a_pin_in_a_folded_scalar() {
 
 #[test]
 fn release_pin_passes_for_the_rendered_skeleton() {
-    let text = expected_workflow(VERSION, COMMIT);
+    let text = sync_workflow(VERSION, COMMIT);
 
-    assert_eq!(compare_workflow(&text, VERSION, COMMIT), Outcome::Passed);
+    assert_eq!(
+        compare_workflow(SYNC_SKELETON, &text, VERSION, COMMIT),
+        Outcome::Passed
+    );
 }
 
 #[test]
 fn release_pin_fails_when_the_commit_differs() {
-    let expected = expected_workflow(VERSION, COMMIT);
-    let found = expected_workflow(VERSION, OTHER_COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
+    let found = sync_workflow(VERSION, OTHER_COMMIT);
 
     assert_pin_fails_at_line_12(&expected, &found);
 }
 
 #[test]
 fn release_pin_fails_for_the_tag_form() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let found = expected.replace(COMMIT, &format!("v{VERSION}"));
 
     assert_pin_fails_at_line_12(&expected, &found);
@@ -119,7 +136,7 @@ fn release_pin_fails_for_the_tag_form() {
 
 #[test]
 fn release_pin_fails_when_the_version_comment_differs() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let found = expected.replace(&format!("# v{VERSION}"), "# v0.0.1");
 
     assert_pin_fails_at_line_12(&expected, &found);
@@ -127,7 +144,7 @@ fn release_pin_fails_when_the_version_comment_differs() {
 
 #[test]
 fn release_pin_reports_where_the_file_ends_first() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let found_short: String = expected.split_inclusive('\n').take(13).collect();
     let found_long = format!("{expected}  extra: line\n");
     let cases = [
@@ -144,7 +161,7 @@ fn release_pin_reports_where_the_file_ends_first() {
     ];
 
     for (name, found, message) in cases {
-        let outcome = compare_workflow(found, VERSION, COMMIT);
+        let outcome = compare_workflow(SYNC_SKELETON, found, VERSION, COMMIT);
 
         let Outcome::Failed { step, output } = outcome else {
             panic!("{name}: expected a pin failure");
@@ -157,13 +174,13 @@ fn release_pin_reports_where_the_file_ends_first() {
 
 #[test]
 fn release_pin_reports_a_missing_last_line_as_the_file_ending_first() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let last_line = format!("{}\n", line(&expected, 15));
     let found = expected
         .strip_suffix(&last_line)
         .expect("the skeleton ends with its last line");
 
-    let outcome = compare_workflow(found, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, found, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -176,12 +193,12 @@ fn release_pin_reports_a_missing_last_line_as_the_file_ending_first() {
 
 #[test]
 fn release_pin_reports_a_cut_inside_a_line_as_a_differing_line() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let last_line = format!("{}\n", line(&expected, 15));
     let cut = expected.len() - last_line.len() + 2;
     let found = &expected[..cut];
 
-    let outcome = compare_workflow(found, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, found, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -194,10 +211,10 @@ fn release_pin_reports_a_cut_inside_a_line_as_a_differing_line() {
 
 #[test]
 fn release_pin_rejects_a_crlf_workflow() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let found = expected.replace('\n', "\r\n");
 
-    let outcome = compare_workflow(&found, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, &found, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -214,10 +231,10 @@ fn release_pin_rejects_a_crlf_workflow() {
 
 #[test]
 fn release_pin_rejects_a_workflow_without_the_final_newline() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let found = expected.trim_end_matches('\n');
 
-    let outcome = compare_workflow(found, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, found, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -233,10 +250,10 @@ fn release_pin_rejects_a_workflow_without_the_final_newline() {
 
 #[test]
 fn release_pin_shows_a_literal_backslash_n_in_the_differing_line() {
-    let expected = expected_workflow(VERSION, COMMIT);
+    let expected = sync_workflow(VERSION, COMMIT);
     let found = format!("{}\\n", expected.trim_end_matches('\n'));
 
-    let outcome = compare_workflow(&found, VERSION, COMMIT);
+    let outcome = compare_workflow(SYNC_SKELETON, &found, VERSION, COMMIT);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -252,7 +269,7 @@ fn release_pin_shows_a_literal_backslash_n_in_the_differing_line() {
 
 #[test]
 fn expected_workflow_leaves_no_placeholder() {
-    let text = expected_workflow(VERSION, COMMIT);
+    let text = sync_workflow(VERSION, COMMIT);
     let pin =
         format!("    uses: sQVe/stomme/.github/workflows/sync-update.yml@{COMMIT} # v{VERSION}");
 
@@ -271,6 +288,24 @@ thread_local! {
     static FAKE: RefCell<Fake> = RefCell::new(Fake::default());
     static READS: RefCell<usize> = const { RefCell::new(0) };
     static RUNS: RefCell<usize> = const { RefCell::new(0) };
+    static FIXTURES: RefCell<Vec<(PathBuf, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+fn install_fixtures(fixtures: Vec<(PathBuf, String)>) {
+    FIXTURES.with(|installed| *installed.borrow_mut() = fixtures);
+}
+
+fn fixture_read(path: &Path) -> io::Result<String> {
+    READS.with(|reads| *reads.borrow_mut() += 1);
+    let text = FIXTURES.with(|fixtures| {
+        fixtures
+            .borrow()
+            .iter()
+            .find(|(candidate, _)| candidate == path)
+            .map(|(_, text)| text.clone())
+    });
+
+    text.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no fixture"))
 }
 
 fn install(fake: Fake) {
@@ -321,6 +356,14 @@ fn failed_entry(_folder: &Path) -> io::Result<Vec<io::Result<PathBuf>>> {
     let error = io::Error::new(io::ErrorKind::PermissionDenied, "unreadable entry");
 
     Ok(vec![Err(error)])
+}
+
+fn runner_with_read(read: fn(&Path) -> io::Result<String>) -> Runner {
+    Runner {
+        run: fake_run,
+        read,
+        entries: read_entries,
+    }
 }
 
 fn runner_with_entries(entries: fn(&Path) -> io::Result<Vec<io::Result<PathBuf>>>) -> Runner {
@@ -376,7 +419,7 @@ fn release_pin_reports_a_missing_workflow() {
     )
     .expect("run the check");
 
-    assert_eq!(read_count(), 1);
+    assert_eq!(read_count(), 2);
 
     let Outcome::Failed { step, output } = outcome else {
         panic!("expected a pin failure");
@@ -384,8 +427,41 @@ fn release_pin_reports_a_missing_workflow() {
 
     assert_eq!(step, "pin");
 
-    let workflow = folder.path().join(WORKFLOW);
+    let workflow = folder.path().join(SYNC_WORKFLOW);
     assert!(output.contains(&workflow.display().to_string()), "{output}");
+}
+
+#[test]
+fn release_pin_reports_the_ocr_workflow_that_differs() {
+    let folder = temporary_directory();
+    let ocr = ocr_workflow(VERSION, OTHER_COMMIT);
+    install(Fake::default());
+    install_fixtures(vec![
+        (
+            folder.path().join(SYNC_WORKFLOW),
+            sync_workflow(VERSION, COMMIT),
+        ),
+        (folder.path().join(OCR_WORKFLOW), ocr.clone()),
+    ]);
+
+    let outcome = check_pin(
+        &runner_with_read(fixture_read),
+        Path::new("/stomme"),
+        VERSION,
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the check");
+
+    let Outcome::Failed { step, output } = outcome else {
+        panic!("expected a pin failure");
+    };
+
+    assert_eq!(step, "pin");
+    assert!(output.contains(OCR_WORKFLOW), "{output}");
+    assert!(output.contains("Line 12"), "{output}");
+    assert!(output.contains(&line(&ocr, 12)), "{output}");
+    assert!(!output.contains(SYNC_WORKFLOW), "{output}");
 }
 
 #[test]
