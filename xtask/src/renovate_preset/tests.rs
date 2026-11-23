@@ -2,7 +2,12 @@ use super::*;
 
 const DIGEST_AND_VERSION_TEMPLATE: &str =
     "uses: sQVe/stomme/.github/workflows/sync-update.yml@{{newDigest}} # {{newValue}}\n";
+const OCR_DIGEST_AND_VERSION_TEMPLATE: &str =
+    "uses: sQVe/stomme/.github/workflows/ocr-review.yml@{{newDigest}} # {{newValue}}\n";
+const SYNC_WORKFLOW: &str = "sync-update";
+const OCR_WORKFLOW: &str = "ocr-review";
 const SYNC_WORKFLOW_REFERENCE: &str = "sQVe/stomme/.github/workflows/sync-update.yml";
+const OCR_WORKFLOW_REFERENCE: &str = "sQVe/stomme/.github/workflows/ocr-review.yml";
 const RELEASE_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const OLD_RELEASE_COMMIT: &str = "89abcdef0123456789abcdef0123456789abcdef";
 const RELEASE_VERSION: &str = "v0.2.3";
@@ -94,7 +99,7 @@ fn stomme_toml_manager_extracts_bare_versions() {
 #[test]
 fn sync_workflow_manager_keeps_the_v_prefix() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
 
     assert!(
         manager.get("extractVersionTemplate").is_none(),
@@ -105,7 +110,7 @@ fn sync_workflow_manager_keeps_the_v_prefix() {
 #[test]
 fn sync_workflow_manager_writes_the_digest_and_version_comment() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
 
     assert_eq!(
         manager["autoReplaceStringTemplate"].as_str(),
@@ -116,7 +121,7 @@ fn sync_workflow_manager_writes_the_digest_and_version_comment() {
 #[test]
 fn sync_workflow_manager_reads_the_digest_form() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
     let line = format!("    uses: {SYNC_WORKFLOW_REFERENCE}@{RELEASE_COMMIT} # v0.2.3\n");
 
     let matches = matching_captures(manager, &line);
@@ -129,7 +134,7 @@ fn sync_workflow_manager_reads_the_digest_form() {
 #[test]
 fn sync_workflow_manager_reads_the_tag_form() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
     let line = format!("    uses: {SYNC_WORKFLOW_REFERENCE}@v0.2.0\n");
 
     let matches = matching_captures(manager, &line);
@@ -142,7 +147,7 @@ fn sync_workflow_manager_reads_the_tag_form() {
 #[test]
 fn sync_workflow_manager_rewrites_the_unquoted_tag_form() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
     let text = format!("jobs:\n  sync:\n    uses: {SYNC_WORKFLOW_REFERENCE}@v0.2.0\n");
 
     let before = extract(manager, &text).expect("the tag form extracts");
@@ -176,7 +181,7 @@ fn sync_workflow_manager_rewrites_the_unquoted_tag_form() {
 #[test]
 fn sync_workflow_manager_rewrites_the_unquoted_digest_form() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
     let text = format!(
         "jobs:\n  sync:\n    uses: {SYNC_WORKFLOW_REFERENCE}@{OLD_RELEASE_COMMIT} # v0.2.0\n"
     );
@@ -212,7 +217,7 @@ fn sync_workflow_manager_rewrites_the_unquoted_digest_form() {
 #[test]
 fn sync_workflow_manager_ignores_uses_inside_a_run_value() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
     let cases = [
         format!(
             "jobs:\n  sync:\n    steps:\n      - run: |\n          test -n \"$REPORT\" && echo \"uses: {SYNC_WORKFLOW_REFERENCE}@v0.2.0\"\n"
@@ -235,7 +240,7 @@ fn sync_workflow_manager_ignores_uses_inside_a_run_value() {
 #[test]
 fn sync_workflow_manager_leaves_quoted_uses_calls_alone() {
     let preset = renovate_preset();
-    let manager = custom_manager(&preset, WORKFLOW_FILE_PATTERN);
+    let manager = workflow_manager(&preset, SYNC_WORKFLOW);
     let cases = [
         format!("    uses: \"{SYNC_WORKFLOW_REFERENCE}@v0.2.0\""),
         format!("    uses: '{SYNC_WORKFLOW_REFERENCE}@v0.2.0'"),
@@ -251,6 +256,95 @@ fn sync_workflow_manager_leaves_quoted_uses_calls_alone() {
             rewrite(manager, &text, RELEASE_COMMIT, RELEASE_VERSION),
             text,
             "{line}"
+        );
+    }
+}
+
+#[test]
+fn ocr_workflow_manager_handles_each_call_form() {
+    let preset = renovate_preset();
+    let manager = workflow_manager(&preset, OCR_WORKFLOW);
+
+    assert!(
+        manager.get("extractVersionTemplate").is_none(),
+        "the v prefix names the release tag, so the manager must not strip it"
+    );
+    assert_eq!(
+        manager["autoReplaceStringTemplate"].as_str(),
+        Some(OCR_DIGEST_AND_VERSION_TEMPLATE)
+    );
+
+    let jobs = "jobs:\n  review:\n";
+    let digest_form =
+        format!("{jobs}    uses: {OCR_WORKFLOW_REFERENCE}@{RELEASE_COMMIT} # v0.2.3\n");
+    let old_digest_form =
+        format!("{jobs}    uses: {OCR_WORKFLOW_REFERENCE}@{OLD_RELEASE_COMMIT} # v0.2.3\n");
+    let tag_form = format!("{jobs}    uses: {OCR_WORKFLOW_REFERENCE}@v0.2.0\n");
+    let rewritten =
+        format!("{jobs}    uses: {OCR_WORKFLOW_REFERENCE}@{RELEASE_COMMIT} # {RELEASE_VERSION}\n");
+    let run_digest = format!(
+        "{jobs}    steps:\n      - run: |\n          test -n \"$REPORT\" && echo \"uses: {OCR_WORKFLOW_REFERENCE}@{RELEASE_COMMIT} # v0.2.3\"\n"
+    );
+    let run_tag = format!(
+        "{jobs}    steps:\n      - run: |\n          test -n \"$REPORT\" && echo \"uses: {OCR_WORKFLOW_REFERENCE}@v0.2.0\"\n"
+    );
+    let quoted_digest =
+        format!("{jobs}    uses: \"{OCR_WORKFLOW_REFERENCE}@{RELEASE_COMMIT} # v0.2.3\"\n");
+    let quoted_tag = format!("{jobs}    uses: '{OCR_WORKFLOW_REFERENCE}@v0.2.0'\n");
+    let cases = [
+        (
+            "the digest form",
+            digest_form,
+            1,
+            Some(Dependency {
+                digest: Some(RELEASE_COMMIT.to_string()),
+                value: "v0.2.3".to_string(),
+            }),
+            rewritten.clone(),
+        ),
+        (
+            "the tag form",
+            tag_form,
+            1,
+            Some(Dependency {
+                digest: None,
+                value: "v0.2.0".to_string(),
+            }),
+            rewritten.clone(),
+        ),
+        (
+            "the old digest form",
+            old_digest_form,
+            1,
+            Some(Dependency {
+                digest: Some(OLD_RELEASE_COMMIT.to_string()),
+                value: "v0.2.3".to_string(),
+            }),
+            rewritten,
+        ),
+        ("a run value", run_digest.clone(), 0, None, run_digest),
+        ("a run value with a tag", run_tag.clone(), 0, None, run_tag),
+        (
+            "a quoted digest form",
+            quoted_digest.clone(),
+            0,
+            None,
+            quoted_digest,
+        ),
+        ("a quoted tag form", quoted_tag.clone(), 0, None, quoted_tag),
+    ];
+
+    for (name, text, captures, before, after) in cases {
+        assert_eq!(
+            matching_captures(manager, &text).len(),
+            captures,
+            "{name}: {text}"
+        );
+        assert_eq!(extract(manager, &text), before, "{name}: {text}");
+        assert_eq!(
+            rewrite(manager, &text, RELEASE_COMMIT, RELEASE_VERSION),
+            after,
+            "{name}: {text}"
         );
     }
 }
