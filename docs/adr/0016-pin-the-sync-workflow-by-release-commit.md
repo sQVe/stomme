@@ -39,13 +39,14 @@ refuses without either, because a wrong or empty commit would write a call that 
 ### Keeping the pin current
 
 A pin would otherwise stay on an old commit forever. The shared Renovate preset finds both forms,
-the tag and the commit with its comment, for each reusable workflow, and rewrites a tag call to the
-commit form. It matches only the unquoted `uses:` form that `stomme init` writes, because Renovate's
-replacement template cannot carry a quote into its output. A hand-quoted call stays unchanged
-rather than being corrupted. The preset resolves the commit through the `github-releases`
-datasource, which looks up the commit of the exact tag name, so the version keeps its `v` prefix. A
-`packageRules` entry with `pinDigests` adds the commit to a tag call that has none, for workflow
-files only.
+the tag and the commit with its comment, for each reusable workflow, sync and OCR, and rewrites a
+tag call to the commit form. One manager covers both workflows and records the workflow name as the
+dependency type, so a consumer can select one workflow with `matchDepTypes`. It matches only the
+unquoted `uses:` form that `stomme init` writes, because Renovate's replacement template cannot
+carry a quote into its output. A hand-quoted call stays unchanged rather than being corrupted. The
+preset resolves the commit through the `github-releases` datasource, which looks up the commit of
+the exact tag name, so the version keeps its `v` prefix. A `packageRules` entry with `pinDigests`
+adds the commit to a tag call that has none, for workflow files only.
 
 ### The release gate
 

@@ -47,22 +47,5 @@ fn custom_manager<'a>(preset: &'a Value, file_pattern: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no custom manager for {file_pattern} and {STOMME_PACKAGE}"))
 }
 
-fn workflow_manager<'a>(preset: &'a Value, workflow: &str) -> &'a Value {
-    let reference = format!("/{workflow}");
-    let managers = preset["customManagers"].as_array();
-
-    managers
-        .into_iter()
-        .flatten()
-        .find(|manager| {
-            string_list(manager, "managerFilePatterns") == [WORKFLOW_FILE_PATTERN]
-                && manager["depNameTemplate"].as_str() == Some(STOMME_PACKAGE)
-                && string_list(manager, "matchStrings")
-                    .iter()
-                    .all(|pattern| pattern.contains(&reference))
-        })
-        .unwrap_or_else(|| panic!("no workflow manager for {workflow}"))
-}
-
 #[cfg(test)]
 mod tests;
