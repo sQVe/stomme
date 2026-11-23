@@ -83,6 +83,52 @@ fn check_reports_an_invalid_project_rule_file() {
 }
 
 #[test]
+fn check_reports_an_invalid_project_rule_file_without_a_stale_rule_problem() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        PROJECT_RULE_FILE,
+        r#"{"rules":[{"path":"src/**","rule":"Keep modules small."}]}"#,
+    );
+    crate::sync_project(root.path());
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].path, PROJECT_RULE_FILE);
+    assert_eq!(problems[0].rule, Rule::SyncedFiles);
+    assert!(
+        !reported(&problems, "docs/stomme/ocr-rules.json"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn check_reports_a_directory_at_the_rule_file_with_an_invalid_project_rule_file() {
+    let root = complete_project();
+    let path = "docs/stomme/ocr-rules.json";
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+    fs::remove_file(root.path().join(path)).expect("remove the rule file");
+    fs::create_dir(root.path().join(path)).expect("create a directory in its place");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
+        .expect("the output path is reported");
+
+    assert!(
+        problem.message.contains("not a regular file"),
+        "{problem:?}"
+    );
+}
+
+#[test]
 fn check_reports_an_invalid_project_rule_file_when_the_output_parent_is_a_file() {
     let root = complete_project();
 

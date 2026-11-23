@@ -22,10 +22,12 @@ pub(super) fn check(
     catalog: &Catalog,
 ) -> anyhow::Result<Vec<Problem>> {
     let mut problems = Vec::new();
+    let mut invalid_project_rules = false;
     let project = match ocr_rules::read_project(root) {
         Ok(project) => project,
         Err(error) => {
             problems.push(problem(ocr_rules::PROJECT_RULE_FILE, &error.to_string()));
+            invalid_project_rules = true;
 
             None
         }
@@ -86,7 +88,17 @@ pub(super) fn check(
         .collect();
 
     for file in &owned {
-        check_owned_file(root, file, &record, &mut problems)?;
+        let Some(actual) = read_owned_file(root, file, &mut problems)? else {
+            continue;
+        };
+
+        if invalid_project_rules && file.path == ocr_rules::RULE_FILE {
+            check_owned_record(file, &actual, &record, &mut problems);
+
+            continue;
+        }
+
+        check_owned_file(file, &actual, &record, &mut problems);
     }
 
     for key in record.files.keys() {
@@ -188,19 +200,18 @@ fn check_block(
     Ok(())
 }
 
-fn check_owned_file(
+fn read_owned_file(
     root: &Path,
     file: &owned::OwnedFile,
-    record: &Record,
     problems: &mut Vec<Problem>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     let path = root.join(&file.path);
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             problems.push(problem(&file.path, "is missing; run `stomme sync`"));
 
-            return Ok(());
+            return Ok(None);
         }
         Err(error) => {
             return Err(error).with_context(|| format!("Could not read {}", path.display()));
@@ -213,11 +224,20 @@ fn check_owned_file(
             "is not a regular file; run `stomme sync`",
         ));
 
-        return Ok(());
+        return Ok(None);
     }
 
     let bytes = fs::read(&path).with_context(|| format!("Could not read {}", path.display()))?;
-    let actual = sync::hash(&bytes);
+
+    Ok(Some(sync::hash(&bytes)))
+}
+
+fn check_owned_file(
+    file: &owned::OwnedFile,
+    actual: &str,
+    record: &Record,
+    problems: &mut Vec<Problem>,
+) {
     let expected = sync::hash(file.content.as_bytes());
 
     if actual != expected {
@@ -226,12 +246,21 @@ fn check_owned_file(
             "differs from the synced content; run `stomme sync`",
         ));
 
-        return Ok(());
+        return;
     }
 
+    check_owned_record(file, actual, record, problems);
+}
+
+fn check_owned_record(
+    file: &owned::OwnedFile,
+    actual: &str,
+    record: &Record,
+    problems: &mut Vec<Problem>,
+) {
     let key = owned::record_key(&file.path).expect("an owned path is under docs/stomme");
 
-    match sync::record_state(Some(record), key, &actual) {
+    match sync::record_state(Some(record), key, actual) {
         RecordState::Matches => {}
         RecordState::Differs => problems.push(problem(
             &file.path,
@@ -242,8 +271,6 @@ fn check_owned_file(
             "is not in the ownership record; run `stomme sync`",
         )),
     }
-
-    Ok(())
 }
 
 fn check_extra_files(
