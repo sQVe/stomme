@@ -603,7 +603,6 @@ pub(crate) fn write_file(root: &Path, path: &str, content: &str) -> Result<(), S
     let (staging, mut file) = create_staging(&target, permissions.as_ref(), path)?;
     let written = file.write_all(content.as_bytes());
 
-    // The rename needs the handle closed.
     drop(file);
 
     if let Err(source) = written {
