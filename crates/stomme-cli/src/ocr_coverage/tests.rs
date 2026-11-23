@@ -10,12 +10,17 @@ enum Edit {
     Bytes(fn(&[u8]) -> Vec<u8>),
 }
 
+enum Fragment {
+    Whole(&'static str),
+    Contains(&'static [&'static str]),
+}
+
 enum Expected {
     Coverage {
         exit_code: u8,
         reviewed: usize,
         unreviewed: &'static [(&'static str, &'static str, &'static str)],
-        fragment_contains: &'static [&'static str],
+        fragment: Fragment,
     },
     Error(fn(&OcrCoverageError) -> bool),
 }
@@ -38,7 +43,7 @@ fn classifier_cases_follow_one_decision_table() {
                 exit_code: 2,
                 reviewed: 0,
                 unreviewed: &[("main.rs", "unknown", "no coverage record")],
-                fragment_contains: &["- `main.rs`: unknown, no coverage record"],
+                fragment: Fragment::Contains(&["- `main.rs`: unknown, no coverage record"]),
             },
         },
         Case {
@@ -49,7 +54,7 @@ fn classifier_cases_follow_one_decision_table() {
                 exit_code: 0,
                 reviewed: 6,
                 unreviewed: &[],
-                fragment_contains: &[],
+                fragment: Fragment::Contains(&[]),
             },
         },
         Case {
@@ -60,7 +65,7 @@ fn classifier_cases_follow_one_decision_table() {
                 exit_code: 2,
                 reviewed: 0,
                 unreviewed: &[("main.rs", "waived", "accepted by a maintainer")],
-                fragment_contains: &["- `main.rs`: waived, accepted by a maintainer"],
+                fragment: Fragment::Contains(&["- `main.rs`: waived, accepted by a maintainer"]),
             },
         },
         Case {
@@ -75,10 +80,10 @@ fn classifier_cases_follow_one_decision_table() {
                     "budget",
                     "reached the maximum tool-request rounds without finishing",
                 )],
-                fragment_contains: &[
+                fragment: Fragment::Contains(&[
                     "The OCR review failed.",
                     "- `crates/stomme-cli/src/sync.rs`: budget, reached the maximum tool-request rounds without finishing",
-                ],
+                ]),
             },
         },
         Case {
@@ -92,9 +97,16 @@ fn classifier_cases_follow_one_decision_table() {
                     ("a.rs", "unknown", "no coverage record"),
                     ("z.rs", "unknown", "no coverage record"),
                 ],
-                fragment_contains: &[
-                    "- `a.rs`: unknown, no coverage record\n- `z.rs`: unknown, no coverage record",
-                ],
+                fragment: Fragment::Whole(concat!(
+                    "### Review coverage\n",
+                    "\n",
+                    "OCR reviewed 0 of 2 selected files. The check fails until every selected file is reviewed.\n",
+                    "\n",
+                    "Not reviewed:\n",
+                    "\n",
+                    "- `a.rs`: unknown, no coverage record\n",
+                    "- `z.rs`: unknown, no coverage record\n",
+                )),
             },
         },
         Case {
@@ -164,7 +176,7 @@ fn classifier_cases_follow_one_decision_table() {
                 exit_code: 0,
                 reviewed: 1,
                 unreviewed: &[],
-                fragment_contains: &[],
+                fragment: Fragment::Contains(&[]),
             },
         },
     ];
@@ -241,7 +253,7 @@ fn check(name: &str, result: Result<Coverage, OcrCoverageError>, expected: Expec
             exit_code,
             reviewed,
             unreviewed,
-            fragment_contains,
+            fragment: expected_fragment,
         } => {
             let coverage = result.unwrap_or_else(|error| panic!("{name}: {error}"));
             let actual: Vec<(&str, &str, &str)> = coverage
@@ -262,8 +274,13 @@ fn check(name: &str, result: Result<Coverage, OcrCoverageError>, expected: Expec
 
             let fragment = coverage.fragment();
 
-            for expected_text in fragment_contains {
-                assert!(fragment.contains(expected_text), "{name}: {fragment}");
+            match expected_fragment {
+                Fragment::Whole(expected) => assert_eq!(fragment, expected, "{name}"),
+                Fragment::Contains(expected_texts) => {
+                    for expected_text in expected_texts {
+                        assert!(fragment.contains(expected_text), "{name}: {fragment}");
+                    }
+                }
             }
         }
         Expected::Error(matches) => {
