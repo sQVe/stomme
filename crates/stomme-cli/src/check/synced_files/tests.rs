@@ -164,12 +164,9 @@ fn check_reports_a_symlinked_shared_folder() {
 
     let problems =
         check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
-    let problem = problems
-        .iter()
-        .find(|problem| problem.path == "docs/stomme/shared")
-        .expect("the symlinked folder is reported");
+    let problem =
+        synced_problem(&problems, "docs/stomme/shared").expect("the symlinked folder is reported");
 
-    assert_eq!(problem.rule, Rule::SyncedFiles);
     assert!(problem.message.contains("is a symlink"), "{problem:?}");
 }
 
@@ -198,7 +195,7 @@ fn reported(problems: &[Problem], path: &str) -> bool {
 fn message<'a>(problems: &'a [Problem], path: &str) -> &'a str {
     synced_problem(problems, path)
         .map(|problem| problem.message.as_str())
-        .unwrap_or_else(|| panic!("{path} is reported: {problems:?}"))
+        .unwrap_or_else(|| panic!("{path} is not reported: {problems:?}"))
 }
 
 #[test]
