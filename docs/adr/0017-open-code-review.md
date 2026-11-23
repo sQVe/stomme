@@ -32,14 +32,17 @@ required check whose findings are advice.
   says. The project holds one reference and no copy.
 - Renovate bumps that pin in its `stomme` group, with the `stomme.toml` version and the binary pin,
   so the review settings move with the rules they enforce.
-- The job classifies the review with the `stomme` binary that the project pins in its `mise.toml`.
-  Renovate moves that pin with the release commit the workflow calls, so the classification matches
-  the workflow. stomme's own workflow builds the binary from the same checkout, so its pull requests
-  classify with the code in the change.
+- Every caller, stomme included, classifies the review with the released `stomme` binary that
+  its `mise.toml` pins. Renovate moves that pin with the release commit the workflow calls, so the
+  classification matches the workflow. No step in the job runs code built from the change; OCR
+  reads the change only as data.
 - The Action's checkout step passes no `ref`, so a pull request run checks out the merge commit.
-  The rule file and stomme's own build come from the change, not from the base branch.
+  The rule file comes from the change, not from the base branch.
 - A fork pull request gets no secrets, so it cannot run the review. Fork pull requests are not
   supported.
+- The workflow trusts whoever can push to the repository, because a branch pusher can edit the
+  caller workflow in the change. It does not trust the code that a dependency update builds, so a
+  dependency update cannot run next to the model token and a write token.
 
 ### The rule file
 
@@ -83,22 +86,27 @@ the token comes from the `MORPH_API_KEY` repository secret.
 
 - The OCR job is a required check that runs on every pull request push. It passes only when OCR
   reviewed every file it selected. Findings never change the result.
-- `stomme ocr-coverage` decides the result from the coverage record in OCR's JSON result, not from
-  OCR's exit code or its warnings. OCR exits 0 on a partial review that ran out of budget, and a
-  warning names its whole review group, not the files it left unreviewed.
+- `stomme ocr-coverage` decides which files the review left unreviewed from the coverage record in
+  OCR's JSON result, not from OCR's warnings. OCR exits 0 on a partial review that ran out of
+  budget and nonzero on any other failure, so the workflow reads the exit code only to tell those
+  two apart. A warning names its whole review group, not the files it left unreviewed.
 - A selected file counts as reviewed when the record lists it as completed, or as reused from an
   earlier run of the same session. A failed or waived file counts as unreviewed. A file that the
   rules exclude was never selected, so it leaves no gap.
-- When a run leaves files unreviewed, the workflow resumes the session once, and OCR reviews only
-  those files. The resume uses the same range, rule file, provider, and model as the first run, and
+- Only a budget-only partial review resumes, and it resumes once. OCR exits 0 for that partial and
+  nonzero for every other failure, so the workflow resumes only when OCR exits 0, the coverage
+  command reports a partial review, and the result holds a session. The resume reviews only the
+  unreviewed files. It uses the same range, rule file, provider, and model as the first run, and
   it passes no token budget, so the resumed run does not stop at the same budget again. The check
   fails when files stay unreviewed after the resume, because a pass would let a change merge with
   code that no one read.
-- A partial review and a failed run both fail the check, and the command's exit code tells them
-  apart. Every partial review is resumed once, whether a budget stop or a timeout cut it short.
-  A failed run, such as on a missing secret or an unusable result, stops the review and may keep
-  the files it already recorded as reviewed. It needs a fix to the setup, so the workflow does not
-  resume it.
+- A provider or other operational failure stops the review. The check fails with the failure's
+  reason, and the workflow never retries it with another model. A failed run, such as on a missing
+  secret or an unusable result, may keep the files it already recorded as reviewed; it needs a fix
+  to the setup, so the workflow does not resume it.
+- The workflow classifies a resumed result whenever it holds usable JSON, even when the resume
+  exits nonzero, and then fails the check with its reason. A missing or unusable resumed result is
+  a failed run that keeps the first result's coverage.
 - The job passes only when the last classification reports every selected file as reviewed. A
   partial result fails and names the unreviewed files, and a failed run fails with its error.
 - The resumed review posts its result once, including the comments of the first run for the files
@@ -106,8 +114,10 @@ the token comes from the `MORPH_API_KEY` repository secret.
   old head: a wider range, never a wrong one.
 - The summary comment starts with the coverage section that the command prints. It names each
   unreviewed file with OCR's reason, and it lists the excluded files in a collapsed block. The
-  workflow puts the same section at the top of the job summary, and inserts it after the summary
-  comment's marker so the comment stays findable and keeps its single checkpoint marker.
+  workflow puts the same section at the top of the job summary, and inserts it after the marker of
+  the summary comment that this run posted, found by that post's URL, so the comment stays findable
+  and keeps its single checkpoint marker. When the run posted no summary comment, the coverage
+  goes only to the job summary.
 - Findings stay advisory, as with the size and mutation signals in
   [ADR 0009 (Advisory mutation testing and size as a review signal)](../stomme/shared/adr/0009-advisory-review-signals.md).
 - Low-severity findings go to the summary comment. Tau needs no review-bot entry, because OCR
