@@ -2,11 +2,6 @@ name: OCR review
 
 on:
   workflow_call:
-    inputs:
-      build-stomme:
-        description: Build stomme from the checkout instead of installing the project's mise pin.
-        type: boolean
-        default: false
     secrets:
       model-token:
         required: true
@@ -58,39 +53,46 @@ jobs:
           resolve_outdated: 'true'
           route_severity_below: ${{ env.OCR_ROUTE_SEVERITY_BELOW }}
 
-      - name: Build stomme from the change
-        id: build
-        if: inputs.build-stomme && steps.ocr.outputs.range_reason != 'same_head_noop'
-        run: |
-          rustup toolchain install
-          cargo build -q --locked -p stomme
-          echo "command=target/debug/stomme" >> "$GITHUB_OUTPUT"
-
       - name: Install stomme from the project pin
-        if: ${{ !inputs.build-stomme && steps.ocr.outputs.range_reason != 'same_head_noop' }}
+        if: steps.ocr.outputs.range_reason != 'same_head_noop'
         uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
-
-      - name: Record the stomme command
-        id: installed
-        if: ${{ !inputs.build-stomme && steps.ocr.outputs.range_reason != 'same_head_noop' }}
-        run: |
-          command -v stomme
-          echo "command=stomme" >> "$GITHUB_OUTPUT"
 
       - name: Classify and resume the review
         id: outcome
         if: steps.ocr.outputs.range_reason != 'same_head_noop'
         env:
-          STOMME: ${{ steps.build.outputs.command || steps.installed.outputs.command }}
+          STOMME: stomme
           MODEL_TOKEN: ${{ secrets.model-token }}
           RANGE_FROM: ${{ steps.ocr.outputs.range_from }}
+          OCR_EXIT_CODE: ${{ env.OCR_EXIT_CODE }}
         run: |
-          # The classifier may be built from the change, so it must not see the
-          # model token.
           token="$MODEL_TOKEN"
-          unset MODEL_TOKEN
-          # A failed resume must report a failed run, not the partial it replaced.
           trap 'echo "final=1" >> "$GITHUB_OUTPUT"' ERR
+
+          failure_reason() {
+            local result="$1"
+            if [ ! -f "$result" ]; then
+              echo "the OCR run wrote no result"
+              return
+            fi
+            local reason
+            reason="$(jq -r '
+              if .manifest.run_failure != null then
+                (if ((.manifest.run_failure.reason // "") | length) > 0
+                 then .manifest.run_failure.reason
+                 else .manifest.run_failure.classification end)
+              else
+                ([.manifest.coverage.failed[]? | .classification // empty] | unique
+                  | if length > 0 then join(", ") else empty end)
+              end
+            ' "$result" 2>/dev/null || true)"
+            if [ -n "$reason" ]; then
+              echo "$reason"
+            else
+              echo "the OCR run recorded no failure reason"
+            fi
+          }
+
           final=0
           if [ -f /tmp/ocr-result.json ]; then
             "$STOMME" ocr-coverage /tmp/ocr-result.json \
@@ -98,18 +100,36 @@ jobs:
           else
             final=1
           fi
-          # Record the first outcome before the resume, so the helper checkout
-          # still runs when the resume fails.
+          cp /tmp/ocr-coverage.md /tmp/ocr-first-coverage.md 2>/dev/null || true
           echo "final=$final" >> "$GITHUB_OUTPUT"
+          echo "coverage_source=first" >> "$GITHUB_OUTPUT"
+
+          # OCR exits 0 only for a complete review or a budget-only partial. A
+          # nonzero or missing code is an operational failure, so it is never
+          # resumed.
+          if [ "${OCR_EXIT_CODE:-}" != "0" ]; then
+            echo "final=1" >> "$GITHUB_OUTPUT"
+            echo "reason=$(failure_reason /tmp/ocr-result.json)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$final" = "1" ]; then
+            echo "reason=$(failure_reason /tmp/ocr-result.json)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "$final" != "2" ]; then
             exit 0
           fi
+
           session_id="$(jq -r '.session_id // empty' /tmp/ocr-result.json)"
           if [ -z "$session_id" ]; then
             echo "::warning::The partial review recorded no session to resume."
             echo "final=1" >> "$GITHUB_OUTPUT"
+            echo "reason=the partial review recorded no session to resume" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
           args=(
             --from "${RANGE_FROM:-$MERGE_BASE}"
             --to "$HEAD_SHA"
@@ -121,18 +141,43 @@ jobs:
           if [ -n "${EFFORT:-}" ]; then
             args+=(--effort "$EFFORT")
           fi
+
           status=0
           OCR_LLM_TOKEN="$token" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
             ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || status=$?
-          if [ "$status" != "0" ]; then
+
+          # The resumed JSON is classified whenever it holds usable JSON,
+          # whatever the resume exit code. An unusable or missing result keeps
+          # the first coverage file.
+          resumed=0
+          if [ -f /tmp/ocr-resume.json ]; then
+            "$STOMME" ocr-coverage /tmp/ocr-resume.json \
+              > /tmp/ocr-resume-coverage.md 2> /tmp/ocr-resume-coverage.err || resumed=$?
+          else
+            resumed=1
+          fi
+
+          if [ ! -s /tmp/ocr-resume-coverage.md ]; then
+            cp /tmp/ocr-first-coverage.md /tmp/ocr-coverage.md 2>/dev/null || true
             echo "final=1" >> "$GITHUB_OUTPUT"
+            echo "reason=$(failure_reason /tmp/ocr-resume.json)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          resumed=0
-          "$STOMME" ocr-coverage /tmp/ocr-resume.json \
-            > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || resumed=$?
+
+          mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
+          mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
+          echo "coverage_source=resumed" >> "$GITHUB_OUTPUT"
           echo "resumed=true" >> "$GITHUB_OUTPUT"
-          echo "final=$resumed" >> "$GITHUB_OUTPUT"
+          if [ "$resumed" = "0" ] || [ "$resumed" = "2" ]; then
+            echo "post_resumed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$status" != "0" ] || [ "$resumed" = "1" ]; then
+            echo "final=1" >> "$GITHUB_OUTPUT"
+            echo "reason=$(failure_reason /tmp/ocr-resume.json)" >> "$GITHUB_OUTPUT"
+          else
+            echo "final=$resumed" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check out the OCR posting helper
         if: always() && steps.outcome.outputs.final != ''
@@ -144,9 +189,8 @@ jobs:
           persist-credentials: false
 
       - name: Post the resumed review
-        if: >-
-          steps.outcome.outputs.resumed == 'true'
-          && (steps.outcome.outputs.final == '0' || steps.outcome.outputs.final == '2')
+        id: resume-post
+        if: steps.outcome.outputs.post_resumed == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RANGE_MODE: ${{ steps.ocr.outputs.range_mode }}
@@ -192,6 +236,10 @@ jobs:
 
       - name: Add the coverage section
         if: always() && steps.ocr.outputs.range_reason != 'same_head_noop'
+        env:
+          FIRST_COMMENT_URL: ${{ steps.ocr.outputs.summary_comment_url }}
+          RESUMED_COMMENT_URL: ${{ steps.resume-post.outputs.summary_comment_url }}
+          COVERAGE_SOURCE: ${{ steps.outcome.outputs.coverage_source }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -208,6 +256,16 @@ jobs:
               return;
             }
             await core.summary.addRaw(coverage).write();
+            const fromResume = process.env.COVERAGE_SOURCE === 'resumed';
+            const commentUrl = fromResume
+              ? process.env.RESUMED_COMMENT_URL || ''
+              : process.env.FIRST_COMMENT_URL || '';
+            const urlMatch = /#issuecomment-(\d+)$/.exec(commentUrl);
+            if (!urlMatch) {
+              core.info('This run posted no summary comment; the coverage section is only in the job summary.');
+              return;
+            }
+            const commentId = Number(urlMatch[1]);
             const helperPath = path.join(
               process.env.GITHUB_WORKSPACE,
               '.ocr-action',
@@ -218,21 +276,11 @@ jobs:
             const helper = require(helperPath);
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const prNumber = context.payload.pull_request.number;
-            const comment = await helper.findSummaryIssueComment({
-              github,
+            const { data: comment } = await github.rest.issues.getComment({
               owner,
               repo,
-              prNumber,
-              sticky: process.env.OCR_STICKY_SUMMARY === 'true',
-              tag: '',
-              appSlug: process.env.OCR_APP_SLUG,
-              log: (line) => core.info(line),
+              comment_id: commentId,
             });
-            if (!comment) {
-              core.warning('No OCR summary comment; the coverage section is only in the job summary.');
-              return;
-            }
             // The coverage block goes after the summary marker and its run tag,
             // before the rest of the summary, so the comment stays findable and
             // keeps its single checkpoint marker.
@@ -261,34 +309,37 @@ jobs:
             await github.rest.issues.updateComment({
               owner,
               repo,
-              comment_id: comment.id,
+              comment_id: commentId,
               body,
             });
-            core.info(`Inserted the coverage section into ${comment.html_url}.`);
+            core.info(`Inserted the coverage section into ${commentUrl}.`);
 
       - name: Report the OCR result
         if: always()
         env:
           RANGE_REASON: ${{ steps.ocr.outputs.range_reason }}
           FINAL: ${{ steps.outcome.outputs.final }}
+          REASON: ${{ steps.outcome.outputs.reason }}
         run: |
           if [ "$RANGE_REASON" = "same_head_noop" ]; then
             echo "The checkpoint already covers the head; nothing to review."
             exit 0
           fi
-          if [ "$FINAL" = "0" ]; then
-            echo "The OCR review covered every selected file."
-            exit 0
-          fi
-          if [ "$FINAL" = "2" ] && [ -f /tmp/ocr-coverage.err ]; then
+          if [ "$FINAL" != "0" ] && [ -f /tmp/ocr-coverage.err ]; then
             while IFS= read -r line; do
               case "$line" in
                 *": not reviewed ("*) echo "::error::${line#stomme: }" ;;
               esac
             done < /tmp/ocr-coverage.err
           fi
+          if [ "$FINAL" = "0" ]; then
+            echo "The OCR review covered every selected file."
+            exit 0
+          fi
           if [ "$FINAL" = "2" ]; then
             echo "::error::the OCR review left selected files unreviewed"
+          elif [ -n "$REASON" ]; then
+            echo "::error::the OCR review failed: $REASON"
           else
             echo "::error::the OCR review failed"
           fi
