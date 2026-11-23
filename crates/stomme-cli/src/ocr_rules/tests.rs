@@ -506,10 +506,10 @@ fn render_inlines_the_named_language_guide_without_layer_guides() {
     let rules = read_rules(root.path());
     let mut guides = guides();
 
-    guides.layers.push((
-        "docs/stomme/layers/react/guide.md".to_string(),
-        "Layer rules.\n",
-    ));
+    guides.layers.push(Guide {
+        path: "docs/stomme/layers/react/guide.md".to_string(),
+        text: "Layer rules.\n",
+    });
 
     let rendered = render(Language::Rust, &guides, Some(&rules));
     let document = parse(&rendered);
@@ -572,28 +572,46 @@ fn render_lists_a_named_language_test_patterns_once_after_the_project_language()
     );
 }
 
+#[test]
+fn language_returns_the_guide_for_that_language() {
+    let guides = guides();
+    let cases = [
+        (
+            Language::Rust,
+            "docs/stomme/languages/rust/guide.md",
+            "Rust rules.\n",
+        ),
+        (
+            Language::TypeScript,
+            "docs/stomme/languages/typescript/guide.md",
+            "TypeScript rules.\n",
+        ),
+    ];
+
+    for (language, path, text) in cases {
+        let guide = guides.language(language);
+
+        assert_eq!(guide.path, path, "{language}");
+        assert_eq!(guide.text, text, "{language}");
+    }
+}
+
 fn guides() -> Guides {
     Guides {
-        general: (
-            "docs/stomme/shared/coding.md".to_string(),
-            "Shared rules.\n",
-        ),
-        languages: vec![
-            (
-                Language::Rust,
-                (
-                    "docs/stomme/languages/rust/guide.md".to_string(),
-                    "Rust rules.\n",
-                ),
-            ),
-            (
-                Language::TypeScript,
-                (
-                    "docs/stomme/languages/typescript/guide.md".to_string(),
-                    "TypeScript rules.\n",
-                ),
-            ),
-        ],
+        general: Guide {
+            path: "docs/stomme/shared/coding.md".to_string(),
+            text: "Shared rules.\n",
+        },
+        languages: LanguageGuides {
+            rust: Guide {
+                path: "docs/stomme/languages/rust/guide.md".to_string(),
+                text: "Rust rules.\n",
+            },
+            typescript: Guide {
+                path: "docs/stomme/languages/typescript/guide.md".to_string(),
+                text: "TypeScript rules.\n",
+            },
+        },
         layers: Vec::new(),
     }
 }

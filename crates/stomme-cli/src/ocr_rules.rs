@@ -55,10 +55,20 @@ where
     Value::deserialize(deserializer).map(Some)
 }
 
+pub(crate) struct Guide {
+    pub(crate) path: String,
+    pub(crate) text: &'static str,
+}
+
+pub(crate) struct LanguageGuides {
+    pub(crate) rust: Guide,
+    pub(crate) typescript: Guide,
+}
+
 pub(crate) struct Guides {
-    pub(crate) general: (String, &'static str),
-    pub(crate) languages: Vec<(Language, (String, &'static str))>,
-    pub(crate) layers: Vec<(String, &'static str)>,
+    pub(crate) general: Guide,
+    pub(crate) languages: LanguageGuides,
+    pub(crate) layers: Vec<Guide>,
 }
 
 #[derive(Serialize)]
@@ -317,28 +327,26 @@ impl Guides {
         guides.extend(
             self.layers
                 .iter()
-                .map(|(path, text)| (path.as_str(), *text)),
+                .map(|guide| (guide.path.as_str(), guide.text)),
         );
 
         guides
     }
 
     fn general_and_language(&self, language: Language) -> Vec<(&str, &str)> {
-        let (path, text) = self.language(language);
+        let guide = self.language(language);
 
         vec![
-            (self.general.0.as_str(), self.general.1),
-            (path.as_str(), *text),
+            (self.general.path.as_str(), self.general.text),
+            (guide.path.as_str(), guide.text),
         ]
     }
 
-    pub(crate) fn language(&self, language: Language) -> &(String, &'static str) {
-        &self
-            .languages
-            .iter()
-            .find(|(name, _)| *name == language)
-            .expect("the guides hold every language")
-            .1
+    pub(crate) fn language(&self, language: Language) -> &Guide {
+        match language {
+            Language::Rust => &self.languages.rust,
+            Language::TypeScript => &self.languages.typescript,
+        }
     }
 }
 

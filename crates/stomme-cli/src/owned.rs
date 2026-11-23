@@ -5,8 +5,8 @@ use thiserror::Error;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
 use crate::config::Selection;
-use crate::layer::{Catalog, Language};
-use crate::ocr_rules::{self, Guides, ProjectRules};
+use crate::layer::Catalog;
+use crate::ocr_rules::{self, Guide, Guides, LanguageGuides, ProjectRules};
 
 pub(crate) const DOCS_FOLDER: &str = "docs/stomme";
 
@@ -69,16 +69,22 @@ const SHARED: &[(&str, &str)] = &[
     ),
 ];
 
-const LANGUAGE_GUIDES: &[(&str, &str)] = &[
-    (
-        "languages/rust/guide.md",
-        include_str!("../../../foundation/languages/rust/guide.md"),
-    ),
-    (
-        "languages/typescript/guide.md",
-        include_str!("../../../foundation/languages/typescript/guide.md"),
-    ),
-];
+struct LanguageGuide {
+    path: &'static str,
+    text: &'static str,
+}
+
+const RUST_GUIDE: LanguageGuide = LanguageGuide {
+    path: "languages/rust/guide.md",
+    text: include_str!("../../../foundation/languages/rust/guide.md"),
+};
+
+const TYPESCRIPT_GUIDE: LanguageGuide = LanguageGuide {
+    path: "languages/typescript/guide.md",
+    text: include_str!("../../../foundation/languages/typescript/guide.md"),
+};
+
+const LANGUAGE_GUIDES: &[LanguageGuide] = &[RUST_GUIDE, TYPESCRIPT_GUIDE];
 
 pub(crate) struct OwnedFile {
     pub(crate) path: String,
@@ -142,19 +148,13 @@ fn selected_guides(selection: &Selection, catalog: &Catalog) -> Guides {
         .iter()
         .find(|&&(path, _)| path == "shared/coding.md")
         .expect("the shared coding guide is embedded");
-    let general = (project_path(coding.0), coding.1);
-    let languages = LANGUAGE_GUIDES
-        .iter()
-        .map(|&(path, text)| {
-            let name = path
-                .strip_prefix("languages/")
-                .and_then(|rest| rest.strip_suffix("/guide.md"))
-                .expect("a language guide lies in its language folder");
-            let language = Language::parse(name).expect("the guide's folder names a language");
+    let general = project_guide(coding.0, coding.1);
 
-            (language, (project_path(path), text))
-        })
-        .collect();
+    let languages = LanguageGuides {
+        rust: project_guide(RUST_GUIDE.path, RUST_GUIDE.text),
+        typescript: project_guide(TYPESCRIPT_GUIDE.path, TYPESCRIPT_GUIDE.text),
+    };
+
     let layers = selection
         .layers
         .iter()
@@ -162,8 +162,9 @@ fn selected_guides(selection: &Selection, catalog: &Catalog) -> Guides {
             let guide = catalog
                 .guide(layer)
                 .expect("the selection names a registered layer");
+            let path = format!("layers/{layer}/guide.md");
 
-            (project_path(&format!("layers/{layer}/guide.md")), guide)
+            project_guide(&path, guide)
         })
         .collect();
 
@@ -174,18 +175,29 @@ fn selected_guides(selection: &Selection, catalog: &Catalog) -> Guides {
     }
 }
 
-fn guide_file((path, text): &(String, &'static str)) -> OwnedFile {
+fn project_guide(path: &str, text: &'static str) -> Guide {
+    Guide {
+        path: project_path(path),
+        text,
+    }
+}
+
+fn guide_file(guide: &Guide) -> OwnedFile {
     OwnedFile {
-        path: path.clone(),
-        content: (*text).to_string(),
+        path: guide.path.clone(),
+        content: guide.text.to_string(),
     }
 }
 
 pub(crate) fn bundle_set(catalog: &Catalog) -> Vec<OwnedFile> {
     let mut files: Vec<OwnedFile> = SHARED
         .iter()
-        .chain(LANGUAGE_GUIDES)
         .map(|&(path, content)| owned(path, content))
+        .chain(
+            LANGUAGE_GUIDES
+                .iter()
+                .map(|guide| owned(guide.path, guide.text)),
+        )
         .collect();
 
     for (name, guide) in catalog.guides() {
@@ -462,7 +474,7 @@ pub(crate) fn link_targets(text: &str) -> Vec<String> {
 #[cfg(test)]
 fn embedded_paths() -> BTreeSet<String> {
     let shared = SHARED.iter().map(|&(path, _)| path.to_string());
-    let languages = LANGUAGE_GUIDES.iter().map(|&(path, _)| path.to_string());
+    let languages = LANGUAGE_GUIDES.iter().map(|guide| guide.path.to_string());
     let layers = crate::layer::catalog()
         .guides()
         .map(|(name, _)| format!("layers/{name}/guide.md"));
