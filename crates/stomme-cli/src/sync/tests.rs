@@ -90,6 +90,23 @@ fn bundled_content(path: &str) -> String {
         .content
 }
 
+fn guide_block(guide: &str) -> String {
+    format!("File: {guide}\n\n{}", bundled_content(guide).trim_end())
+}
+
+fn assert_guide_blocks_in_order(text: &str, guides: &[&str]) {
+    let mut offset = 0;
+
+    for guide in guides {
+        let block = guide_block(guide);
+        let found = text[offset..]
+            .find(&block)
+            .unwrap_or_else(|| panic!("{guide} follows the previous guide as a whole block"));
+
+        offset += found + block.len();
+    }
+}
+
 fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut files = BTreeMap::new();
 
@@ -157,22 +174,19 @@ fn sync_writes_the_ocr_rule_file() {
     assert_eq!(rules[0]["merge_system_rule"], serde_json::Value::Bool(true));
 
     let rule = rules[0]["rule"].as_str().expect("the rule is text");
-    let mut previous = 0;
-
-    for guide in [
+    let guides = [
         "docs/stomme/shared/coding.md",
         "docs/stomme/languages/rust/guide.md",
         "docs/stomme/layers/gpui/guide.md",
+    ];
+
+    assert_guide_blocks_in_order(rule, &guides);
+
+    for unselected in [
+        "docs/stomme/languages/typescript/guide.md",
+        "docs/stomme/layers/herdr/guide.md",
     ] {
-        let needle = format!("File: {guide}");
-        let position = rule.find(&needle).expect("the guide is named");
-
-        assert!(position >= previous, "{guide}");
-        previous = position;
-
-        let content = bundled_content(guide);
-
-        assert!(rule.contains(content.trim_end()), "{guide}");
+        assert!(!rule.contains(&guide_block(unselected)), "{unselected}");
     }
 
     let record = Record::read(root.path())
@@ -206,23 +220,22 @@ fn sync_merges_project_ocr_rules() {
         .expect("read the rule file");
     let document: serde_json::Value = serde_json::from_str(&text).expect("the rule file is JSON");
     let rules = document["rules"].as_array().expect("the rules are a list");
-    let guide = bundled_content("docs/stomme/shared/coding.md");
-    let guide = guide.trim_end();
 
     assert_eq!(rules.len(), 3);
     assert_eq!(rules[0]["path"], "src/**");
     assert_eq!(rules[1]["path"], "tests/**");
     assert_eq!(rules[2]["path"], "**/*.rs");
 
+    let system_rule = rules[2]["rule"].as_str().expect("the rule is text");
+
     for (index, marker) in ["Keep modules small.", "Name the behavior."]
         .into_iter()
         .enumerate()
     {
         let rule = rules[index]["rule"].as_str().expect("the rule is text");
-        let guide_at = rule.find(guide).expect("the guide text follows");
+        let expected = format!("{marker}\n\n{system_rule}");
 
-        assert!(rule.starts_with(marker), "{marker}");
-        assert!(guide_at > marker.len(), "{marker}");
+        assert_eq!(rule, &expected, "{marker}");
     }
 
     assert_eq!(document["exclude"], serde_json::json!(["fixtures/**"]));
@@ -230,22 +243,27 @@ fn sync_merges_project_ocr_rules() {
 
 #[test]
 fn sync_refuses_an_invalid_project_rule_file() {
-    type Matches = fn(&OcrRulesError) -> bool;
-    let cases: [(&str, &str, Matches); 3] = [
+    type DataCheck = fn(&OcrRulesError) -> bool;
+    let cases: [(&str, &str, DataCheck); 3] = [
         ("invalid JSON", "{ not json", |error| {
-            matches!(error, OcrRulesError::InvalidJson { .. })
+            matches!(error, OcrRulesError::InvalidJson { path, reason }
+                if path == PROJECT_RULE_FILE && reason.contains("line 1"))
         }),
         ("an unknown key", r#"{"unknown": true}"#, |error| {
-            matches!(error, OcrRulesError::Shape { .. })
+            matches!(error, OcrRulesError::Shape { path, reason }
+                if path == PROJECT_RULE_FILE && reason.contains("unknown field `unknown`"))
         }),
         (
             "an empty path",
             r#"{"rules":[{"path":"","rule":"x"}]}"#,
-            |error| matches!(error, OcrRulesError::EmptyPath { .. }),
+            |error| {
+                matches!(error, OcrRulesError::EmptyPath { path, index }
+                    if path == PROJECT_RULE_FILE && *index == 1)
+            },
         ),
     ];
 
-    for (name, text, matches_variant) in cases {
+    for (name, text, check_data) in cases {
         let root = rust_project(&[]);
 
         fs::create_dir_all(root.path().join(".opencodereview")).expect("create the rule folder");
@@ -255,10 +273,14 @@ fn sync_refuses_an_invalid_project_rule_file() {
         let error = sync_project(root.path()).expect_err("sync refuses");
 
         match &error {
-            SyncError::OcrRules(inner) => assert!(matches_variant(inner), "{name}: {error:?}"),
+            SyncError::OcrRules(inner) => assert!(check_data(inner), "{name}: {error:?}"),
             other => panic!("{name}: expected an OcrRules error, got {other:?}"),
         }
 
+        assert!(
+            !root.path().join(crate::owned::DOCS_FOLDER).exists(),
+            "{name}: sync created the output folder"
+        );
         assert_eq!(snapshot(root.path()), before, "{name}");
     }
 }

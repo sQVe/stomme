@@ -164,8 +164,13 @@ fn check_reports_a_symlinked_shared_folder() {
 
     let problems =
         check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+    let problem = problems
+        .iter()
+        .find(|problem| problem.path == "docs/stomme/shared")
+        .expect("the symlinked folder is reported");
 
-    assert!(reported(&problems, "docs/stomme/shared"), "{problems:?}");
+    assert_eq!(problem.rule, Rule::SyncedFiles);
+    assert!(problem.message.contains("is a symlink"), "{problem:?}");
 }
 
 fn rewrite_record(root: &Path, change: impl FnOnce(&mut Record)) {
@@ -222,6 +227,35 @@ fn check_reports_a_missing_record() {
         check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
 
     assert!(reported(&problems, RECORD_FILE), "{problems:?}");
+}
+
+#[test]
+fn check_reports_a_malformed_record_with_an_invalid_project_rule_file() {
+    let root = complete_project();
+
+    write_file(root.path(), RECORD_FILE, "not toml\n");
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
+    assert!(reported(&problems, RECORD_FILE), "{problems:?}");
+}
+
+#[test]
+fn check_reports_a_nested_parent_file_with_an_invalid_project_rule_file() {
+    let root = complete_project();
+
+    write_file(root.path(), PROJECT_RULE_FILE, "{ not json");
+    fs::remove_dir_all(root.path().join("docs/stomme/shared")).expect("remove the shared folder");
+    write_file(root.path(), "docs/stomme/shared", "not a folder\n");
+
+    let problems =
+        check(root.path(), &selection(root.path()), layer::catalog()).expect("check the project");
+
+    assert!(reported(&problems, PROJECT_RULE_FILE), "{problems:?}");
+    assert!(reported(&problems, "docs/stomme/shared"), "{problems:?}");
 }
 
 #[test]
