@@ -113,6 +113,9 @@ importers:
 
   .:
     devDependencies:
+      '@alibaba-group/open-code-review':
+        specifier: 1.14.1
+        version: 1.14.1
       '@changesets/changelog-github':
         specifier: 1.0.1
         version: 1.0.1
@@ -177,6 +180,41 @@ importers:
         version: 4.1.11(@types/node@24.13.3)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(typescript@7.0.2)(yaml@2.9.1))
 
 packages:
+
+  '@alibaba-group/ocr-darwin-arm64@1.14.1':
+    resolution: {integrity: sha512-TWxGrWrZz6K88ZWIvhpwDcHMkXoPHElRsPNVrof6UJnBRac2sFB7IZkldPnoWyLmowgNT5IGYrjQV8uKr6y3EA==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@alibaba-group/ocr-darwin-x64@1.14.1':
+    resolution: {integrity: sha512-4+7clv8jhLZJKJ5Yt9V8YNVHae9iLfyuNPcrD2Shi4QLm4KcsEgM/MTK7kgeGs3Mqy/CEeEAED7FFz5WjEYRpg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@alibaba-group/ocr-linux-arm64@1.14.1':
+    resolution: {integrity: sha512-Y4P7s6z402vnGaCw/I4I9lqpJlst10H0ynTqFGUgiCXA4p8kQRmEd1uh3GgoLvzd3Q5m8aUvHpmolVi9d+7gYg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@alibaba-group/ocr-linux-x64@1.14.1':
+    resolution: {integrity: sha512-rvU0Mse3YPb3QfoN3ZpquhLhADbePfumtFG/ysDZ0OiLdoPJkdHTGlQd0JPx0NzHQXd4Ukm6jUTczmINgYhlRg==}
+    cpu: [x64]
+    os: [linux]
+
+  '@alibaba-group/ocr-win32-arm64@1.14.1':
+    resolution: {integrity: sha512-8RRYFlNLW7494sFAQqfOsTEWHNW/rtIK1KzSphRdw75R1HAtx8selVP4o6UmWXrenVuvnDogdtZ6aReizAj8lA==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@alibaba-group/ocr-win32-x64@1.14.1':
+    resolution: {integrity: sha512-wlwtxZ+XNSKTrRdle2Vbmk1ZIzwYXhuRtqiCj+aHiIHgMA8Ga4YQ3jktDog/8iqHn4Gc6D+n9TieAQYoLPBNWw==}
+    cpu: [x64]
+    os: [win32]
+
+  '@alibaba-group/open-code-review@1.14.1':
+    resolution: {integrity: sha512-VZSdM9eC7zJtPDyeEzpwynhbC5MgaGTppBXFuE83eMyNy05obgiS1HmAX4984w7j06Aglc8gKeOsUCDhqsDZKg==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -1709,6 +1747,33 @@ packages:
     resolution: {integrity: sha512-OWBfhrpgK9+/4+IXG9oT8Bao4AhViQA7vdyNNH7EUg8dQYgwa70XtIBWTpCEme1P1ECyoDNYkn0wT63f8XRcVA==}
 
 snapshots:
+
+  '@alibaba-group/ocr-darwin-arm64@1.14.1':
+    optional: true
+
+  '@alibaba-group/ocr-darwin-x64@1.14.1':
+    optional: true
+
+  '@alibaba-group/ocr-linux-arm64@1.14.1':
+    optional: true
+
+  '@alibaba-group/ocr-linux-x64@1.14.1':
+    optional: true
+
+  '@alibaba-group/ocr-win32-arm64@1.14.1':
+    optional: true
+
+  '@alibaba-group/ocr-win32-x64@1.14.1':
+    optional: true
+
+  '@alibaba-group/open-code-review@1.14.1':
+    optionalDependencies:
+      '@alibaba-group/ocr-darwin-arm64': 1.14.1
+      '@alibaba-group/ocr-darwin-x64': 1.14.1
+      '@alibaba-group/ocr-linux-arm64': 1.14.1
+      '@alibaba-group/ocr-linux-x64': 1.14.1
+      '@alibaba-group/ocr-win32-arm64': 1.14.1
+      '@alibaba-group/ocr-win32-x64': 1.14.1
 
   '@babel/code-frame@7.29.7':
     dependencies:

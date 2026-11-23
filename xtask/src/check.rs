@@ -118,6 +118,21 @@ const STEPS: &[Step] = &[
         arguments: &["-r", "run", "test"],
         environment: &[],
     },
+    Step {
+        name: "ocr-smoke",
+        group: Group::Build,
+        program: "cargo",
+        arguments: &[
+            "run",
+            "--locked",
+            "--quiet",
+            "-p",
+            "xtask",
+            "--",
+            "ocr-smoke",
+        ],
+        environment: &[DENY_WARNINGS],
+    },
 ];
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -249,7 +264,8 @@ mod tests {
                 "ts-style",
                 "ts-format",
                 "ts-build",
-                "ts-test"
+                "ts-test",
+                "ocr-smoke"
             ]
         );
     }

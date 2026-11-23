@@ -105,6 +105,11 @@ and `packages/imports`:
 The tests include packed package tests on Node and Bun. The build may rebuild ignored `dist/`
 files. The check does not install dependencies; run `pnpm install --frozen-lockfile` first.
 
+The `ocr-smoke` step runs the pinned Open Code Review binary against a temporary Git repository.
+It needs `pnpm install --frozen-lockfile` and runs no model. It proves that the repository rule
+admits ordinary source and a Rust test, that the TypeScript consumer rule admits a TypeScript test,
+and that the language rule takes precedence in both cases.
+
 `cargo xtask check build` runs checks that compile code or need the JavaScript toolchain.
 `cargo xtask check tidy` runs the remaining checks without that toolchain.
 
@@ -159,6 +164,9 @@ advisories fail cargo-deny without a code change.
 - `Mutation audit` runs on the weekly schedule and on manual runs from `main`. It runs
   `cargo mutants --workspace` and uploads `mutants.out` as an artifact. Survivors and timeouts
   pass the job; other cargo-mutants failures fail it.
+
+The mutation jobs also run `pnpm install --frozen-lockfile`, because their nextest run includes
+tests that need the pinned `ocr` binary.
 
 Only runs on `main` save the build cache. Renovate updates dependencies, actions, and the toolchain
 every Monday, after a release is three days old. The six TypeScript style pins update together,
