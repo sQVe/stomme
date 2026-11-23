@@ -481,7 +481,7 @@ fn check_refuses_a_base_reference_that_is_not_utf8() {
         &[OsStr::new("check"), OsStr::new("--base"), reference],
     );
 
-    assert_refusal(&output);
+    assert_refusal(&output, r"main-\xFF");
 }
 
 #[cfg(unix)]
@@ -494,11 +494,11 @@ fn stomme_refuses_a_command_that_is_not_utf8() {
 
     let output = stomme(root.path(), &[command]);
 
-    assert_refusal(&output);
+    assert_refusal(&output, r"ocr-coverage\xFF");
 }
 
 #[cfg(unix)]
-fn assert_refusal(output: &Output) {
+fn assert_refusal(output: &Output, operand: &str) {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "{output:?}");
 
@@ -506,6 +506,7 @@ fn assert_refusal(output: &Output) {
 
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].starts_with("stomme: "), "{lines:?}");
+    assert!(lines[0].contains(operand), "{lines:?}");
     assert!(lines[0].ends_with("is not valid UTF-8"), "{lines:?}");
 }
 
