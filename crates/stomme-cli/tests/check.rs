@@ -484,8 +484,7 @@ fn check_refuses_a_base_reference_that_is_not_utf8() {
         .output()
         .expect("run stomme");
 
-    assert_eq!(output.status.code(), Some(1));
-    assert_refusal(&stderr_lines(&output));
+    assert_refusal(&output);
 }
 
 #[cfg(unix)]
@@ -504,12 +503,16 @@ fn stomme_refuses_a_command_that_is_not_utf8() {
         .output()
         .expect("run stomme");
 
-    assert_eq!(output.status.code(), Some(1));
-    assert_refusal(&stderr_lines(&output));
+    assert_refusal(&output);
 }
 
 #[cfg(unix)]
-fn assert_refusal(lines: &[String]) {
+fn assert_refusal(output: &Output) {
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty(), "{output:?}");
+
+    let lines = stderr_lines(output);
+
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].starts_with("stomme: "), "{lines:?}");
     assert!(lines[0].ends_with("is not valid UTF-8"), "{lines:?}");
