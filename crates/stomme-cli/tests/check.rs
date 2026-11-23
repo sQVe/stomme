@@ -467,6 +467,30 @@ fn stomme_prints_usage_without_the_check_command() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn check_refuses_a_base_reference_that_is_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = complete_project();
+    let reference = OsStr::from_bytes(b"main-\xff");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_stomme"))
+        .args(["check", "--base"])
+        .arg(reference)
+        .current_dir(root.path())
+        .env_remove("GITHUB_BASE_REF")
+        .output()
+        .expect("run stomme");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stderr_lines(&output),
+        vec!["stomme: the `--base` reference is not valid UTF-8"]
+    );
+}
+
 #[test]
 fn check_base_reads_the_named_ref() {
     let root = complete_project();

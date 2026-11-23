@@ -16,6 +16,29 @@ fn a_complete_result_passes() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_result_path_that_is_not_utf8_is_read() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let path = root.path().join(OsStr::from_bytes(b"complete-\xff.json"));
+    std::fs::copy(fixture("complete.json"), &path).expect("copy the complete result");
+
+    let output = stomme(&path);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        stdout(&output),
+        "### Review coverage\n\nOCR reviewed 1 of 1 selected file.\n"
+    );
+    assert_eq!(
+        stderr_lines(&output),
+        vec!["stomme: OCR review complete: reviewed 1 of 1 selected file"]
+    );
+}
+
 #[test]
 fn a_partial_result_fails_and_lists_only_the_unreviewed_file() {
     let output = stomme(&fixture("partial.json"));

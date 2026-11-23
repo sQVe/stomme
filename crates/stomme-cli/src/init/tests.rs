@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -6,8 +7,8 @@ use super::*;
 use crate::config::{self, Installation};
 use crate::layer;
 
-fn arguments(values: &[&str]) -> Vec<String> {
-    values.iter().map(ToString::to_string).collect()
+fn arguments(values: &[&str]) -> Vec<OsString> {
+    values.iter().map(OsString::from).collect()
 }
 
 const DENIED_READ: &str = "the fake record denies the read";
@@ -291,6 +292,23 @@ fn run_reads_the_written_config_through_the_callers_record() {
     assert!(root.path().join("stomme.toml").is_file());
     assert!(!root.path().join("docs/stomme").exists());
     assert!(!root.path().join(crate::sync::RECORD_FILE).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn parse_arguments_refuses_a_value_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let mut arguments = arguments(&["--name", "demo", "--language", "rust"]);
+    arguments.push(OsString::from("--layers"));
+    arguments.push(OsString::from(std::ffi::OsStr::from_bytes(b"core-\xff")));
+
+    let error = parse_arguments(&arguments).expect_err("the layers value is not UTF-8");
+
+    assert!(
+        matches!(&error, InitError::NotText { flag } if flag == "--layers"),
+        "{error:?}"
+    );
 }
 
 #[test]
