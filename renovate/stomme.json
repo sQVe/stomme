@@ -13,14 +13,16 @@
     },
     {
       "customType": "regex",
+      "description": "Pins the reusable sync workflow by commit with a `# vX.Y.Z` comment. The second match string converts an old tag call, and the template always writes the SHA form. Only the unquoted `uses:` form is rewritten; quoted calls are left alone.",
       "managerFilePatterns": ["/^\\.github\\/workflows\\/[^/]+\\.ya?ml$/"],
+      "matchStringsStrategy": "any",
       "matchStrings": [
-        "sQVe/stomme/\\.github/workflows/sync-update\\.yml@v(?<currentValue>[0-9][^\\s\"']*)"
+        "uses:[ \\t]+sQVe/stomme/\\.github/workflows/sync-update\\.yml@(?<currentDigest>[0-9a-f]{40})[ \\t]+#[ \\t]*(?<currentValue>v[0-9][^\\s\"']*)[ \\t]*\\n",
+        "uses:[ \\t]+sQVe/stomme/\\.github/workflows/sync-update\\.yml@(?<currentValue>v[0-9][^\\s\"']*)[ \\t]*\\n"
       ],
       "depNameTemplate": "sQVe/stomme",
       "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.*)$",
-      "autoReplaceStringTemplate": "sQVe/stomme/.github/workflows/sync-update.yml@v{{newValue}}"
+      "autoReplaceStringTemplate": "uses: sQVe/stomme/.github/workflows/sync-update.yml@{{newDigest}} # {{newValue}}\n"
     }
   ],
   "packageRules": [
@@ -28,6 +30,13 @@
       "matchManagers": ["github-actions"],
       "matchPackageNames": ["sQVe/stomme"],
       "enabled": false
+    },
+    {
+      "description": "Adds a commit digest to a reusable sync workflow called by tag. `stomme.toml` pins a version, not a workflow call, so this rule covers workflow files only.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": [".github/workflows/**"],
+      "matchPackageNames": ["sQVe/stomme"],
+      "pinDigests": true
     },
     {
       "matchManagers": ["mise"],

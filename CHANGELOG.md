@@ -11,6 +11,9 @@ Changes:
 
 - Take an optional `guides-directory` input in the reusable sync workflow. When it is set, the job
   refreshes the shared guides in that folder and commits them with the rest of the sync.
+- `stomme init` pins the reusable sync workflow by commit with a version comment. The Renovate
+  preset keeps the pin current for the unquoted `uses:` form by converting an existing `@vX.Y.Z`
+  call on the project's next stomme update. `stomme sync` does not change the file.
 
 ## 0.2.2
 

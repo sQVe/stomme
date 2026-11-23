@@ -74,9 +74,9 @@ remain explicitly identified as such.
 
 Renovate updates the `stomme.toml` version, the binary pin, and the sync workflow reference in one
 update, and leaves the stomme npm packages alone. The `stomme.toml` version and the `mise.toml`
-binary pin both use the same bare version, such as `0.2.0`; the sync workflow reference keeps its
-`v` tag prefix. The sync workflow then writes synced files and package pins, and runs CI on the
-final commit. Sync must be idempotent and stop on a push conflict.
+binary pin both use the same bare version, such as `0.2.0`; the sync workflow reference is a commit,
+and its trailing comment keeps the `v` tag prefix. The sync workflow then writes synced files and
+package pins, and runs CI on the final commit. Sync must be idempotent and stop on a push conflict.
 
 stomme follows its own rules. Project adoption and enforcement are separate work from the initial
 repository setup.
