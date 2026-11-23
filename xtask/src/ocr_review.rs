@@ -465,6 +465,17 @@ fn workflow_classifies_with_the_released_binary() {
 }
 
 #[test]
+fn workflow_skips_the_install_for_a_no_op_review() {
+    let install = step_text(OCR_REVIEW, "Install stomme from the project pin");
+    let guard = "if: steps.ocr.outputs.range_reason != 'same_head_noop'";
+
+    assert!(
+        install.lines().any(|line| line.trim() == guard),
+        "the install step is skipped only for a no-op review:\n{install}"
+    );
+}
+
+#[test]
 fn workflow_resumes_only_a_budget_partial() {
     let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
 
