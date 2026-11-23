@@ -696,13 +696,14 @@ fn sync_keeps_a_stale_staging_file_when_it_refuses() {
     fs::write(&stale, "partial\n").expect("write the stale staging file");
     fs::write(&extra, "extra\n").expect("write the extra file");
 
+    let before = snapshot(root.path());
     let error = sync_project(root.path()).expect_err("sync refuses");
 
     assert!(
         matches!(error, SyncError::Extra { ref path } if path == "docs/stomme/shared/extra.md"),
         "{error:?}"
     );
-    assert!(stale.exists());
+    assert_eq!(snapshot(root.path()), before);
 }
 
 #[test]
@@ -730,10 +731,10 @@ fn sync_refuses_a_user_file_with_a_staging_prefix() {
 #[test]
 fn sync_refuses_a_recorded_file_with_a_staging_name() {
     let root = rust_project(&[]);
-    let path = format!("docs/stomme/{STAGING_PREFIX}notes");
-    let recorded = root.path().join(&path);
+    let path = "docs/stomme/.stomme-staging.4242.0.notes";
+    let recorded = root.path().join(path);
 
-    write_record(root.path(), &path);
+    write_record(root.path(), path);
     fs::create_dir_all(recorded.parent().expect("the file has a parent"))
         .expect("create docs/stomme");
     fs::write(&recorded, "edited\n").expect("write the recorded file");
@@ -742,10 +743,19 @@ fn sync_refuses_a_recorded_file_with_a_staging_name() {
     let error = sync_project(root.path()).expect_err("sync refuses");
 
     assert!(
-        matches!(error, SyncError::Edited { ref path } if path == "docs/stomme/.stomme-staging.notes"),
+        matches!(error, SyncError::Edited { ref path } if path == "docs/stomme/.stomme-staging.4242.0.notes"),
         "{error:?}"
     );
     assert_eq!(snapshot(root.path()), before);
+}
+
+#[test]
+fn staging_name_matches_the_staging_grammar() {
+    let target = Path::new("docs/stomme/shared/coding.md");
+    let name = staging_name(target, 42, 3);
+
+    assert_eq!(name, ".stomme-staging.42.3.coding.md");
+    assert!(is_staging_name(&name));
 }
 
 #[test]

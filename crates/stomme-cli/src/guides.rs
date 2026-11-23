@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -134,7 +134,7 @@ fn plan(
         }
     }
 
-    let stale = staging_in(directory, &writes)?;
+    let stale = sync::stale_staging_beside(directory, hashes.keys().map(String::as_str))?;
     let deletes = plan_deletes(directory, record, &hashes)?;
 
     Ok(Plan {
@@ -143,25 +143,6 @@ fn plan(
         deletes,
         hashes,
     })
-}
-
-fn staging_in(directory: &Path, writes: &[(String, String)]) -> Result<Vec<String>, GuidesError> {
-    let mut folders = BTreeSet::new();
-    let mut stale = BTreeSet::new();
-
-    folders.insert(directory.to_path_buf());
-
-    for (path, _) in writes {
-        if let Some(folder) = Path::new(path).parent() {
-            folders.insert(directory.join(folder));
-        }
-    }
-
-    for folder in folders {
-        stale.extend(sync::stale_staging_in(directory, &folder)?);
-    }
-
-    Ok(stale.into_iter().collect())
 }
 
 fn plan_deletes(

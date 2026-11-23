@@ -300,13 +300,10 @@ fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan,
         writes.push(write);
     }
 
-    staging.extend(stale_staging_in(root, root)?);
-
-    for (path, _) in &writes {
-        if let Some(folder) = root.join(path).parent() {
-            staging.extend(stale_staging_in(root, folder)?);
-        }
-    }
+    staging.extend(stale_staging_beside(
+        root,
+        writes.iter().map(|(path, _)| path.as_str()),
+    )?);
 
     let deletes = plan_deletes(root, record.as_ref(), &owned_keys)?;
     let record = Record {
@@ -544,7 +541,29 @@ fn check_extra_files(
     Ok(staging)
 }
 
-pub(crate) fn stale_staging_in(base: &Path, folder: &Path) -> Result<Vec<String>, SyncError> {
+pub(crate) fn stale_staging_beside<'a>(
+    base: &Path,
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<String>, SyncError> {
+    let mut folders = BTreeSet::new();
+    let mut staging = BTreeSet::new();
+
+    folders.insert(base.to_path_buf());
+
+    for path in paths {
+        if let Some(folder) = Path::new(path).parent() {
+            folders.insert(base.join(folder));
+        }
+    }
+
+    for folder in folders {
+        staging.extend(stale_staging_in(base, &folder)?);
+    }
+
+    Ok(staging.into_iter().collect())
+}
+
+fn stale_staging_in(base: &Path, folder: &Path) -> Result<Vec<String>, SyncError> {
     let mut paths = Vec::new();
 
     let entries = match fs::read_dir(folder) {
