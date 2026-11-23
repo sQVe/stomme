@@ -50,7 +50,16 @@ OCR's format: `rules` entries with `path` and `rule`, plus `include` and `exclud
 - OCR uses the first matching rule and never combines rule files. A separate project file would
   hide one of the two, so `sync` merges the project's entries into the synced file: the project's
   entries first, each with the guide text, then the entry for the project's language.
-- `include` and `exclude` pass through to the synced file.
+- OCR's default path filter skips test files, and the guides apply to tests too. So the synced
+  `include` lists the project's own patterns, then the test paths that filter drops for the
+  language. Rust adds `**/*_test.rs`, `**/*_tests.rs`, `**/tests.rs`, `**/tests/**/*.rs`, and
+  `**/benches/**/*.rs`. TypeScript adds `.test`, `.spec`, and `__tests__` files for every
+  TypeScript and JavaScript extension. An `include` match only admits a file past that filter, so
+  the list narrows nothing. It does not list the whole language glob, which would also admit build
+  output, generated files, and test data that the guides do not govern.
+- `exclude` passes through unchanged. OCR checks it before `include`, so a project can drop a test
+  path, such as fixtures that break the rules on purpose. That exclude is the project's own
+  exception to the guides.
 - Rules for a library or framework are layer guide text. A layer already holds those rules for its
   language, and a second rule system would state them twice.
 

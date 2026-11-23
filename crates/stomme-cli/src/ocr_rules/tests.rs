@@ -27,7 +27,16 @@ fn render_without_project_rules_writes_one_language_entry() {
         .expect("the Rust guide is named");
 
     assert!(shared < rust);
-    assert!(document.get("include").is_none());
+    assert_eq!(
+        document["include"],
+        serde_json::json!([
+            "**/*_test.rs",
+            "**/*_tests.rs",
+            "**/tests.rs",
+            "**/tests/**/*.rs",
+            "**/benches/**/*.rs",
+        ])
+    );
     assert!(document.get("exclude").is_none());
 }
 
@@ -230,16 +239,60 @@ fn read_project_refuses_a_whitespace_rule() {
 fn read_project_refuses_an_unreadable_rule_file() {
     use std::os::unix::fs::PermissionsExt;
 
+    struct RestorePermissions<'a> {
+        path: &'a Path,
+        mode: u32,
+    }
+
+    impl Drop for RestorePermissions<'_> {
+        #[expect(
+            clippy::print_stderr,
+            reason = "a cleanup error has no caller that can take it"
+        )]
+        fn drop(&mut self) {
+            if let Err(error) =
+                fs::set_permissions(self.path, fs::Permissions::from_mode(self.mode))
+            {
+                eprintln!(
+                    "could not restore the permissions of {}: {error}",
+                    self.path.display()
+                );
+            }
+        }
+    }
+
     let root = project(r#"{"rules":[]}"#);
-    let folder = root.path().join(".opencodereview");
+    let path = root.path().join(PROJECT_RULE_FILE);
+    let mode = fs::metadata(&path)
+        .expect("read the rule file metadata")
+        .permissions()
+        .mode()
+        & 0o7777;
+    let restore = RestorePermissions { path: &path, mode };
 
-    fs::set_permissions(&folder, fs::Permissions::from_mode(0o000))
-        .expect("remove the folder permissions");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000))
+        .expect("remove the rule file permissions");
 
-    let error = read_project(root.path()).expect_err("refuse an unreadable rule file");
+    let result = read_project(root.path());
 
-    fs::set_permissions(&folder, fs::Permissions::from_mode(0o755))
-        .expect("restore the folder permissions");
+    drop(restore);
+
+    let error = result.expect_err("refuse an unreadable rule file");
+
+    assert!(matches!(
+        error,
+        OcrRulesError::Read { path, .. } if path == PROJECT_RULE_FILE
+    ));
+}
+
+#[test]
+fn read_project_refuses_a_root_that_is_not_a_folder() {
+    let parent = tempfile::tempdir().expect("create a temporary directory");
+    let root = parent.path().join("project");
+
+    fs::write(&root, "").expect("write the project root file");
+
+    let error = read_project(&root).expect_err("refuse a root that is not a folder");
 
     assert!(matches!(
         error,
@@ -333,15 +386,40 @@ fn render_ends_with_a_newline_and_keeps_key_order() {
 }
 
 #[test]
-fn render_writes_include_only_when_it_is_not_empty() {
-    let root = project(r#"{"include":["src/**"],"rules":[]}"#);
+fn render_keeps_a_project_include_once_before_the_language_patterns() {
+    let root = project(r#"{"include":["src/**","**/tests.rs","src/**"],"rules":[]}"#);
     let rules = read_rules(root.path());
 
     let rendered = render(Language::Rust, &[], Some(&rules));
     let document = parse(&rendered);
 
-    assert_eq!(document["include"], serde_json::json!(["src/**"]));
+    assert_eq!(
+        document["include"],
+        serde_json::json!([
+            "src/**",
+            "**/tests.rs",
+            "**/*_test.rs",
+            "**/*_tests.rs",
+            "**/tests/**/*.rs",
+            "**/benches/**/*.rs",
+        ])
+    );
     assert!(document.get("exclude").is_none());
+}
+
+#[test]
+fn render_lists_the_typescript_test_patterns() {
+    let rendered = render(Language::TypeScript, &[], None);
+    let document = parse(&rendered);
+
+    assert_eq!(
+        document["include"],
+        serde_json::json!([
+            "**/*.test.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "**/*.spec.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "**/__tests__/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+        ])
+    );
 }
 
 #[test]
@@ -379,7 +457,12 @@ fn render_appends_the_guide_text_to_a_project_rule() {
     }}
   ],
   "include": [
-    "src/**"
+    "src/**",
+    "**/*_test.rs",
+    "**/*_tests.rs",
+    "**/tests.rs",
+    "**/tests/**/*.rs",
+    "**/benches/**/*.rs"
   ],
   "exclude": [
     "fixtures/**"

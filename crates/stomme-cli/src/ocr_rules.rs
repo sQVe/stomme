@@ -35,7 +35,6 @@ struct ProjectRule {
 #[derive(Serialize)]
 struct Rendered {
     rules: Vec<Entry>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     include: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     exclude: Vec<String>,
@@ -125,8 +124,15 @@ pub(crate) fn render(
             });
         }
 
-        include.clone_from(&project.include);
+        for pattern in &project.include {
+            push_unique(&mut include, pattern);
+        }
+
         exclude.clone_from(&project.exclude);
+    }
+
+    for pattern in test_includes(language) {
+        push_unique(&mut include, pattern);
     }
 
     rules.push(Entry {
@@ -234,6 +240,31 @@ fn language_glob(language: Language) -> &'static str {
         Language::Rust => "**/*.rs",
         Language::TypeScript => "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
     }
+}
+
+fn test_includes(language: Language) -> &'static [&'static str] {
+    match language {
+        Language::Rust => &[
+            "**/*_test.rs",
+            "**/*_tests.rs",
+            "**/tests.rs",
+            "**/tests/**/*.rs",
+            "**/benches/**/*.rs",
+        ],
+        Language::TypeScript => &[
+            "**/*.test.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "**/*.spec.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "**/__tests__/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+        ],
+    }
+}
+
+fn push_unique(patterns: &mut Vec<String>, pattern: &str) {
+    if patterns.iter().any(|existing| existing == pattern) {
+        return;
+    }
+
+    patterns.push(pattern.to_string());
 }
 
 #[cfg(test)]
