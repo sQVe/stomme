@@ -61,6 +61,12 @@ test('adds two numbers', () => {
 });
 ";
 
+const TYPESCRIPT_SOURCE_TEST: &str = "\
+test('adds two numbers', () => {
+  expect(1 + 1).toBe(2);
+});
+";
+
 const FIXTURE_LIB: &str = "\
 pub fn sample() -> bool {
     true
@@ -73,6 +79,7 @@ const HEAD_FILES: &[(&str, &str)] = &[
     ("crates/demo/src/lib.rs", HEAD_LIB),
     ("crates/demo/tests/add.rs", RUST_TEST),
     ("packages/demo/tests/add.test.ts", TYPESCRIPT_TEST),
+    ("packages/demo/src/add.test.ts", TYPESCRIPT_SOURCE_TEST),
     (
         "crates/stomme-cli/tests/fixtures/sample/src/lib.rs",
         FIXTURE_LIB,
@@ -83,33 +90,48 @@ struct Case {
     name: &'static str,
     reviewed: &'static [&'static str],
     excluded: &'static [(&'static str, &'static str)],
-    precedence_path: &'static str,
-    language_pattern: &'static str,
+    precedence: &'static [(&'static str, &'static str)],
 }
 
 const REPOSITORY_CASE: Case = Case {
     name: "repository",
-    reviewed: &["crates/demo/src/lib.rs", "crates/demo/tests/add.rs"],
+    reviewed: &[
+        "crates/demo/src/lib.rs",
+        "crates/demo/tests/add.rs",
+        "packages/demo/tests/add.test.ts",
+        "packages/demo/src/add.test.ts",
+    ],
     excluded: &[(
         "crates/stomme-cli/tests/fixtures/sample/src/lib.rs",
         "user_exclude",
     )],
-    precedence_path: "crates/demo/tests/add.rs",
-    language_pattern: "**/*.rs",
+    precedence: &[
+        ("crates/demo/tests/add.rs", "**/*.rs"),
+        (
+            "packages/demo/tests/add.test.ts",
+            "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+        ),
+        (
+            "packages/demo/src/add.test.ts",
+            "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+        ),
+    ],
 };
 
 const TYPESCRIPT_CASE: Case = Case {
     name: "typescript consumer",
     reviewed: &["packages/demo/tests/add.test.ts"],
     excluded: &[],
-    precedence_path: "packages/demo/tests/add.test.ts",
-    language_pattern: "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+    precedence: &[(
+        "packages/demo/tests/add.test.ts",
+        "**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+    )],
 };
 
 struct CaseOutcome {
     name: &'static str,
     admission: Vec<String>,
-    precedence: Option<String>,
+    precedence: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,18 +251,18 @@ fn run_case(
     let preview_output = run_ocr(ocr, &preview_arguments(scratch, rules, base, head))?;
     let preview = parse_preview(&preview_output.stdout, &preview_output.stderr)?;
     let admission = admission_failures(case.name, &preview, case.reviewed, case.excluded);
+    let mut precedence = Vec::new();
 
-    let check_output = run_ocr(
-        ocr,
-        &rules_check_arguments(scratch, rules, case.precedence_path),
-    )?;
-    let checked = parse_rule_check(&check_output.stdout, &check_output.stderr)?;
-    let precedence = precedence_failure(
-        case.name,
-        case.precedence_path,
-        &checked,
-        case.language_pattern,
-    );
+    for (path, expected_pattern) in case.precedence {
+        let check_output = run_ocr(ocr, &rules_check_arguments(scratch, rules, path))?;
+        let checked = parse_rule_check(&check_output.stdout, &check_output.stderr)?;
+        precedence.extend(precedence_failure(
+            case.name,
+            path,
+            &checked,
+            expected_pattern,
+        ));
+    }
 
     Ok(CaseOutcome {
         name: case.name,
@@ -327,10 +349,12 @@ fn report(outcomes: &[CaseOutcome]) -> bool {
             }
         }
 
-        match &outcome.precedence {
-            None => eprintln!("ocr-smoke: {}: precedence passed", outcome.name),
-            Some(failure) => {
-                passed = false;
+        if outcome.precedence.is_empty() {
+            eprintln!("ocr-smoke: {}: precedence passed", outcome.name);
+        } else {
+            passed = false;
+
+            for failure in &outcome.precedence {
                 eprintln!("{failure}");
             }
         }

@@ -5,8 +5,8 @@ use thiserror::Error;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
 use crate::config::Selection;
-use crate::layer::Catalog;
-use crate::ocr_rules::{self, ProjectRules};
+use crate::layer::{Catalog, Language};
+use crate::ocr_rules::{self, Guides, ProjectRules};
 
 pub(crate) const DOCS_FOLDER: &str = "docs/stomme";
 
@@ -110,18 +110,15 @@ pub(crate) fn owned_set(
         .map(|&(path, content)| owned(path, content))
         .collect();
 
-    for (path, text) in &guides {
-        files.push(OwnedFile {
-            path: path.clone(),
-            content: (*text).to_string(),
-        });
+    files.push(guide_file(&guides.general));
+    let selected = guides.language(selection.language);
+    files.push(guide_file(selected));
+
+    for layer in &guides.layers {
+        files.push(guide_file(layer));
     }
 
-    let render_guides: Vec<(&str, &str)> = guides
-        .iter()
-        .map(|(path, text)| (path.as_str(), *text))
-        .collect();
-    let rules = ocr_rules::render(selection.language, &render_guides, project);
+    let rules = ocr_rules::render(selection.language, &guides, project);
     let key = record_key(ocr_rules::RULE_FILE).expect("the rule file lies under docs/stomme");
 
     files.push(owned(key, rules));
@@ -140,30 +137,48 @@ pub(crate) fn project_path(key: &str) -> String {
     format!("{DOCS_FOLDER}/{key}")
 }
 
-fn selected_guides(selection: &Selection, catalog: &Catalog) -> Vec<(String, &'static str)> {
+fn selected_guides(selection: &Selection, catalog: &Catalog) -> Guides {
     let coding = SHARED
         .iter()
         .find(|&&(path, _)| path == "shared/coding.md")
         .expect("the shared coding guide is embedded");
-    let language = format!("languages/{}/guide.md", selection.language);
-    let language = LANGUAGE_GUIDES
+    let general = (project_path(coding.0), coding.1);
+    let languages = LANGUAGE_GUIDES
         .iter()
-        .find(|&&(path, _)| path == language)
-        .expect("the selected language has a guide");
-    let mut guides = vec![
-        (project_path(coding.0), coding.1),
-        (project_path(language.0), language.1),
-    ];
+        .map(|&(path, text)| {
+            let name = path
+                .strip_prefix("languages/")
+                .and_then(|rest| rest.strip_suffix("/guide.md"))
+                .expect("a language guide lies in its language folder");
+            let language = Language::parse(name).expect("the guide's folder names a language");
 
-    for layer in &selection.layers {
-        let guide = catalog
-            .guide(layer)
-            .expect("the selection names a registered layer");
+            (language, (project_path(path), text))
+        })
+        .collect();
+    let layers = selection
+        .layers
+        .iter()
+        .map(|layer| {
+            let guide = catalog
+                .guide(layer)
+                .expect("the selection names a registered layer");
 
-        guides.push((project_path(&format!("layers/{layer}/guide.md")), guide));
+            (project_path(&format!("layers/{layer}/guide.md")), guide)
+        })
+        .collect();
+
+    Guides {
+        general,
+        languages,
+        layers,
     }
+}
 
-    guides
+fn guide_file((path, text): &(String, &'static str)) -> OwnedFile {
+    OwnedFile {
+        path: path.clone(),
+        content: (*text).to_string(),
+    }
 }
 
 pub(crate) fn bundle_set(catalog: &Catalog) -> Vec<OwnedFile> {

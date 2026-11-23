@@ -25,16 +25,28 @@ fn rules_without_include(source: &Path, folder: &Path) -> PathBuf {
     path
 }
 
-fn rules_with_pattern(source: &Path, folder: &Path, pattern: &str) -> PathBuf {
+fn rules_with_replaced_patterns(
+    source: &Path,
+    folder: &Path,
+    replacements: &[(&str, &str)],
+) -> PathBuf {
     let text = fs::read_to_string(source).expect("read the rule file");
     let mut value: serde_json::Value = serde_json::from_str(&text).expect("parse the rule file");
     let rules = value
         .get_mut("rules")
         .and_then(|rules| rules.as_array_mut())
         .expect("the rule file has rules");
-    let last = rules.last_mut().expect("the rule file has a rule");
-    last["path"] = serde_json::Value::String(pattern.to_string());
-    let path = folder.join("wrong-pattern.json");
+
+    for (path, pattern) in replacements {
+        let rule = rules
+            .iter_mut()
+            .find(|rule| rule["path"].as_str() == Some(*path))
+            .unwrap_or_else(|| panic!("no rule with path {path}"));
+
+        rule["path"] = serde_json::Value::String((*pattern).to_string());
+    }
+
+    let path = folder.join("replaced-patterns.json");
     let rendered = serde_json::to_string(&value).expect("render the rule file");
     fs::write(&path, rendered).expect("write the rule file");
 
@@ -83,7 +95,7 @@ fn repository_case_passes_on_the_current_rules() {
     let outcome = run_repository_case(&root, home.path(), &repository, &root.join(RULES));
 
     assert_eq!(outcome.admission, Vec::<String>::new());
-    assert_eq!(outcome.precedence, None);
+    assert_eq!(outcome.precedence, Vec::<String>::new());
 }
 
 #[test]
@@ -98,10 +110,12 @@ fn repository_case_fails_admission_without_include() {
     assert_eq!(
         outcome.admission,
         [
-            "ocr-smoke: repository: admission failed: crates/demo/tests/add.rs expected reviewed, got excluded (default_path)"
+            "ocr-smoke: repository: admission failed: crates/demo/tests/add.rs expected reviewed, got excluded (default_path)",
+            "ocr-smoke: repository: admission failed: packages/demo/tests/add.test.ts expected reviewed, got excluded (default_path)",
+            "ocr-smoke: repository: admission failed: packages/demo/src/add.test.ts expected reviewed, got excluded (default_path)"
         ]
     );
-    assert_eq!(outcome.precedence, None);
+    assert_eq!(outcome.precedence, Vec::<String>::new());
 }
 
 #[test]
@@ -109,17 +123,73 @@ fn repository_case_fails_precedence_on_a_catch_all_language_rule() {
     let root = crate::workspace_root();
     let home = temporary_directory();
     let repository = build_repository().expect("build the pinned diff");
-    let rules = rules_with_pattern(&root.join(RULES), home.path(), "**/*");
+    let rules =
+        rules_with_replaced_patterns(&root.join(RULES), home.path(), &[("**/*.rs", "**/*")]);
 
     let outcome = run_repository_case(&root, home.path(), &repository, &rules);
 
     assert_eq!(outcome.admission, Vec::<String>::new());
     assert_eq!(
         outcome.precedence,
-        Some(
+        [
             "ocr-smoke: repository: precedence failed: crates/demo/tests/add.rs expected Custom (--rule) pattern **/*.rs, got Custom (--rule) pattern **/*"
-                .to_string()
-        )
+        ]
+    );
+}
+
+#[test]
+fn repository_case_fails_precedence_on_a_wrong_package_rule() {
+    let root = crate::workspace_root();
+    let home = temporary_directory();
+    let repository = build_repository().expect("build the pinned diff");
+    let rules = rules_with_replaced_patterns(
+        &root.join(RULES),
+        home.path(),
+        &[(
+            "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "packages/**/*.ts",
+        )],
+    );
+
+    let outcome = run_repository_case(&root, home.path(), &repository, &rules);
+
+    assert_eq!(outcome.admission, Vec::<String>::new());
+    assert_eq!(
+        outcome.precedence,
+        [
+            "ocr-smoke: repository: precedence failed: packages/demo/tests/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts",
+            "ocr-smoke: repository: precedence failed: packages/demo/src/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts"
+        ]
+    );
+}
+
+#[test]
+fn repository_case_reports_both_wrong_precedence_rows() {
+    let root = crate::workspace_root();
+    let home = temporary_directory();
+    let repository = build_repository().expect("build the pinned diff");
+    let rules = rules_with_replaced_patterns(
+        &root.join(RULES),
+        home.path(),
+        &[
+            ("**/*.rs", "**/*"),
+            (
+                "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+                "packages/**/*.ts",
+            ),
+        ],
+    );
+
+    let outcome = run_repository_case(&root, home.path(), &repository, &rules);
+
+    assert_eq!(outcome.admission, Vec::<String>::new());
+    assert_eq!(
+        outcome.precedence,
+        [
+            "ocr-smoke: repository: precedence failed: crates/demo/tests/add.rs expected Custom (--rule) pattern **/*.rs, got Custom (--rule) pattern **/*",
+            "ocr-smoke: repository: precedence failed: packages/demo/tests/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts",
+            "ocr-smoke: repository: precedence failed: packages/demo/src/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts"
+        ]
     );
 }
 
@@ -142,7 +212,7 @@ fn typescript_consumer_case_passes_and_fails_without_include() {
     .expect("run the TypeScript consumer case");
 
     assert_eq!(outcome.admission, Vec::<String>::new());
-    assert_eq!(outcome.precedence, None);
+    assert_eq!(outcome.precedence, Vec::<String>::new());
 
     let without_include = rules_without_include(&rules, home.path());
     let failing = run_case(
@@ -161,7 +231,7 @@ fn typescript_consumer_case_passes_and_fails_without_include() {
             "ocr-smoke: typescript consumer: admission failed: packages/demo/tests/add.test.ts expected reviewed, got excluded (default_path)"
         ]
     );
-    assert_eq!(failing.precedence, None);
+    assert_eq!(failing.precedence, Vec::<String>::new());
 }
 
 #[test]
@@ -171,7 +241,7 @@ fn check_passes_on_the_current_tree() {
     assert_eq!(outcomes.len(), 2);
     for outcome in &outcomes {
         assert!(outcome.admission.is_empty(), "{}", outcome.name);
-        assert_eq!(outcome.precedence, None, "{}", outcome.name);
+        assert!(outcome.precedence.is_empty(), "{}", outcome.name);
     }
 }
 
@@ -500,17 +570,17 @@ fn exit_code_fails_on_a_failing_assertion() {
     let passing = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: None,
+        precedence: Vec::new(),
     };
     let failing_admission = CaseOutcome {
         name: "case",
         admission: vec!["failure".to_string()],
-        precedence: None,
+        precedence: Vec::new(),
     };
     let failing_precedence = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: Some("failure".to_string()),
+        precedence: vec!["failure".to_string()],
     };
 
     assert_eq!(exit_code(&[passing]), ExitCode::SUCCESS);
@@ -523,17 +593,17 @@ fn report_fails_when_an_assertion_fails() {
     let passing = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: None,
+        precedence: Vec::new(),
     };
     let failing_admission = CaseOutcome {
         name: "case",
         admission: vec!["failure".to_string()],
-        precedence: None,
+        precedence: Vec::new(),
     };
     let failing_precedence = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: Some("failure".to_string()),
+        precedence: vec!["failure".to_string()],
     };
 
     assert!(report(std::slice::from_ref(&passing)));

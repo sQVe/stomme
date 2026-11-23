@@ -243,7 +243,7 @@ fn sync_merges_project_ocr_rules() {
 #[test]
 fn sync_refuses_an_invalid_project_rule_file() {
     type DataCheck = fn(&OcrRulesError) -> bool;
-    let cases: [(&str, &str, DataCheck); 3] = [
+    let cases: [(&str, &str, DataCheck); 5] = [
         ("invalid JSON", "{ not json", |error| {
             matches!(error, OcrRulesError::InvalidJson { path, reason }
                 if path == PROJECT_RULE_FILE && reason.contains("line 1"))
@@ -258,6 +258,22 @@ fn sync_refuses_an_invalid_project_rule_file() {
             |error| {
                 matches!(error, OcrRulesError::EmptyPath { path, index }
                     if path == PROJECT_RULE_FILE && *index == 1)
+            },
+        ),
+        (
+            "a null language",
+            r#"{"rules":[{"path":"packages/**","rule":"x","language":null}]}"#,
+            |error| {
+                matches!(error, OcrRulesError::LanguageNotString { path, index, value }
+                    if path == PROJECT_RULE_FILE && *index == 1 && value == "null")
+            },
+        ),
+        (
+            "an unknown language",
+            r#"{"rules":[{"path":"packages/**","rule":"x","language":"go"}]}"#,
+            |error| {
+                matches!(error, OcrRulesError::UnknownLanguage { path, index, language }
+                    if path == PROJECT_RULE_FILE && *index == 1 && language == "go")
             },
         ),
     ];

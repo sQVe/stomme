@@ -5,12 +5,7 @@ use super::*;
 
 #[test]
 fn render_without_project_rules_writes_one_language_entry() {
-    let guides = [
-        ("docs/stomme/shared/coding.md", "Shared rules.\n"),
-        ("docs/stomme/languages/rust/guide.md", "Rust rules.\n"),
-    ];
-
-    let rendered = render(Language::Rust, &guides, None);
+    let rendered = render(Language::Rust, &guides(), None);
     let document = parse(&rendered);
     let rules = document["rules"].as_array().expect("the rules are a list");
 
@@ -52,9 +47,8 @@ fn render_puts_project_rules_first_with_guide_text() {
         }"#,
     );
     let rules = read_rules(root.path());
-    let guides = [("docs/stomme/shared/coding.md", "Shared rules.\n")];
 
-    let rendered = render(Language::TypeScript, &guides, Some(&rules));
+    let rendered = render(Language::TypeScript, &guides(), Some(&rules));
     let document = parse(&rendered);
     let entries = document["rules"].as_array().expect("the rules are a list");
 
@@ -368,10 +362,21 @@ fn read_project_accepts_a_filter_only_file() {
 }
 
 #[test]
-fn render_ends_with_a_newline_and_keeps_key_order() {
-    let guides = [("docs/stomme/shared/coding.md", "Shared rules.")];
+fn read_project_refuses_an_unknown_language() {
+    let root = project(r#"{"rules":[{"path":"packages/**","rule":"x","language":"python"}]}"#);
 
-    let rendered = render(Language::Rust, &guides, None);
+    let error = read_project(root.path()).expect_err("refuse an unknown language");
+
+    assert!(matches!(
+        error,
+        OcrRulesError::UnknownLanguage { path, index, language }
+            if path == PROJECT_RULE_FILE && index == 1 && language == "python"
+    ));
+}
+
+#[test]
+fn render_ends_with_a_newline_and_keeps_key_order() {
+    let rendered = render(Language::Rust, &guides(), None);
 
     assert!(rendered.ends_with('\n'));
 
@@ -390,7 +395,7 @@ fn render_keeps_a_project_include_once_before_the_language_patterns() {
     let root = project(r#"{"include":["src/**","**/tests.rs","src/**"],"rules":[]}"#);
     let rules = read_rules(root.path());
 
-    let rendered = render(Language::Rust, &[], Some(&rules));
+    let rendered = render(Language::Rust, &guides(), Some(&rules));
     let document = parse(&rendered);
 
     assert_eq!(
@@ -409,7 +414,7 @@ fn render_keeps_a_project_include_once_before_the_language_patterns() {
 
 #[test]
 fn render_lists_the_typescript_test_patterns() {
-    let rendered = render(Language::TypeScript, &[], None);
+    let rendered = render(Language::TypeScript, &guides(), None);
     let document = parse(&rendered);
 
     assert_eq!(
@@ -435,8 +440,7 @@ fn render_appends_the_guide_text_to_a_project_rule() {
         }"#,
     );
     let rules = read_rules(root.path());
-    let guides = [("docs/stomme/shared/coding.md", "Shared rules.\n")];
-    let guide_text = r#"Apply stomme's coding guides below. Each guide starts with its repository path. Resolve its relative links from that path, and read linked files with file_read.\n\nFile: docs/stomme/shared/coding.md\n\nShared rules.\n\nAlso apply the rules in the project's AGENTS.md and the decisions in docs/adr/ that cover the change. Read them with file_read."#;
+    let guide_text = r#"Apply stomme's coding guides below. Each guide starts with its repository path. Resolve its relative links from that path, and read linked files with file_read.\n\nFile: docs/stomme/shared/coding.md\n\nShared rules.\n\nFile: docs/stomme/languages/rust/guide.md\n\nRust rules.\n\nAlso apply the rules in the project's AGENTS.md and the decisions in docs/adr/ that cover the change. Read them with file_read."#;
     let expected = format!(
         r#"{{
   "rules": [
@@ -471,9 +475,127 @@ fn render_appends_the_guide_text_to_a_project_rule() {
 "#
     );
 
-    let rendered = render(Language::Rust, &guides, Some(&rules));
+    let rendered = render(Language::Rust, &guides(), Some(&rules));
 
     assert_eq!(rendered, expected);
+}
+
+#[test]
+fn read_project_refuses_a_null_language() {
+    let root = project(r#"{"rules":[{"path":"packages/**","rule":"x","language":null}]}"#);
+
+    let error = read_project(root.path()).expect_err("refuse a null language");
+
+    assert!(matches!(
+        error,
+        OcrRulesError::LanguageNotString { path, index, value }
+            if path == PROJECT_RULE_FILE && index == 1 && value == "null"
+    ));
+}
+
+#[test]
+fn render_inlines_the_named_language_guide_without_layer_guides() {
+    let root = project(
+        r#"{
+            "rules": [
+                { "path": "crates/**", "rule": "Keep crates small." },
+                { "path": "packages/**", "rule": "Use the package guide.", "language": "typescript" }
+            ]
+        }"#,
+    );
+    let rules = read_rules(root.path());
+    let mut guides = guides();
+
+    guides.layers.push((
+        "docs/stomme/layers/react/guide.md".to_string(),
+        "Layer rules.\n",
+    ));
+
+    let rendered = render(Language::Rust, &guides, Some(&rules));
+    let document = parse(&rendered);
+    let untagged = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+    let tagged = document["rules"][1]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert!(untagged.starts_with("Keep crates small."));
+    assert!(untagged.contains("File: docs/stomme/languages/rust/guide.md"));
+    assert!(untagged.contains("Layer rules."));
+
+    assert!(tagged.starts_with("Use the package guide."));
+    assert!(tagged.contains("File: docs/stomme/shared/coding.md"));
+    assert!(tagged.contains("File: docs/stomme/languages/typescript/guide.md"));
+    assert!(tagged.contains("TypeScript rules."));
+    assert!(!tagged.contains("File: docs/stomme/languages/rust/guide.md"));
+    assert!(!tagged.contains("Layer rules."));
+
+    let language_entry = document["rules"][2]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert!(language_entry.contains("File: docs/stomme/languages/rust/guide.md"));
+    assert!(language_entry.contains("Layer rules."));
+}
+
+#[test]
+fn render_lists_a_named_language_test_patterns_once_after_the_project_language() {
+    let root = project(
+        r#"{
+            "include": ["packages/**"],
+            "rules": [
+                { "path": "packages/**", "rule": "x", "language": "typescript" },
+                { "path": "packages/**", "rule": "y", "language": "typescript" },
+                { "path": "crates/**", "rule": "z", "language": "rust" }
+            ]
+        }"#,
+    );
+    let rules = read_rules(root.path());
+
+    let rendered = render(Language::Rust, &guides(), Some(&rules));
+    let document = parse(&rendered);
+
+    assert_eq!(
+        document["include"],
+        serde_json::json!([
+            "packages/**",
+            "**/*_test.rs",
+            "**/*_tests.rs",
+            "**/tests.rs",
+            "**/tests/**/*.rs",
+            "**/benches/**/*.rs",
+            "**/*.test.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "**/*.spec.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+            "**/__tests__/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+        ])
+    );
+}
+
+fn guides() -> Guides {
+    Guides {
+        general: (
+            "docs/stomme/shared/coding.md".to_string(),
+            "Shared rules.\n",
+        ),
+        languages: vec![
+            (
+                Language::Rust,
+                (
+                    "docs/stomme/languages/rust/guide.md".to_string(),
+                    "Rust rules.\n",
+                ),
+            ),
+            (
+                Language::TypeScript,
+                (
+                    "docs/stomme/languages/typescript/guide.md".to_string(),
+                    "TypeScript rules.\n",
+                ),
+            ),
+        ],
+        layers: Vec::new(),
+    }
 }
 
 fn parse(rendered: &str) -> serde_json::Value {

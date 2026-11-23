@@ -55,21 +55,27 @@ required check whose findings are advice.
 ### Project rules
 
 A project may extend the rules in an optional `.opencodereview/rule.json`. It takes a subset of
-OCR's format: `rules` entries with `path` and `rule`, plus `include` and `exclude`. Other keys,
-`merge_system_rule` included, are refused.
+OCR's format: `rules` entries with `path`, `rule`, and an optional `language`, plus `include` and
+`exclude`. Other keys, `merge_system_rule` included, are refused. `language` is `rust` or
+`typescript`, and any other value is refused.
 
 - stomme sets `merge_system_rule: true` on every entry, so OCR keeps its built-in rule. Every entry
   takes the same value, so a project cannot set it.
 - OCR uses the first matching rule and never combines rule files. A separate project file would
   hide one of the two, so `sync` merges the project's entries into the synced file: the project's
-  entries first, each with the guide text, then the entry for the project's language.
+  entries first, each with its guide text, then the entry for the project's language.
+- A rule with `language` covers files of another language, such as a TypeScript package in a Rust
+  repository. Its text inlines the general guide and that language's guide, without layer guides:
+  the layers follow the project's language, and the rule's files do not use them. A rule without
+  `language` keeps the project's guides, layer guides included.
 - OCR's default path filter skips test files, and the guides apply to tests too. So the synced
-  `include` lists the project's own patterns, then the test paths that filter drops for the
-  language. Rust adds `**/*_test.rs`, `**/*_tests.rs`, `**/tests.rs`, `**/tests/**/*.rs`, and
-  `**/benches/**/*.rs`. TypeScript adds `.test`, `.spec`, and `__tests__` files for every
-  TypeScript and JavaScript extension. An `include` match only admits a file past that filter, so
-  the list narrows nothing. It does not list the whole language glob, which would also admit build
-  output, generated files, and test data that the guides do not govern.
+  `include` lists the project's own patterns, then the test paths that filter drops for the project
+  language, then the test paths of every language a project rule names. Rust adds `**/*_test.rs`,
+  `**/*_tests.rs`, `**/tests.rs`, `**/tests/**/*.rs`, and `**/benches/**/*.rs`. TypeScript adds
+  `.test`, `.spec`, and `__tests__` files for every TypeScript and JavaScript extension. An
+  `include` match only admits a file past that filter, so the list narrows nothing. It does not
+  list the whole language glob, which would also admit build output, generated files, and test
+  data that the guides do not govern.
 - `exclude` passes through unchanged. OCR checks it before `include`, so a project can drop a test
   path, such as fixtures that break the rules on purpose. That exclude is the project's own
   exception to the guides.

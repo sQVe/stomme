@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -14,11 +14,25 @@ pub(crate) const PROJECT_RULE_FILE: &str = ".opencodereview/rule.json";
 const GUIDE_INTRO: &str = "Apply stomme's coding guides below. Each guide starts with its repository path. Resolve its relative links from that path, and read linked files with file_read.";
 const GUIDE_OUTRO: &str = "Also apply the rules in the project's AGENTS.md and the decisions in docs/adr/ that cover the change. Read them with file_read.";
 
+#[derive(Debug)]
+pub(crate) struct ProjectRules {
+    rules: Vec<ProjectRule>,
+    include: Vec<String>,
+    exclude: Vec<String>,
+}
+
+#[derive(Debug)]
+struct ProjectRule {
+    path: String,
+    rule: String,
+    language: Option<Language>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ProjectRules {
+struct ProjectRulesFile {
     #[serde(default)]
-    rules: Vec<ProjectRule>,
+    rules: Vec<ProjectRuleFile>,
     #[serde(default)]
     include: Vec<String>,
     #[serde(default)]
@@ -27,9 +41,24 @@ pub(crate) struct ProjectRules {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectRule {
+struct ProjectRuleFile {
     path: String,
     rule: String,
+    #[serde(default, deserialize_with = "present_value")]
+    language: Option<Value>,
+}
+
+fn present_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
+pub(crate) struct Guides {
+    pub(crate) general: (String, &'static str),
+    pub(crate) languages: Vec<(Language, (String, &'static str))>,
+    pub(crate) layers: Vec<(String, &'static str)>,
 }
 
 #[derive(Serialize)]
@@ -59,6 +88,20 @@ pub(crate) enum OcrRulesError {
     EmptyPath { path: String, index: usize },
     #[error("{path} rule {index} has an empty rule")]
     EmptyRule { path: String, index: usize },
+    #[error("{path} rule {index} has an unknown language {language}; use rust or typescript")]
+    UnknownLanguage {
+        path: String,
+        index: usize,
+        language: String,
+    },
+    #[error(
+        "{path} rule {index} has a language {value} that is not a string; use rust or typescript"
+    )]
+    LanguageNotString {
+        path: String,
+        index: usize,
+        value: String,
+    },
     #[error("{path} is not a regular file")]
     NotAFile { path: String },
 }
@@ -94,32 +137,27 @@ pub(crate) fn read_project(root: &Path) -> Result<Option<ProjectRules>, OcrRules
         }
     }
 
-    let project: ProjectRules = serde_json::from_slice(&bytes).map_err(shape_error)?;
-
-    for (position, rule) in project.rules.iter().enumerate() {
-        check_rule(rule, position + 1)?;
-    }
+    let file: ProjectRulesFile = serde_json::from_slice(&bytes).map_err(shape_error)?;
+    let project = ProjectRules::from_file(file)?;
 
     Ok(Some(project))
 }
 
 pub(crate) fn render(
     language: Language,
-    guides: &[(&str, &str)],
+    guides: &Guides,
     project: Option<&ProjectRules>,
 ) -> String {
-    let guide_text = guide_text(guides);
+    let selected_text = guide_text(&guides.selected(language));
     let mut rules = Vec::new();
     let mut include = Vec::new();
     let mut exclude = Vec::new();
 
     if let Some(project) = project {
         for rule in &project.rules {
-            let text = format!("{}\n\n{guide_text}", rule.rule);
-
             rules.push(Entry {
                 path: rule.path.clone(),
-                rule: text,
+                rule: rule_text(rule, guides, &selected_text),
                 merge_system_rule: true,
             });
         }
@@ -135,9 +173,21 @@ pub(crate) fn render(
         push_unique(&mut include, pattern);
     }
 
+    if let Some(project) = project {
+        for rule in &project.rules {
+            let Some(rule_language) = rule.language else {
+                continue;
+            };
+
+            for pattern in test_includes(rule_language) {
+                push_unique(&mut include, pattern);
+            }
+        }
+    }
+
     rules.push(Entry {
         path: language_glob(language).to_string(),
-        rule: guide_text,
+        rule: selected_text,
         merge_system_rule: true,
     });
 
@@ -201,22 +251,104 @@ fn not_an_object() -> OcrRulesError {
     }
 }
 
-fn check_rule(rule: &ProjectRule, index: usize) -> Result<(), OcrRulesError> {
-    if rule.path.trim().is_empty() {
-        return Err(OcrRulesError::EmptyPath {
-            path: PROJECT_RULE_FILE.to_string(),
-            index,
-        });
+impl ProjectRules {
+    fn from_file(file: ProjectRulesFile) -> Result<Self, OcrRulesError> {
+        let mut rules = Vec::with_capacity(file.rules.len());
+
+        for (position, rule) in file.rules.into_iter().enumerate() {
+            rules.push(ProjectRule::from_file(rule, position + 1)?);
+        }
+
+        Ok(Self {
+            rules,
+            include: file.include,
+            exclude: file.exclude,
+        })
+    }
+}
+
+impl ProjectRule {
+    fn from_file(file: ProjectRuleFile, index: usize) -> Result<Self, OcrRulesError> {
+        if file.path.trim().is_empty() {
+            return Err(OcrRulesError::EmptyPath {
+                path: PROJECT_RULE_FILE.to_string(),
+                index,
+            });
+        }
+
+        if file.rule.trim().is_empty() {
+            return Err(OcrRulesError::EmptyRule {
+                path: PROJECT_RULE_FILE.to_string(),
+                index,
+            });
+        }
+
+        let language = match file.language {
+            None => None,
+            Some(Value::String(name)) => {
+                Some(
+                    Language::parse(&name).ok_or_else(|| OcrRulesError::UnknownLanguage {
+                        path: PROJECT_RULE_FILE.to_string(),
+                        index,
+                        language: name,
+                    })?,
+                )
+            }
+            Some(value) => {
+                return Err(OcrRulesError::LanguageNotString {
+                    path: PROJECT_RULE_FILE.to_string(),
+                    index,
+                    value: value.to_string(),
+                });
+            }
+        };
+
+        Ok(Self {
+            path: file.path,
+            rule: file.rule,
+            language,
+        })
+    }
+}
+
+impl Guides {
+    fn selected(&self, language: Language) -> Vec<(&str, &str)> {
+        let mut guides = self.general_and_language(language);
+        guides.extend(
+            self.layers
+                .iter()
+                .map(|(path, text)| (path.as_str(), *text)),
+        );
+
+        guides
     }
 
-    if rule.rule.trim().is_empty() {
-        return Err(OcrRulesError::EmptyRule {
-            path: PROJECT_RULE_FILE.to_string(),
-            index,
-        });
+    fn general_and_language(&self, language: Language) -> Vec<(&str, &str)> {
+        let (path, text) = self.language(language);
+
+        vec![
+            (self.general.0.as_str(), self.general.1),
+            (path.as_str(), *text),
+        ]
     }
 
-    Ok(())
+    pub(crate) fn language(&self, language: Language) -> &(String, &'static str) {
+        &self
+            .languages
+            .iter()
+            .find(|(name, _)| *name == language)
+            .expect("the guides hold every language")
+            .1
+    }
+}
+
+fn rule_text(rule: &ProjectRule, guides: &Guides, selected_text: &str) -> String {
+    let Some(language) = rule.language else {
+        return format!("{}\n\n{selected_text}", rule.rule);
+    };
+    let language_text = guide_text(&guides.general_and_language(language));
+
+    format!("{}\n\n{language_text}", rule.rule)
 }
 
 fn guide_text(guides: &[(&str, &str)]) -> String {

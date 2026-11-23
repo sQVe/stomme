@@ -1,1 +1,11 @@
-{"exclude": ["crates/stomme-cli/tests/fixtures/**"]}
+{
+  "rules": [
+    {
+      "path": "packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}",
+      "rule": "Apply the TypeScript guide to the packages' source and tests, including their test helpers.",
+      "language": "typescript"
+    }
+  ],
+  "include": ["packages/*/tests/**"],
+  "exclude": ["crates/stomme-cli/tests/fixtures/**"]
+}
