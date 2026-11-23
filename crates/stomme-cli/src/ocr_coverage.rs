@@ -148,7 +148,7 @@ impl Coverage {
             lines.push(String::new());
 
             for item in &self.unreviewed {
-                let path = code_span(&item.path);
+                let path = code_span(&display_path(&item.path));
                 let line = format!("- {path}: {}, {}", item.classification, item.reason);
                 lines.push(line);
             }
@@ -180,9 +180,10 @@ impl Coverage {
         self.unreviewed
             .iter()
             .map(|item| {
+                let path = display_path(&item.path);
                 let classification = &item.classification;
                 let reason = &item.reason;
-                format!("{}: not reviewed ({classification}: {reason})", item.path)
+                format!("{path}: not reviewed ({classification}: {reason})")
             })
             .collect()
     }
@@ -253,7 +254,7 @@ impl Coverage {
         ];
 
         for item in &self.excluded {
-            let path = code_span(&item.path);
+            let path = code_span(&display_path(&item.path));
             lines.push(format!("- {path}: {}", item.reason));
         }
 
@@ -420,6 +421,26 @@ fn longest_backtick_run(text: &str) -> usize {
     }
 
     longest
+}
+
+fn display_path(path: &str) -> String {
+    let mut display = String::with_capacity(path.len());
+
+    for character in path.chars() {
+        match character {
+            '\\' => display.push_str("\\\\"),
+            '\n' => display.push_str("\\n"),
+            '\r' => display.push_str("\\r"),
+            '\t' => display.push_str("\\t"),
+            control if control.is_control() => {
+                let escaped = format!("\\u{{{:x}}}", control as u32);
+                display.push_str(&escaped);
+            }
+            other => display.push(other),
+        }
+    }
+
+    display
 }
 
 #[cfg(test)]

@@ -237,6 +237,69 @@ fn a_padded_path_keeps_its_spaces_in_the_fragment() {
 }
 
 #[test]
+fn a_path_with_a_line_break_is_escaped_in_the_fragment_and_the_unreviewed_lines() {
+    let bytes = fixture_bytes("complete.json");
+    let mut value: Value = serde_json::from_slice(&bytes).expect("the fixture is JSON");
+
+    value["manifest"]["coverage"]["completed"] = json!([]);
+    value["manifest"]["coverage"]["selected"][0]["path"] = json!("x\n ");
+
+    let edited = serde_json::to_vec(&value).expect("the edited result is JSON");
+    let coverage = parse(&edited, "complete.json").expect("parse the edited result");
+
+    assert_eq!(
+        coverage.fragment(),
+        concat!(
+            "### Review coverage\n",
+            "\n",
+            "OCR reviewed 0 of 1 selected file. The check fails until every selected file is reviewed.\n",
+            "\n",
+            "Not reviewed:\n",
+            "\n",
+            "- ` x\\n  `: unknown, no coverage record\n",
+        )
+    );
+    assert_eq!(
+        coverage.unreviewed_lines(),
+        vec!["x\\n : not reviewed (unknown: no coverage record)"]
+    );
+}
+
+#[test]
+fn a_path_with_a_line_break_is_escaped_in_the_excluded_block() {
+    let bytes = fixture_bytes("skipped.json");
+    let mut value: Value = serde_json::from_slice(&bytes).expect("the fixture is JSON");
+
+    value["manifest"]["coverage"]["excluded"][0]["path"] = json!("x\n ");
+
+    let edited = serde_json::to_vec(&value).expect("the edited result is JSON");
+    let coverage = parse(&edited, "skipped.json").expect("parse the edited result");
+
+    assert!(
+        coverage.fragment().contains("- ` x\\n  `: user_exclude\n"),
+        "{}",
+        coverage.fragment()
+    );
+}
+
+#[test]
+fn display_path_escapes_control_characters() {
+    let cases = [
+        ("a literal backslash before n", "x\\n", "x\\\\n"),
+        ("a line break", "x\n", "x\\n"),
+        (
+            "a tab, a carriage return, and a control character",
+            "a\tb\rc\u{1}d",
+            "a\\tb\\rc\\u{1}d",
+        ),
+    ];
+
+    for (name, path, expected) in cases {
+        assert_eq!(display_path(path), expected, "{name}");
+    }
+}
+
+#[test]
 fn code_span_keeps_padding_and_fence_width() {
     assert_eq!(code_span("src/a`b.rs"), "``src/a`b.rs``");
     assert_eq!(code_span("`src/a.rs"), "`` `src/a.rs ``");
