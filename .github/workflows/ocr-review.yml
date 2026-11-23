@@ -22,7 +22,6 @@ jobs:
       OCR_APP_SLUG: github-actions
       OCR_CHECKPOINT_RANGE: 'true'
       OCR_INCREMENTAL: 'true'
-      OCR_ROUTE_SEVERITY_BELOW: low
       OCR_STICKY_SUMMARY: 'true'
     steps:
       - name: Check the model token
@@ -51,7 +50,6 @@ jobs:
           checkpoint_range: ${{ env.OCR_CHECKPOINT_RANGE }}
           incremental: ${{ env.OCR_INCREMENTAL }}
           resolve_outdated: 'true'
-          route_severity_below: ${{ env.OCR_ROUTE_SEVERITY_BELOW }}
 
       - name: Install stomme from the project pin
         if: steps.ocr.outputs.range_reason != 'same_head_noop'
@@ -109,8 +107,10 @@ jobs:
             final=1
           fi
           cp /tmp/ocr-coverage.md /tmp/ocr-first-coverage.md 2>/dev/null || true
-          echo "final=$final" >> "$GITHUB_OUTPUT"
-          echo "coverage_source=first" >> "$GITHUB_OUTPUT"
+          {
+            echo "final=$final"
+            echo "coverage_source=first"
+          } >> "$GITHUB_OUTPUT"
           # The verdict names the classification of the coverage file that the
           # insert step puts into the summary comment, not the job result.
           echo "coverage_verdict=$(verdict "$final")" >> "$GITHUB_OUTPUT"
@@ -193,9 +193,11 @@ jobs:
 
           mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
           mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
-          echo "coverage_source=resumed" >> "$GITHUB_OUTPUT"
+          {
+            echo "coverage_source=resumed"
+            echo "resumed=true"
+          } >> "$GITHUB_OUTPUT"
           echo "coverage_verdict=$(verdict "$resumed")" >> "$GITHUB_OUTPUT"
-          echo "resumed=true" >> "$GITHUB_OUTPUT"
           if [ "$resumed" = "0" ] || [ "$resumed" = "2" ]; then
             echo "post_resumed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -250,7 +252,8 @@ jobs:
               stderrPath: '/tmp/ocr-resume.err',
               stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
               incremental: process.env.OCR_INCREMENTAL === 'true',
-              routeSeverityBelow: process.env.OCR_ROUTE_SEVERITY_BELOW,
+              // No routing option: the helper routes nothing without a
+              // threshold, so no finding moves to the summary.
               checkpointEnabled: process.env.OCR_CHECKPOINT_RANGE === 'true',
               checkpointCarry: '',
               checkpointBaseRef: process.env.BASE_REF || '',

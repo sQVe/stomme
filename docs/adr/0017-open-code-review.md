@@ -132,8 +132,12 @@ the token comes from the `MORPH_API_KEY` repository secret.
   the job summary.
 - Findings stay advisory, as with the size and mutation signals in
   [ADR 0009 (Advisory mutation testing and size as a review signal)](../stomme/shared/adr/0009-advisory-review-signals.md).
-- Low-severity findings go to the summary comment. Tau needs no review-bot entry, because OCR
-  reviews every push without a request.
+- Every finding is posted as an inline comment, whatever its severity. The workflow sets no
+  severity or category routing, and the resumed post passes none, because the posting helper routes
+  nothing without a threshold. Routing would move a finding into the summary comment, away from the
+  line it describes. A finding with no line, and an inline post that GitHub rejects, still land in
+  the summary comment with the reason.
+- Tau needs no review-bot entry, because OCR reviews every push without a request.
 
 ## Consequences
 
@@ -195,6 +199,11 @@ Rejected because the workflow is live at merge while the classifier comes from t
 `mise.toml` holds. A project, stomme included, would then run the new reader against an older
 binary that prints no verdict and fail every no-op run until the next release. The workflow writes
 the line from the classification it already reads, so the writer and the reader ship in one file.
+
+### Route findings by severity to the summary comment
+
+Move findings at or below a severity threshold into the summary comment. Rejected because a routed
+finding loses the line it describes, so the reader has to find that line by hand.
 
 ### Read the result with a script in the workflow
 
