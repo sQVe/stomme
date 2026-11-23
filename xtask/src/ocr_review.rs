@@ -17,6 +17,7 @@ const CHECKPOINT_STEP: &str = "Read the checkpointed coverage";
 const POST_STEP: &str = "Post the resumed review";
 const REPORT_STEP: &str = "Report the OCR result";
 const HEAD_SHA: &str = "8c6c9a2f49891c7f86c7a82f380f5c32519c52a6";
+const OTHER_HEAD: &str = "0b836765f754d4d652906821e5d850a9c90d778f";
 const SESSION_RESULT: &str = r#"{"session_id":"session-1"}"#;
 const EMPTY_RESULT: &str = "{}";
 const MIXED_RESULT: &str = r#"{
@@ -122,7 +123,17 @@ module.exports = {
 const CHECKPOINT_HELPER: &str = r#"const fs = require('fs');
 module.exports = {
   ...require(process.env.PINNED_HELPER),
-  findSummaryIssueComment: async () => {
+  findSummaryIssueComment: async (options) => {
+    const recorded = {
+      owner: options.owner,
+      repo: options.repo,
+      prNumber: options.prNumber,
+      sticky: options.sticky,
+      appSlug: options.appSlug,
+      log: typeof options.log,
+      github: typeof options.github,
+    };
+    fs.writeFileSync(process.env.LOOKUP_LOG, JSON.stringify(recorded));
     if (!fs.existsSync(process.env.COMMENT_FILE)) return null;
     return JSON.parse(fs.readFileSync(process.env.COMMENT_FILE, 'utf8'));
   },
@@ -256,8 +267,8 @@ fn posting_helper_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/ocr-post-review-comments-exports.js")
 }
 
-fn verdict_line(verdict: &str) -> String {
-    format!("<!-- stomme-ocr-coverage-verdict: {verdict} head={HEAD_SHA} -->")
+fn verdict_line(head: &str, verdict: &str) -> String {
+    format!("<!-- stomme-ocr-coverage-verdict: {verdict} head={head} -->")
 }
 
 fn write_posting_helper(workspace: &Path, text: &str) {
@@ -1138,24 +1149,41 @@ impl Coverage {
     }
 
     fn run(&self, run: CoverageRun<'_>) -> CoverageObservation {
+        let completed = self.execute(run);
+
+        assert!(
+            completed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&completed.stderr)
+        );
+
+        self.observation(&completed)
+    }
+
+    fn run_refused(&self, run: CoverageRun<'_>) -> String {
+        let completed = self.execute(run);
+
+        assert!(
+            !completed.status.success(),
+            "the coverage script refuses the run"
+        );
+
+        String::from_utf8_lossy(&completed.stderr).into_owned()
+    }
+
+    fn execute(&self, run: CoverageRun<'_>) -> Output {
         let root = self.folder.path();
         let coverage_file = root.join("ocr-coverage.md");
         let comment_file = root.join("comment.json");
-        let updated_file = root.join("updated.txt");
-        let get_file = root.join("get.txt");
-        let update_file = root.join("update.txt");
-        let info_file = root.join("info.txt");
-        let warning_file = root.join("warning.txt");
-        let summary_file = root.join("summary.txt");
         for path in [
             &coverage_file,
             &comment_file,
-            &updated_file,
-            &get_file,
-            &update_file,
-            &info_file,
-            &warning_file,
-            &summary_file,
+            &root.join("updated.txt"),
+            &root.join("get.txt"),
+            &root.join("update.txt"),
+            &root.join("info.txt"),
+            &root.join("warning.txt"),
+            &root.join("summary.txt"),
         ] {
             remove_stale(path).expect("remove the stale coverage output");
         }
@@ -1176,12 +1204,21 @@ impl Coverage {
         let environment = [
             ("GITHUB_WORKSPACE", self.workspace.display().to_string()),
             ("COMMENT_FILE", comment_file.display().to_string()),
-            ("UPDATED_BODY", updated_file.display().to_string()),
-            ("GET_LOG", get_file.display().to_string()),
-            ("UPDATE_LOG", update_file.display().to_string()),
-            ("INFO_LOG", info_file.display().to_string()),
-            ("WARNING_LOG", warning_file.display().to_string()),
-            ("SUMMARY_LOG", summary_file.display().to_string()),
+            (
+                "UPDATED_BODY",
+                root.join("updated.txt").display().to_string(),
+            ),
+            ("GET_LOG", root.join("get.txt").display().to_string()),
+            ("UPDATE_LOG", root.join("update.txt").display().to_string()),
+            ("INFO_LOG", root.join("info.txt").display().to_string()),
+            (
+                "WARNING_LOG",
+                root.join("warning.txt").display().to_string(),
+            ),
+            (
+                "SUMMARY_LOG",
+                root.join("summary.txt").display().to_string(),
+            ),
             (
                 "FIRST_COMMENT_URL",
                 run.first_url.unwrap_or_default().to_string(),
@@ -1197,25 +1234,24 @@ impl Coverage {
             ("COVERAGE_VERDICT", run.verdict.to_string()),
             ("HEAD_SHA", run.head.to_string()),
         ];
-        let completed = run_github_script(root, &environment);
 
-        assert!(
-            completed.status.success(),
-            "{}",
-            String::from_utf8_lossy(&completed.stderr)
-        );
+        run_github_script(root, &environment)
+    }
+
+    fn observation(&self, completed: &Output) -> CoverageObservation {
+        let root = self.folder.path();
 
         CoverageObservation {
             exit: completed
                 .status
                 .code()
                 .expect("the coverage script exits normally"),
-            updated: read(&updated_file),
-            get: read(&get_file),
-            update: read(&update_file),
-            info: read(&info_file).unwrap_or_default(),
-            warnings: read(&warning_file).unwrap_or_default(),
-            summary: read(&summary_file),
+            updated: read(&root.join("updated.txt")),
+            get: read(&root.join("get.txt")),
+            update: read(&root.join("update.txt")),
+            info: read(&root.join("info.txt")).unwrap_or_default(),
+            warnings: read(&root.join("warning.txt")).unwrap_or_default(),
+            summary: read(&root.join("summary.txt")),
         }
     }
 }
@@ -1232,7 +1268,7 @@ fn coverage_inserts_the_block_after_the_summary_marker() {
 
     let expected = format!(
         "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary text",
-        verdict_line("complete")
+        verdict_line(HEAD_SHA, "complete")
     );
 
     assert_eq!(observation.exit, 0);
@@ -1251,7 +1287,7 @@ fn coverage_inserts_the_block_after_the_run_tag() {
 
     let expected = format!(
         "<!-- ocr-summary -->\n<!-- ocr-summary-run: 123 -->\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary text",
-        verdict_line("complete")
+        verdict_line(HEAD_SHA, "complete")
     );
 
     assert_eq!(observation.exit, 0);
@@ -1272,7 +1308,7 @@ fn coverage_replaces_an_existing_block() {
 
     let expected = format!(
         "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->\nSummary",
-        verdict_line("complete")
+        verdict_line(HEAD_SHA, "complete")
     );
 
     assert_eq!(observation.exit, 0);
@@ -1282,22 +1318,42 @@ fn coverage_replaces_an_existing_block() {
 #[test]
 fn coverage_names_the_verdict_and_head_of_the_run() {
     let coverage = Coverage::new();
-    let observation = coverage.run(CoverageRun {
+    let cases = [("partial", HEAD_SHA, "partial"), ("", OTHER_HEAD, "failed")];
+
+    for (verdict, head, expected) in cases {
+        let observation = coverage.run(CoverageRun {
+            coverage: Some("Covered: src/lib.rs"),
+            comment: Some("<!-- ocr-summary -->\nSummary text"),
+            first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+            verdict,
+            head,
+            ..CoverageRun::default()
+        });
+
+        let updated = observation.updated.expect("the posted comment is updated");
+        let line = verdict_line(head, expected);
+
+        assert!(
+            updated.contains(&format!("\n{line}\nCovered: src/lib.rs\n")),
+            "{verdict:?}: {updated}"
+        );
+    }
+}
+
+#[test]
+fn coverage_refuses_a_run_without_a_full_head() {
+    let coverage = Coverage::new();
+    let stderr = coverage.run_refused(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
         first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
-        verdict: "partial",
+        head: "",
         ..CoverageRun::default()
     });
 
-    let updated = observation.updated.expect("the posted comment is updated");
-
     assert!(
-        updated.contains(&format!(
-            "\n{}\nCovered: src/lib.rs\n",
-            verdict_line("partial")
-        )),
-        "{updated}"
+        stderr.contains("HEAD_SHA is not a full commit SHA"),
+        "{stderr}"
     );
 }
 
@@ -1536,6 +1592,7 @@ struct CheckpointedCoverage {
 struct CheckpointedCoverageObservation {
     exit: i32,
     verdict: Option<String>,
+    lookup: Option<serde_json::Value>,
     warnings: String,
     summary: Option<String>,
 }
@@ -1551,18 +1608,24 @@ impl CheckpointedCoverage {
     }
 
     fn run(&self, body: Option<&str>) -> CheckpointedCoverageObservation {
+        self.run_with(body, "true")
+    }
+
+    fn run_with(&self, body: Option<&str>, sticky: &str) -> CheckpointedCoverageObservation {
         let root = self.folder.path();
         let comment_file = root.join("comment.json");
         let output_file = root.join("output");
         let info_file = root.join("info.txt");
         let warning_file = root.join("warning.txt");
         let summary_file = root.join("summary.txt");
+        let lookup_file = root.join("lookup.json");
         for path in [
             &comment_file,
             &output_file,
             &info_file,
             &warning_file,
             &summary_file,
+            &lookup_file,
         ] {
             remove_stale(path).expect("remove the stale checkpointed output");
         }
@@ -1580,8 +1643,10 @@ impl CheckpointedCoverage {
             ("INFO_LOG", info_file.display().to_string()),
             ("WARNING_LOG", warning_file.display().to_string()),
             ("SUMMARY_LOG", summary_file.display().to_string()),
+            ("LOOKUP_LOG", lookup_file.display().to_string()),
             ("PR_NUMBER", "7".to_string()),
             ("OCR_APP_SLUG", "github-actions".to_string()),
+            ("OCR_STICKY_SUMMARY", sticky.to_string()),
             ("HEAD_SHA", HEAD_SHA.to_string()),
         ];
         let completed = run_github_script(root, &environment);
@@ -1595,6 +1660,8 @@ impl CheckpointedCoverage {
         CheckpointedCoverageObservation {
             exit: completed.status.code().expect("the script exits normally"),
             verdict: read(&output_file).and_then(|text| last_output(&text, "verdict")),
+            lookup: read(&lookup_file)
+                .map(|text| serde_json::from_str(&text).expect("the fake records JSON")),
             warnings: read(&warning_file).unwrap_or_default(),
             summary: read(&summary_file),
         }
@@ -1612,8 +1679,38 @@ fn coverage_section(verdict: &str) -> String {
          OCR reviewed 1 of 1 selected file.\n\
          <!-- ocr-coverage:end -->\n\
          Summary text",
-        verdict_line(verdict)
+        verdict_line(HEAD_SHA, verdict)
     )
+}
+
+#[test]
+fn checkpointed_coverage_passes_the_summary_lookup_its_options() {
+    let checkpoint = CheckpointedCoverage::new();
+    let observation = checkpoint.run(Some(&coverage_section("complete")));
+
+    assert_eq!(
+        observation.lookup,
+        Some(serde_json::json!({
+            "owner": "owner",
+            "repo": "repository",
+            "prNumber": 7,
+            "sticky": true,
+            "appSlug": "github-actions",
+            "log": "function",
+            "github": "object",
+        }))
+    );
+}
+
+#[test]
+fn checkpointed_coverage_follows_the_sticky_summary_setting() {
+    let checkpoint = CheckpointedCoverage::new();
+    let observation = checkpoint.run_with(Some(&coverage_section("complete")), "false");
+
+    assert_eq!(
+        observation.lookup.expect("the fake records the lookup")["sticky"],
+        false
+    );
 }
 
 #[test]
@@ -1633,6 +1730,7 @@ fn a_no_op_run_passes_with_a_complete_coverage_section() {
 
     let (exit, stdout) = classifier.report(Report {
         range_reason: "same_head_noop",
+        status: "",
         verdict: "complete",
         ..Report::default()
     });
@@ -1655,6 +1753,7 @@ fn a_no_op_run_fails_with_a_partial_coverage_section() {
 
     let (exit, stdout) = classifier.report(Report {
         range_reason: "same_head_noop",
+        status: "",
         verdict: "partial",
         ..Report::default()
     });
@@ -1675,6 +1774,7 @@ fn a_no_op_run_fails_with_a_failed_coverage_section() {
 
     let (exit, stdout) = classifier.report(Report {
         range_reason: "same_head_noop",
+        status: "",
         verdict: "failed",
         ..Report::default()
     });
@@ -1689,43 +1789,54 @@ fn a_no_op_run_fails_without_a_readable_coverage_section() {
     let checkpoint = CheckpointedCoverage::new();
     let classifier = Classifier::new();
     let cases = [
-        ("no summary comment".to_string(), None),
+        ("no summary comment", None, "missing", "no coverage section"),
         (
-            "a section without a verdict".to_string(),
+            "a section without a verdict",
             Some(
                 "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n### Review coverage\n<!-- ocr-coverage:end -->"
                     .to_string(),
             ),
+            "no-verdict",
+            "names no verdict",
         ),
         (
-            "a start marker without an end marker".to_string(),
+            "a start marker without an end marker",
             Some("<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n### Review coverage\n".to_string()),
+            "missing",
+            "no coverage section",
         ),
         (
-            "a section that covers another head".to_string(),
+            "a section that covers another head",
             Some(format!(
-                "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n<!-- stomme-ocr-coverage-verdict: complete head={} -->\n### Review coverage\n<!-- ocr-coverage:end -->",
-                "0".repeat(40)
+                "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\n### Review coverage\n<!-- ocr-coverage:end -->",
+                verdict_line(OTHER_HEAD, "complete")
             )),
+            "other-head",
+            "covers another head",
         ),
     ];
 
-    for (name, body) in cases {
+    for (name, body, expected_verdict, expected_detail) in cases {
         let observation = checkpoint.run(body.as_deref());
 
         assert_eq!(observation.exit, 0, "{name}");
-        assert_eq!(observation.verdict.as_deref(), Some("missing"), "{name}");
+        assert_eq!(
+            observation.verdict.as_deref(),
+            Some(expected_verdict),
+            "{name}"
+        );
         assert_eq!(observation.summary, None, "{name}");
         assert!(!observation.warnings.is_empty(), "{name}");
 
         let (exit, stdout) = classifier.report(Report {
             range_reason: "same_head_noop",
-            verdict: "missing",
+            status: "",
+            verdict: expected_verdict,
             ..Report::default()
         });
 
         assert_eq!(exit, 1, "{name}");
-        assert!(stdout.contains("no coverage section"), "{name}: {stdout}");
+        assert!(stdout.contains(expected_detail), "{name}: {stdout}");
         assert!(stdout.contains("Push a new commit"), "{name}: {stdout}");
     }
 }

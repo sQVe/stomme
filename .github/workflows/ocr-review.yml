@@ -324,6 +324,9 @@ jobs:
             // for its own head instead of trusting whichever section is newest.
             const verdict = process.env.COVERAGE_VERDICT || 'failed';
             const head = process.env.HEAD_SHA || '';
+            if (!/^[0-9a-f]{40}$/.test(head)) {
+              throw new Error(`HEAD_SHA is not a full commit SHA: "${head}"`);
+            }
             const block = `${start}\n<!-- stomme-ocr-coverage-verdict: ${verdict} head=${head} -->\n${coverage}\n${end}`;
             let body = comment.body || '';
             const startAt = body.indexOf(start);
@@ -373,7 +376,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               prNumber: Number(process.env.PR_NUMBER),
-              sticky: true,
+              sticky: process.env.OCR_STICKY_SUMMARY === 'true',
               appSlug: process.env.OCR_APP_SLUG,
               log: (line) => core.info(line),
             });
@@ -391,12 +394,12 @@ jobs:
             const verdict = /<!-- stomme-ocr-coverage-verdict: (complete|partial|failed) head=([0-9a-f]{40}) -->/.exec(section);
             if (!verdict) {
               core.warning('The coverage section of the checkpointed head names no verdict.');
-              core.setOutput('verdict', 'missing');
+              core.setOutput('verdict', 'no-verdict');
               return;
             }
             if (verdict[2] !== process.env.HEAD_SHA) {
               core.warning(`The newest coverage section covers ${verdict[2]}, not the checkpointed head.`);
-              core.setOutput('verdict', 'missing');
+              core.setOutput('verdict', 'other-head');
               return;
             }
             await core.summary.addRaw(section).write();
@@ -418,6 +421,8 @@ jobs:
             case "$CHECKPOINT_VERDICT" in
               partial) detail="its coverage section reports unreviewed files" ;;
               failed) detail="its coverage section reports a failed run" ;;
+              no-verdict) detail="its coverage section names no verdict" ;;
+              other-head) detail="its coverage section covers another head" ;;
               *) detail="this head has no coverage section" ;;
             esac
             echo "::error::the OCR review cannot review the same head again, because $detail. Push a new commit to review this change."
