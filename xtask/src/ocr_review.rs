@@ -1131,6 +1131,60 @@ impl Default for CoverageRun<'_> {
     }
 }
 
+struct CoverageOutputs {
+    coverage: PathBuf,
+    comment: PathBuf,
+    updated: PathBuf,
+    get: PathBuf,
+    update: PathBuf,
+    info: PathBuf,
+    warning: PathBuf,
+    summary: PathBuf,
+}
+
+impl CoverageOutputs {
+    fn new(root: &Path) -> Self {
+        Self {
+            coverage: root.join("ocr-coverage.md"),
+            comment: root.join("comment.json"),
+            updated: root.join("updated.txt"),
+            get: root.join("get.txt"),
+            update: root.join("update.txt"),
+            info: root.join("info.txt"),
+            warning: root.join("warning.txt"),
+            summary: root.join("summary.txt"),
+        }
+    }
+
+    fn all(&self) -> [&Path; 8] {
+        [
+            &self.coverage,
+            &self.comment,
+            &self.updated,
+            &self.get,
+            &self.update,
+            &self.info,
+            &self.warning,
+            &self.summary,
+        ]
+    }
+
+    fn observation(&self, completed: &Output) -> CoverageObservation {
+        CoverageObservation {
+            exit: completed
+                .status
+                .code()
+                .expect("the coverage script exits normally"),
+            updated: read(&self.updated),
+            get: read(&self.get),
+            update: read(&self.update),
+            info: read(&self.info).unwrap_or_default(),
+            warnings: read(&self.warning).unwrap_or_default(),
+            summary: read(&self.summary),
+        }
+    }
+}
+
 impl Coverage {
     fn new() -> Self {
         let folder = temporary_directory();
@@ -1149,7 +1203,8 @@ impl Coverage {
     }
 
     fn run(&self, run: CoverageRun<'_>) -> CoverageObservation {
-        let completed = self.execute(run);
+        let outputs = CoverageOutputs::new(self.folder.path());
+        let completed = self.execute(run, &outputs);
 
         assert!(
             completed.status.success(),
@@ -1157,11 +1212,12 @@ impl Coverage {
             String::from_utf8_lossy(&completed.stderr)
         );
 
-        self.observation(&completed)
+        outputs.observation(&completed)
     }
 
     fn run_refused(&self, run: CoverageRun<'_>) -> (String, CoverageObservation) {
-        let completed = self.execute(run);
+        let outputs = CoverageOutputs::new(self.folder.path());
+        let completed = self.execute(run, &outputs);
 
         assert!(
             !completed.status.success(),
@@ -1170,28 +1226,16 @@ impl Coverage {
 
         let stderr = String::from_utf8_lossy(&completed.stderr).into_owned();
 
-        (stderr, self.observation(&completed))
+        (stderr, outputs.observation(&completed))
     }
 
-    fn execute(&self, run: CoverageRun<'_>) -> Output {
-        let root = self.folder.path();
-        let coverage_file = root.join("ocr-coverage.md");
-        let comment_file = root.join("comment.json");
-        for path in [
-            &coverage_file,
-            &comment_file,
-            &root.join("updated.txt"),
-            &root.join("get.txt"),
-            &root.join("update.txt"),
-            &root.join("info.txt"),
-            &root.join("warning.txt"),
-            &root.join("summary.txt"),
-        ] {
+    fn execute(&self, run: CoverageRun<'_>, outputs: &CoverageOutputs) -> Output {
+        for path in outputs.all() {
             remove_stale(path).expect("remove the stale coverage output");
         }
 
         if let Some(coverage) = run.coverage {
-            fs::write(&coverage_file, coverage).expect("write the coverage file");
+            fs::write(&outputs.coverage, coverage).expect("write the coverage file");
         }
 
         if let Some(body) = run.comment {
@@ -1200,27 +1244,24 @@ impl Coverage {
                 "html_url": "https://example.invalid/comment",
                 "body": body,
             });
-            fs::write(&comment_file, comment.to_string()).expect("write the comment file");
+            fs::write(&outputs.comment, comment.to_string()).expect("write the comment file");
         }
 
+        let updated = outputs.updated.display().to_string();
+        let get = outputs.get.display().to_string();
+        let update = outputs.update.display().to_string();
+        let info = outputs.info.display().to_string();
+        let warning = outputs.warning.display().to_string();
+        let summary = outputs.summary.display().to_string();
         let environment = [
             ("GITHUB_WORKSPACE", self.workspace.display().to_string()),
-            ("COMMENT_FILE", comment_file.display().to_string()),
-            (
-                "UPDATED_BODY",
-                root.join("updated.txt").display().to_string(),
-            ),
-            ("GET_LOG", root.join("get.txt").display().to_string()),
-            ("UPDATE_LOG", root.join("update.txt").display().to_string()),
-            ("INFO_LOG", root.join("info.txt").display().to_string()),
-            (
-                "WARNING_LOG",
-                root.join("warning.txt").display().to_string(),
-            ),
-            (
-                "SUMMARY_LOG",
-                root.join("summary.txt").display().to_string(),
-            ),
+            ("COMMENT_FILE", outputs.comment.display().to_string()),
+            ("UPDATED_BODY", updated),
+            ("GET_LOG", get),
+            ("UPDATE_LOG", update),
+            ("INFO_LOG", info),
+            ("WARNING_LOG", warning),
+            ("SUMMARY_LOG", summary),
             (
                 "FIRST_COMMENT_URL",
                 run.first_url.unwrap_or_default().to_string(),
@@ -1237,24 +1278,7 @@ impl Coverage {
             ("HEAD_SHA", run.head.to_string()),
         ];
 
-        run_github_script(root, &environment)
-    }
-
-    fn observation(&self, completed: &Output) -> CoverageObservation {
-        let root = self.folder.path();
-
-        CoverageObservation {
-            exit: completed
-                .status
-                .code()
-                .expect("the coverage script exits normally"),
-            updated: read(&root.join("updated.txt")),
-            get: read(&root.join("get.txt")),
-            update: read(&root.join("update.txt")),
-            info: read(&root.join("info.txt")).unwrap_or_default(),
-            warnings: read(&root.join("warning.txt")).unwrap_or_default(),
-            summary: read(&root.join("summary.txt")),
-        }
+        run_github_script(self.folder.path(), &environment)
     }
 }
 
