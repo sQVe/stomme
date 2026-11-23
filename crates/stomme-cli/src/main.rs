@@ -1,5 +1,5 @@
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -52,7 +52,7 @@ fn main() -> ExitCode {
         [command, flag, reference] if command == "check" && flag == "--base" => {
             match reference.to_str() {
                 Some(reference) => run_check(check::TargetBranch::git(reference.to_string())),
-                None => refuse_non_text("the `--base` reference"),
+                None => refuse_non_text(reference),
             }
         }
         [command] if command == "sync" => run_sync(),
@@ -60,15 +60,27 @@ fn main() -> ExitCode {
         [command, options @ ..] if command == "init" => run_init(options),
         [command, path] if command == "ocr-coverage" => run_ocr_coverage(Path::new(path)),
         _ => {
-            eprintln!("{USAGE}");
-            ExitCode::FAILURE
+            let non_text = arguments
+                .iter()
+                .find(|argument| argument.to_str().is_none());
+
+            match non_text {
+                Some(argument) => refuse_non_text(argument),
+                None => {
+                    eprintln!("{USAGE}");
+                    ExitCode::FAILURE
+                }
+            }
         }
     }
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
-fn refuse_non_text(argument: &str) -> ExitCode {
-    eprintln!("stomme: {argument} is not valid UTF-8");
+fn refuse_non_text(argument: &OsStr) -> ExitCode {
+    eprintln!(
+        "stomme: the argument `{}` is not valid UTF-8",
+        argument.to_string_lossy()
+    );
     ExitCode::FAILURE
 }
 
