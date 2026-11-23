@@ -1,4 +1,6 @@
 use std::env;
+use std::ffi::{OsStr, OsString};
+use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
@@ -33,7 +35,7 @@ const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init 
     reason = "the usage message and errors are the command's output"
 )]
 fn main() -> ExitCode {
-    let arguments: Vec<String> = env::args().skip(1).collect();
+    let arguments: Vec<OsString> = env::args_os().skip(1).collect();
 
     match arguments.as_slice() {
         [command] if command == "check" => {
@@ -48,17 +50,35 @@ fn main() -> ExitCode {
             }
         }
         [command, flag, reference] if command == "check" && flag == "--base" => {
-            run_check(check::TargetBranch::git(reference.to_string()))
+            match reference.to_str() {
+                Some(reference) => run_check(check::TargetBranch::git(reference.to_string())),
+                None => refuse_non_text(reference),
+            }
         }
         [command] if command == "sync" => run_sync(),
-        [command, directory] if command == "guides" => run_guides(directory),
+        [command, directory] if command == "guides" => run_guides(Path::new(directory)),
         [command, options @ ..] if command == "init" => run_init(options),
-        [command, path] if command == "ocr-coverage" => run_ocr_coverage(path),
+        [command, path] if command == "ocr-coverage" => run_ocr_coverage(Path::new(path)),
         _ => {
-            eprintln!("{USAGE}");
-            ExitCode::FAILURE
+            let non_text = arguments
+                .iter()
+                .find(|argument| argument.to_str().is_none());
+
+            match non_text {
+                Some(argument) => refuse_non_text(argument),
+                None => {
+                    eprintln!("{USAGE}");
+                    ExitCode::FAILURE
+                }
+            }
         }
     }
+}
+
+#[expect(clippy::print_stderr, reason = "errors are the command's output")]
+fn refuse_non_text(argument: &OsStr) -> ExitCode {
+    eprintln!("stomme: the argument {argument:?} is not valid UTF-8");
+    ExitCode::FAILURE
 }
 
 #[expect(
@@ -112,8 +132,8 @@ fn run_sync() -> ExitCode {
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
-fn run_guides(directory: &str) -> ExitCode {
-    if directory.is_empty() {
+fn run_guides(directory: &Path) -> ExitCode {
+    if directory.as_os_str().is_empty() {
         eprintln!("stomme: the guides directory is empty");
         return ExitCode::FAILURE;
     }
@@ -126,9 +146,8 @@ fn run_guides(directory: &str) -> ExitCode {
         }
     };
 
-    let directory = std::path::PathBuf::from(directory);
     let directory = if directory.is_absolute() {
-        directory
+        directory.to_path_buf()
     } else {
         root.join(directory)
     };
@@ -143,7 +162,7 @@ fn run_guides(directory: &str) -> ExitCode {
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
-fn run_init(arguments: &[String]) -> ExitCode {
+fn run_init(arguments: &[OsString]) -> ExitCode {
     let request = match init::parse_arguments(arguments) {
         Ok(request) => request,
         Err(error) => {
@@ -180,15 +199,16 @@ fn run_init(arguments: &[String]) -> ExitCode {
     clippy::print_stderr,
     reason = "the markdown fragment and status lines are the command's output"
 )]
-fn run_ocr_coverage(path: &str) -> ExitCode {
+fn run_ocr_coverage(path: &Path) -> ExitCode {
+    let label = path.display().to_string();
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("stomme: could not read {path}: {error}");
+            eprintln!("stomme: could not read {label}: {error}");
             return ExitCode::FAILURE;
         }
     };
-    let coverage = match ocr_coverage::parse(&bytes, path) {
+    let coverage = match ocr_coverage::parse(&bytes, &label) {
         Ok(coverage) => coverage,
         Err(error) => {
             eprintln!("stomme: {error}");

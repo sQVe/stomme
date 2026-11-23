@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -14,7 +15,7 @@ fn sync_project(root: &Path) {
     assert_eq!(output.status.code(), Some(0), "sync: {output:?}");
 }
 
-fn stomme(root: &Path, arguments: &[&str]) -> Output {
+fn stomme<A: AsRef<OsStr>>(root: &Path, arguments: &[A]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_stomme"))
         .args(arguments)
         .current_dir(root)
@@ -467,6 +468,48 @@ fn stomme_prints_usage_without_the_check_command() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn check_refuses_a_base_reference_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = complete_project();
+    let reference = OsStr::from_bytes(b"main-\xff");
+
+    let output = stomme(
+        root.path(),
+        &[OsStr::new("check"), OsStr::new("--base"), reference],
+    );
+
+    assert_refusal(&output, r"main-\xFF");
+}
+
+#[cfg(unix)]
+#[test]
+fn stomme_refuses_a_command_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = complete_project();
+    let command = OsStr::from_bytes(b"ocr-coverage\xff");
+
+    let output = stomme(root.path(), &[command]);
+
+    assert_refusal(&output, r"ocr-coverage\xFF");
+}
+
+#[cfg(unix)]
+fn assert_refusal(output: &Output, operand: &str) {
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty(), "{output:?}");
+
+    let lines = stderr_lines(output);
+
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("stomme: "), "{lines:?}");
+    assert!(lines[0].contains(operand), "{lines:?}");
+    assert!(lines[0].ends_with("is not valid UTF-8"), "{lines:?}");
+}
+
 #[test]
 fn check_base_reads_the_named_ref() {
     let root = complete_project();
@@ -606,6 +649,21 @@ fn guides_rejects_an_empty_directory() {
             .count(),
         0
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn guides_writes_a_bundle_to_a_directory_that_is_not_utf8() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let root = tempfile::tempdir().expect("create a temporary directory");
+    let name = OsStr::from_bytes(b"bundle-\xff");
+    let bundle = root.path().join(name);
+
+    let output = stomme(root.path(), &[OsStr::new("guides"), name]);
+
+    assert_eq!(output.status.code(), Some(0), "guides: {output:?}");
+    assert!(bundle.join("shared/coding.md").is_file());
 }
 
 #[test]

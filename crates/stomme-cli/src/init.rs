@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 
@@ -55,6 +56,8 @@ pub(crate) enum InitError {
     NameTooLong,
     #[error("the name `{name}` collides with the generated `{name}` package; choose another name")]
     NameCollision { name: String },
+    #[error("the value for `{flag}` is not valid UTF-8")]
+    NotText { flag: String },
     #[error(transparent)]
     Selection(#[from] SelectionError),
     #[error("role `{role}` has no starter for {language}")]
@@ -97,20 +100,30 @@ pub(crate) enum InitError {
     InvalidReleaseCommit { value: String },
 }
 
-pub(crate) fn parse_arguments(arguments: &[String]) -> Result<Request, InitError> {
+pub(crate) fn parse_arguments(arguments: &[OsString]) -> Result<Request, InitError> {
     let mut values: BTreeMap<&str, &str> = BTreeMap::new();
     let mut remaining = arguments.iter();
 
     while let Some(flag) = remaining.next() {
         let Some(known) = FLAGS.into_iter().find(|known| known == flag) else {
-            return Err(InitError::UnknownFlag { flag: flag.clone() });
+            let flag = flag.to_string_lossy().into_owned();
+            return Err(InitError::UnknownFlag { flag });
         };
         let Some(value) = remaining.next() else {
-            return Err(InitError::MissingValue { flag: flag.clone() });
+            return Err(InitError::MissingValue {
+                flag: known.to_string(),
+            });
+        };
+        let Some(value) = value.to_str() else {
+            return Err(InitError::NotText {
+                flag: known.to_string(),
+            });
         };
 
         if values.insert(known, value).is_some() {
-            return Err(InitError::RepeatedFlag { flag: flag.clone() });
+            return Err(InitError::RepeatedFlag {
+                flag: known.to_string(),
+            });
         }
     }
 
