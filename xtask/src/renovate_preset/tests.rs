@@ -359,3 +359,20 @@ fn github_actions_manager_is_disabled_for_stomme() {
 
     assert_eq!(rule["enabled"].as_bool(), Some(false));
 }
+
+#[test]
+fn stomme_updates_group_under_one_name() {
+    let preset = renovate_preset();
+    let rules = preset["packageRules"]
+        .as_array()
+        .expect("the preset has package rules");
+    let group = rules
+        .iter()
+        .find(|rule| rule["groupSlug"].as_str() == Some("stomme"))
+        .expect("the preset groups stomme updates");
+
+    assert_eq!(string_list(group, "matchPackageNames"), [STOMME_PACKAGE]);
+    assert_eq!(group["groupName"].as_str(), Some("stomme"));
+    assert_eq!(group["groupSingleUpdates"].as_bool(), Some(true));
+    assert_eq!(group["separateMajorMinor"].as_bool(), Some(false));
+}
