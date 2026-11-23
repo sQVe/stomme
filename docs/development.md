@@ -67,7 +67,7 @@
   adopted project fails.
 - `cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>`
   runs the candidate's `stomme init` in an empty folder and exits 1 unless the written sync
-  workflow pins `<sha>` with the `# v<candidate>` comment.
+  workflow equals the common skeleton with `{{commit}}` and `{{version}}` replaced.
 - `packages/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
 - `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
   `stomme.toml`.

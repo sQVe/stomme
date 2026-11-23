@@ -12,7 +12,8 @@ Usage:
   cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>";
 
 const WORKFLOW: &str = ".github/workflows/sync-update.yml";
-const PIN_PREFIX: &str = "uses: sQVe/stomme/.github/workflows/sync-update.yml@";
+const SKELETON: &str =
+    include_str!("../../foundation/common/skeleton/files/.github/workflows/sync-update.yml");
 const COMMIT_OVERRIDE: &str = "STOMME_RELEASE_COMMIT";
 const COMMIT_LENGTH: usize = 40;
 
@@ -98,7 +99,7 @@ fn check_pin(
         }
     };
 
-    Ok(compare_pin(&text, version, commit))
+    Ok(compare_workflow(&text, version, commit))
 }
 
 fn refuse_nonempty_folder(runner: &Runner, folder: &Path) -> Option<Outcome> {
@@ -131,33 +132,55 @@ fn unreadable_folder(folder: &Path, error: &io::Error) -> Outcome {
     }
 }
 
-fn compare_pin(text: &str, version: &str, commit: &str) -> Outcome {
-    let expected = format!("{PIN_PREFIX}{commit} # v{version}");
-    let found = pin_lines(text);
-    let exactly_the_expected_pin = found.as_slice() == [expected.as_str()];
+fn compare_workflow(text: &str, version: &str, commit: &str) -> Outcome {
+    let expected = expected_workflow(version, commit);
 
-    if exactly_the_expected_pin {
-        return Outcome::Passed;
-    }
-
-    let output = if found.is_empty() {
-        format!("Expected:\n  {expected}\nFound no `uses:` line for sync-update.yml.")
-    } else {
-        let lines: Vec<String> = found.iter().map(|line| format!("  {line}")).collect();
-        format!("Expected:\n  {expected}\nFound:\n{}", lines.join("\n"))
-    };
-
-    Outcome::Failed {
-        step: "pin",
-        output,
+    match first_difference(&expected, text) {
+        None => Outcome::Passed,
+        Some(output) => Outcome::Failed {
+            step: "pin",
+            output,
+        },
     }
 }
 
-fn pin_lines(text: &str) -> Vec<&str> {
-    text.lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with("uses:") && line.contains("sync-update.yml"))
-        .collect()
+fn expected_workflow(version: &str, commit: &str) -> String {
+    SKELETON
+        .replace("{{commit}}", commit)
+        .replace("{{version}}", version)
+}
+
+fn first_difference(expected: &str, found: &str) -> Option<String> {
+    let expected_lines: Vec<&str> = expected.split_inclusive('\n').collect();
+    let found_lines: Vec<&str> = found.split_inclusive('\n').collect();
+
+    for (index, (expected_line, found_line)) in expected_lines.iter().zip(&found_lines).enumerate()
+    {
+        if expected_line != found_line {
+            let number = index + 1;
+            let expected_text = render_line(expected_line);
+            let found_text = render_line(found_line);
+            return Some(format!(
+                "Line {number} differs.\nExpected:\n  {expected_text}\nFound:\n  {found_text}"
+            ));
+        }
+    }
+
+    if found_lines.len() < expected_lines.len() {
+        return Some("The found file ends first.".to_string());
+    }
+
+    if expected_lines.len() < found_lines.len() {
+        return Some("The expected file ends first.".to_string());
+    }
+
+    None
+}
+
+fn render_line(line: &str) -> String {
+    line.replace('\\', "\\\\")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
 }
 
 fn stderr(output: &Output) -> String {

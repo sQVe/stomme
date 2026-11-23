@@ -45,9 +45,9 @@ adds the commit to a tag call that has none, for workflow files only.
 
 ### The release gate
 
-Every release runs the candidate binary's `stomme init` in an empty folder and checks that the
-written workflow names the release commit. A binary that embeds the wrong commit fails before the
-release is hosted.
+Every release runs the candidate binary's `stomme init` in an empty folder and requires the
+written workflow to equal the common skeleton with `{{commit}}` and `{{version}}` replaced. A binary
+that embeds the wrong commit, or writes any other difference, fails before the release is hosted.
 
 ## Consequences
 
