@@ -10,7 +10,5 @@ jobs:
       contents: write
       pull-requests: write
     uses: ./.github/workflows/ocr-review.yml
-    with:
-      build-stomme: true
     secrets:
       model-token: ${{ secrets.MORPH_API_KEY }}
