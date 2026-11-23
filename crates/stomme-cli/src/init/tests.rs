@@ -37,6 +37,7 @@ fn run_fails_before_writing_for_an_invalid_layer() {
             layer::catalog(),
             &request,
             &config::FileRead::filesystem(),
+            || Ok(test_commit()),
         )
         .expect_err("the layer is invalid");
 
@@ -67,6 +68,7 @@ fn run_fails_before_writing_for_an_unknown_role() {
             layer::catalog(),
             &request,
             &config::FileRead::filesystem(),
+            || Ok(test_commit()),
         )
         .expect_err("the role is unknown");
 
@@ -83,27 +85,6 @@ fn run_fails_before_writing_for_an_unknown_role() {
 }
 
 #[test]
-fn run_with_sources_fails_before_writing_for_an_unknown_role() {
-    let root = empty_folder();
-    let request = request(Language::TypeScript, &[], &["core"]);
-
-    let error = run_with_sources(
-        root.path(),
-        layer::catalog(),
-        &request,
-        &[],
-        &config::FileRead::filesystem(),
-    )
-    .expect_err("the role is unknown");
-
-    assert!(
-        matches!(&error, InitError::UnknownRole { role, .. } if role == "core"),
-        "{error:?}"
-    );
-    assert_eq!(entries(root.path()), Vec::<String>::new());
-}
-
-#[test]
 fn run_fails_before_writing_for_a_duplicate_role() {
     let root = empty_folder();
     let request = request(Language::Rust, &[], &["core", "cli", "core"]);
@@ -113,6 +94,7 @@ fn run_fails_before_writing_for_a_duplicate_role() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect_err("the role repeats");
 
@@ -136,6 +118,7 @@ fn run_fails_before_writing_for_a_rust_xtask_name() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect_err("the name collides");
 
@@ -178,6 +161,7 @@ fn parse_arguments_accepts_a_name_at_the_limit() {
             layer::catalog(),
             &request,
             &config::FileRead::filesystem(),
+            || Ok(test_commit()),
         )
         .unwrap_or_else(|error| panic!("{language}: {error:?}"));
 
@@ -198,6 +182,7 @@ fn run_accepts_a_typescript_xtask_name() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect("typescript accepts the name");
 
@@ -216,6 +201,7 @@ fn run_fails_when_the_folder_is_not_empty() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect_err("the folder has a file");
 
@@ -238,6 +224,7 @@ fn run_allows_an_existing_git_folder() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect("init accepts a .git folder");
 
@@ -254,6 +241,7 @@ fn run_writes_a_synced_project() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect("init succeeds");
 
@@ -284,8 +272,10 @@ fn run_reads_the_written_config_through_the_callers_record() {
         read: denied_config_read,
     };
 
-    let error = run(root.path(), layer::catalog(), &request, &file)
-        .expect_err("the record denies the read");
+    let error = run(root.path(), layer::catalog(), &request, &file, || {
+        Ok(test_commit())
+    })
+    .expect_err("the record denies the read");
 
     let reason = match &error {
         InitError::Sync(crate::sync::SyncError::Broken { reason }) => reason,
@@ -438,6 +428,7 @@ fn run_pins_the_style_package() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect("init succeeds");
 
@@ -461,6 +452,7 @@ fn plan_rejects_a_typescript_role() {
         layer::catalog(),
         &request,
         &config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect_err("the role is unknown");
 
@@ -472,5 +464,35 @@ fn plan_rejects_a_typescript_role() {
         ),
         "{error:?}"
     );
+    assert_eq!(entries(root.path()), Vec::<String>::new());
+}
+
+#[test]
+fn run_validates_the_request_before_resolving_the_commit() {
+    let root = empty_folder();
+    let request = request(Language::Rust, &["nope"], &[]);
+    let resolved = std::cell::Cell::new(false);
+
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &request,
+        &config::FileRead::filesystem(),
+        || {
+            resolved.set(true);
+
+            Err(InitError::UnknownReleaseCommit { version: VERSION })
+        },
+    )
+    .expect_err("the layer is invalid");
+
+    assert!(
+        matches!(
+            &error,
+            InitError::Selection(SelectionError::UnknownLayer { layer }) if layer == "nope"
+        ),
+        "{error:?}"
+    );
+    assert!(!resolved.get());
     assert_eq!(entries(root.path()), Vec::<String>::new());
 }

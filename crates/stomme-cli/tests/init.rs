@@ -1,10 +1,23 @@
 use std::collections::BTreeSet;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
+
+const FAKE_COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn embedded_release_commit() -> Option<&'static str> {
+    let commit = env!("STOMME_EMBEDDED_RELEASE_COMMIT");
+
+    if commit.is_empty() {
+        None
+    } else {
+        Some(commit)
+    }
+}
 
 struct Selection {
     name: &'static str,
@@ -69,17 +82,30 @@ fn project_root() -> TempDir {
         .expect("create a project folder outside any pnpm workspace")
 }
 
+const STOMME: &str = env!("CARGO_BIN_EXE_stomme");
+
 fn stomme_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_stomme"))
+    PathBuf::from(STOMME)
 }
 
 fn init(root: &Path, arguments: &[&str]) -> Output {
-    Command::new(stomme_path())
-        .arg("init")
-        .args(arguments)
-        .current_dir(root)
-        .output()
-        .expect("run stomme init")
+    init_with_environment(root, arguments, Some(OsStr::new(FAKE_COMMIT)))
+}
+
+fn init_without_release_commit(root: &Path, arguments: &[&str]) -> Output {
+    init_with_environment(root, arguments, None)
+}
+
+fn init_with_environment(root: &Path, flags: &[&str], commit: Option<&OsStr>) -> Output {
+    let mut arguments: Vec<String> = vec!["init".to_string()];
+    arguments.extend(flags.iter().map(ToString::to_string));
+
+    run_with_environment(
+        root,
+        STOMME,
+        &arguments,
+        &[("STOMME_RELEASE_COMMIT", commit)],
+    )
 }
 
 fn init_selection(root: &Path, selection: &Selection) {
@@ -143,14 +169,19 @@ fn run_in_project(root: &Path, program: &str, arguments: &[String]) -> Output {
 fn run_with_herdr_home(root: &Path, home: &Path, program: &str, arguments: &[String]) -> Output {
     fs::create_dir_all(home).expect("create the Herdr home");
 
-    run_with_environment(root, program, arguments, &[("HERDR_APP_HOME", Some(home))])
+    run_with_environment(
+        root,
+        program,
+        arguments,
+        &[("HERDR_APP_HOME", Some(home.as_os_str()))],
+    )
 }
 
 fn run_with_environment(
     root: &Path,
     program: &str,
     arguments: &[String],
-    environment: &[(&str, Option<&Path>)],
+    environment: &[(&str, Option<&OsStr>)],
 ) -> Output {
     let mut command = Command::new(program);
 
@@ -240,13 +271,18 @@ fn assert_init_refuses_with_an_empty_folder(arguments: &[&str], named: &[&str]) 
     let root = project_root();
 
     let output = init(root.path(), arguments);
-    let message = stderr_text(&output);
+
+    assert_refuses_with_an_empty_folder(root.path(), &output, named);
+}
+
+fn assert_refuses_with_an_empty_folder(root: &Path, output: &Output, named: &[&str]) {
+    let message = stderr_text(output);
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     for name in named {
         assert!(message.contains(name), "{name} is missing from: {message}");
     }
-    assert_eq!(entries(root.path()), Vec::<String>::new());
+    assert_eq!(entries(root), Vec::<String>::new());
 }
 
 #[test]
@@ -345,6 +381,64 @@ fn init_refuses_a_folder_that_is_not_empty() {
 }
 
 #[test]
+fn init_refuses_without_a_release_commit() {
+    if embedded_release_commit().is_some() {
+        return;
+    }
+
+    let root = project_root();
+
+    let output =
+        init_without_release_commit(root.path(), &["--name", "demo", "--language", "rust"]);
+
+    assert_refuses_with_an_empty_folder(
+        root.path(),
+        &output,
+        &[
+            "STOMME_RELEASE_COMMIT",
+            "does not know the commit of release v",
+        ],
+    );
+}
+
+#[test]
+fn init_reports_an_invalid_request_without_a_release_commit() {
+    if embedded_release_commit().is_some() {
+        return;
+    }
+
+    let root = project_root();
+    let output = init_without_release_commit(
+        root.path(),
+        &[
+            "--name",
+            "demo",
+            "--language",
+            "typescript",
+            "--layers",
+            "gpui",
+        ],
+    );
+    let message = stderr_text(&output);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(message.contains("gpui"), "{message}");
+    assert!(!message.contains("STOMME_RELEASE_COMMIT"), "{message}");
+    assert_eq!(entries(root.path()), Vec::<String>::new());
+}
+
+#[test]
+fn init_pins_the_sync_workflow_to_the_release_commit() {
+    let root = initialized("ruta");
+    let workflow = fs::read_to_string(root.path().join(".github/workflows/sync-update.yml"))
+        .expect("read the sync workflow");
+    let commit = embedded_release_commit().unwrap_or(FAKE_COMMIT);
+    let pin = format!("sync-update.yml@{commit} # v{}", env!("CARGO_PKG_VERSION"));
+
+    assert!(workflow.contains(&pin), "{workflow}");
+}
+
+#[test]
 fn init_accepts_a_folder_with_only_git() {
     let root = project_root();
 
@@ -393,9 +487,9 @@ fn herdr_mod_install_copies_a_loadable_mod() {
         "pnpm",
         &["run".to_string(), "mod:install".to_string()],
         &[
-            ("HERDR_APP_HOME", Some(home.path())),
-            ("XDG_CONFIG_HOME", Some(config_home.path())),
-            ("HOME", Some(user_home.path())),
+            ("HERDR_APP_HOME", Some(home.path().as_os_str())),
+            ("XDG_CONFIG_HOME", Some(config_home.path().as_os_str())),
+            ("HOME", Some(user_home.path().as_os_str())),
         ],
     );
 
@@ -435,8 +529,8 @@ fn herdr_mod_install_follows_xdg_config_home() {
         &["run".to_string(), "mod:install".to_string()],
         &[
             ("HERDR_APP_HOME", None),
-            ("XDG_CONFIG_HOME", Some(config_home.path())),
-            ("HOME", Some(user_home.path())),
+            ("XDG_CONFIG_HOME", Some(config_home.path().as_os_str())),
+            ("HOME", Some(user_home.path().as_os_str())),
         ],
     );
 

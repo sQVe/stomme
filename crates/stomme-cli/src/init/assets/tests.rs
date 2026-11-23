@@ -2,7 +2,7 @@ use super::Source;
 use crate::config;
 use crate::layer::{self, Language};
 
-use super::super::{planned, request};
+use super::super::{TEST_COMMIT, planned, request};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -31,11 +31,14 @@ fn plan_writes_the_common_files() {
 }
 
 #[test]
-fn plan_pins_the_sync_workflow_to_the_crate_version() {
+fn plan_pins_the_sync_workflow_to_the_release_commit() {
     let plan = common_plan();
     let workflow = &plan.files[".github/workflows/sync-update.yml"];
+    let pin = format!("sync-update.yml@{TEST_COMMIT} # v{VERSION}");
 
-    assert!(workflow.contains(&format!("sync-update.yml@v{VERSION}")));
+    assert!(workflow.contains(&pin), "{workflow}");
+    assert!(!workflow.contains("sync-update.yml@v"));
+    assert!(!workflow.contains("{{commit}}"));
     assert!(!workflow.contains("{{version}}"));
 }
 

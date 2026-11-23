@@ -1,6 +1,8 @@
 use super::super::assets::Source;
-use super::super::{InitError, empty_folder, entries, planned, request};
-use super::super::{plan, run_with_sources};
+use super::super::plan;
+use super::super::{
+    InitError, empty_folder, entries, planned, request, run_with_sources, test_commit,
+};
 use super::merge;
 use crate::layer::{self, Language};
 
@@ -36,6 +38,7 @@ fn run_fails_before_writing_when_two_layers_set_one_key_differently() {
         &request,
         &sources,
         &crate::config::FileRead::filesystem(),
+        || Ok(test_commit()),
     )
     .expect_err("the layers clash");
 
@@ -104,7 +107,8 @@ fn plan_reports_a_toml_clash_with_its_dotted_path() {
     };
     let request = request(Language::Rust, &[], &[]);
 
-    let error = plan::plan(&request, &[&FIRST, &SECOND]).expect_err("the fragments clash");
+    let error =
+        plan::plan(&request, &[&FIRST, &SECOND], &test_commit()).expect_err("the fragments clash");
 
     assert!(
         matches!(

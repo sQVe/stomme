@@ -56,11 +56,16 @@
   stomme init --name <name> --language <rust|typescript> [--layers <layers>] [--roles <roles>]
   ```
 
-  `--layers` and `--roles` take comma-separated lists. An invalid request writes nothing.
+  `--layers` and `--roles` take comma-separated lists. An invalid request writes nothing. A build
+  that is not made from a release tag needs `STOMME_RELEASE_COMMIT` set to the commit of tag
+  `v<version>`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
 - `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
   candidate `stomme` binary against one project as its update would, and exits 1 only when an
   adopted project fails.
+- `cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>`
+  runs the candidate's `stomme init` in an empty folder and exits 1 unless the written sync
+  workflow pins `<sha>` with the `# v<candidate>` comment.
 - `packages/style` is the `@sqve/stomme-ts-style` package in the pnpm workspace.
 - `packages/imports` is the `@sqve/stomme-ts-imports` package, which reads the module table in
   `stomme.toml`.
@@ -192,7 +197,9 @@ binary.
 The release runs the gate jobs in `.github/workflows/release-gate.yml` before hosting. They run the
 candidate binary against every adopted project's `main` and against `release/consumer/`. An adopted
 project that fails stops the host job, so the GitHub Release is created only when every gate job
-passes. A project without `stomme.toml` is reported without blocking the release.
+passes. A project without `stomme.toml` is reported without blocking the release. The gate also
+checks the init pin: it runs the candidate binary's `stomme init` in an empty folder and fails
+unless the written sync workflow pins the tag commit.
 
 Install a published binary with mise:
 
