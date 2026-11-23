@@ -81,7 +81,11 @@ case "$2" in
     ;;
 esac
 echo "coverage from $2"
-echo "stomme: $2: not reviewed (demo)" >&2
+if [ -n "${STOMME_STDERR_LINE:-}" ]; then
+  echo "$STOMME_STDERR_LINE" >&2
+else
+  echo "stomme: $2: not reviewed (demo)" >&2
+fi
 case "$2" in
   *ocr-result.json) exit "${STOMME_FIRST_CODE:-0}" ;;
   *ocr-resume.json) exit "${STOMME_RESUME_CODE:-0}" ;;
@@ -390,6 +394,7 @@ struct Run<'a> {
     resumed: i32,
     resume_result: Option<&'a str>,
     resume_unusable: bool,
+    stderr_line: Option<&'a str>,
 }
 
 impl Default for Run<'_> {
@@ -402,6 +407,7 @@ impl Default for Run<'_> {
             resumed: 0,
             resume_result: None,
             resume_unusable: false,
+            stderr_line: None,
         }
     }
 }
@@ -516,6 +522,10 @@ impl Classifier {
 
         if run.resume_unusable {
             command.env("STOMME_RESUME_UNUSABLE", "1");
+        }
+
+        if let Some(line) = run.stderr_line {
+            command.env("STOMME_STDERR_LINE", line);
         }
 
         let completed = command
@@ -736,47 +746,115 @@ fn workflow_passes_the_coverage_verdict_from_the_classifier_to_the_insert() {
 
 #[test]
 fn report_decides_the_check_result() {
+    struct Case<'a> {
+        name: &'a str,
+        report: Report<'a>,
+        expected_exit: i32,
+        expected_fragments: &'a [&'a str],
+        expected_line_count: Option<usize>,
+    }
+
     let classifier = Classifier::new();
+    let cases = [
+        Case {
+            name: "a complete run",
+            report: Report {
+                status: "0",
+                ..Report::default()
+            },
+            expected_exit: 0,
+            expected_fragments: &["covered every selected file"],
+            expected_line_count: Some(1),
+        },
+        Case {
+            name: "an unreviewed run",
+            report: Report {
+                status: "2",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review left selected files unreviewed"],
+            expected_line_count: Some(1),
+        },
+        Case {
+            name: "a failed run with a reason",
+            report: Report {
+                status: "1",
+                reason: "provider",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed: provider"],
+            expected_line_count: Some(1),
+        },
+        Case {
+            name: "a failed run with encoded text in its reason",
+            report: Report {
+                status: "1",
+                reason: "provider 50%0A",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed: provider 50%250A"],
+            expected_line_count: Some(1),
+        },
+        Case {
+            name: "a failed run with a multi-line reason",
+            report: Report {
+                status: "1",
+                reason: "provider 50%0A\r\n::warning::forged",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &[
+                "::error::the OCR review failed: provider 50%250A%0D%0A::warning::forged",
+            ],
+            expected_line_count: Some(1),
+        },
+        Case {
+            name: "a failed run without a reason",
+            report: Report {
+                status: "1",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed\n"],
+            expected_line_count: Some(1),
+        },
+    ];
 
-    let (exit, stdout) = classifier.report(Report {
-        status: "0",
-        ..Report::default()
+    for case in cases {
+        let (exit, stdout) = classifier.report(case.report);
+
+        assert_eq!(exit, case.expected_exit, "{}", case.name);
+        for fragment in case.expected_fragments {
+            assert!(stdout.contains(fragment), "{}: {stdout}", case.name);
+        }
+        if let Some(count) = case.expected_line_count {
+            let non_empty_lines = stdout.lines().filter(|line| !line.is_empty()).count();
+            assert_eq!(non_empty_lines, count, "{}: {stdout}", case.name);
+        }
+    }
+}
+
+#[test]
+fn report_escapes_a_percent_in_a_not_reviewed_line() {
+    let classifier = Classifier::new();
+    classifier.run(Run {
+        first: 1,
+        result: Some(SESSION_RESULT),
+        stderr_line: Some("stomme: 50%0A.rs: not reviewed (demo)"),
+        ..Run::default()
     });
-
-    assert_eq!(exit, 0);
-    assert!(stdout.contains("covered every selected file"), "{stdout}");
-
-    let (exit, stdout) = classifier.report(Report {
-        status: "2",
-        ..Report::default()
-    });
-
-    assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review left selected files unreviewed"),
-        "{stdout}"
-    );
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
-        reason: "provider",
         ..Report::default()
     });
 
     assert_eq!(exit, 1);
     assert!(
-        stdout.contains("::error::the OCR review failed: provider"),
-        "{stdout}"
-    );
-
-    let (exit, stdout) = classifier.report(Report {
-        status: "1",
-        ..Report::default()
-    });
-
-    assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review failed\n"),
+        stdout.contains("::error::50%250A.rs: not reviewed (demo)"),
         "{stdout}"
     );
 }

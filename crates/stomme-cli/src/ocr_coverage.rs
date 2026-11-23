@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt::{self, Display};
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -85,23 +86,47 @@ pub(crate) struct Coverage {
 
 #[derive(Debug, Error)]
 pub(crate) enum OcrCoverageError {
-    #[error("{path} is not a usable OCR result: {reason}")]
+    #[error(
+        "{} is not a usable OCR result: {}",
+        EscapedText(.path),
+        EscapedText(.reason)
+    )]
     InvalidJson { path: String, reason: String },
-    #[error("{path} has unsupported schema {schema_version}, expected {SCHEMA_VERSION}")]
+    #[error(
+        "{} has unsupported schema {}, expected {SCHEMA_VERSION}",
+        EscapedText(.path),
+        EscapedText(.schema_version)
+    )]
     UnsupportedSchema {
         path: String,
         schema_version: String,
     },
-    #[error("{path} has unknown status {status}")]
+    #[error("{} has unknown status {}", EscapedText(.path), EscapedText(.status))]
     UnknownStatus { path: String, status: String },
-    #[error("{path} status {status} differs from manifest terminal state {terminal_state}")]
+    #[error(
+        "{} status {} differs from manifest terminal state {}",
+        EscapedText(.path),
+        EscapedText(.status),
+        EscapedText(.terminal_state)
+    )]
     StatusMismatch {
         path: String,
         status: String,
         terminal_state: String,
     },
-    #[error("{path} is partial but every selected item is reviewed")]
+    #[error(
+        "{} is partial but every selected item is reviewed",
+        EscapedText(.path)
+    )]
     InconsistentPartial { path: String },
+}
+
+struct EscapedText<'a>(&'a str);
+
+impl Display for EscapedText<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&escaped_text(self.0))
+    }
 }
 
 pub(crate) fn parse(bytes: &[u8], label: &str) -> Result<Coverage, OcrCoverageError> {
@@ -148,8 +173,10 @@ impl Coverage {
             lines.push(String::new());
 
             for item in &self.unreviewed {
-                let path = code_span(&item.path);
-                let line = format!("- {path}: {}, {}", item.classification, item.reason);
+                let path = fragment_field(&item.path);
+                let classification = fragment_field(&item.classification);
+                let reason = fragment_field(&item.reason);
+                let line = format!("- {path}: {classification}, {reason}");
                 lines.push(line);
             }
         }
@@ -180,9 +207,10 @@ impl Coverage {
         self.unreviewed
             .iter()
             .map(|item| {
-                let classification = &item.classification;
-                let reason = &item.reason;
-                format!("{}: not reviewed ({classification}: {reason})", item.path)
+                let path = escaped_text(&item.path);
+                let classification = escaped_text(&item.classification);
+                let reason = escaped_text(&item.reason);
+                format!("{path}: not reviewed ({classification}: {reason})")
             })
             .collect()
     }
@@ -253,8 +281,9 @@ impl Coverage {
         ];
 
         for item in &self.excluded {
-            let path = code_span(&item.path);
-            lines.push(format!("- {path}: {}", item.reason));
+            let path = fragment_field(&item.path);
+            let reason = fragment_field(&item.reason);
+            lines.push(format!("- {path}: {reason}"));
         }
 
         lines.push("</details>".to_string());
@@ -376,6 +405,16 @@ fn outcome(status: Status, unreviewed: &[Unreviewed]) -> Outcome {
     }
 }
 
+// An empty value yields two adjacent backticks, a delimiter that can pair with the next
+// field's fence and swallow it.
+fn fragment_field(text: &str) -> String {
+    if text.is_empty() {
+        return "(empty)".to_string();
+    }
+
+    code_span(&escaped_text(text))
+}
+
 fn code_span(text: &str) -> String {
     let fence = "`".repeat(longest_backtick_run(text) + 1);
 
@@ -420,6 +459,44 @@ fn longest_backtick_run(text: &str) -> usize {
     }
 
     longest
+}
+
+pub(crate) fn escaped_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+
+    for character in text.chars() {
+        match character {
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            other if breaks_or_reorders_line(other) => {
+                let code_point = format!("\\u{{{:x}}}", other as u32);
+                escaped.push_str(&code_point);
+            }
+            other => escaped.push(other),
+        }
+    }
+
+    escaped
+}
+
+// A control, separator, or bidi character can break or reorder the line that shows it.
+fn breaks_or_reorders_line(character: char) -> bool {
+    if character.is_control() {
+        return true;
+    }
+
+    matches!(
+        character,
+        '\u{2028}'
+            | '\u{2029}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{061c}'
+    )
 }
 
 #[cfg(test)]
