@@ -26,12 +26,20 @@ required check whose findings are advice.
 
 ### The workflow
 
-- One reusable workflow in stomme reviews the pull request, and a project calls it by tag. The
-  project holds one reference and no copy.
-- Renovate bumps that tag in its `stomme` group, with the `stomme.toml` version and the binary pin,
+- One reusable workflow in stomme reviews the pull request, and a project calls it by release
+  commit with a version comment, as
+  [ADR 0016 (Pin the sync workflow by release commit)](./0016-pin-the-sync-workflow-by-release-commit.md)
+  says. The project holds one reference and no copy.
+- Renovate bumps that pin in its `stomme` group, with the `stomme.toml` version and the binary pin,
   so the review settings move with the rules they enforce.
-- The job classifies the review with the `stomme` binary that the project pins. Renovate moves that
-  pin with the workflow tag, so the classification matches the workflow.
+- The job classifies the review with the `stomme` binary that the project pins in its `mise.toml`.
+  Renovate moves that pin with the workflow tag, so the classification matches the workflow.
+  stomme's own workflow builds the binary from the same checkout, so its pull requests classify
+  with the code in the change.
+- The Action's checkout step passes no `ref`, so a pull request run checks out the merge commit.
+  The rule file and stomme's own build come from the change, not from the base branch.
+- A fork pull request gets no secrets, so it cannot run the review. Fork pull requests are not
+  supported.
 
 ### The rule file
 
@@ -82,15 +90,24 @@ the token comes from the `MORPH_API_KEY` repository secret.
   earlier run of the same session. A failed or waived file counts as unreviewed. A file that the
   rules exclude was never selected, so it leaves no gap.
 - When a run leaves files unreviewed, the workflow resumes the session once, and OCR reviews only
-  those files. The check fails when files stay unreviewed after the resume, because a pass would
-  let a change merge with code that no one read.
+  those files. The resume uses the same range, rule file, provider, and model as the first run, and
+  it passes no token budget, so the resumed run does not stop at the same budget again. The check
+  fails when files stay unreviewed after the resume, because a pass would let a change merge with
+  code that no one read.
 - A partial review and a failed run both fail the check, and the command's exit code tells them
-  apart. A partial review needs another run, and its findings still reach the comment. A failed
-  run, such as on a missing secret, a timeout, or a provider error, stops the review and may keep
+  apart. Every partial review is resumed once, whether a budget stop or a timeout cut it short.
+  A failed run, such as on a missing secret or an unusable result, stops the review and may keep
   the files it already recorded as reviewed. It needs a fix to the setup, so the workflow does not
   resume it.
+- The job passes only when the last classification reports every selected file as reviewed. A
+  partial result fails and names the unreviewed files, and a failed run fails with its error.
+- The resumed review posts its result once, including the comments of the first run for the files
+  it reused. Its summary keeps the previous checkpoint marker, so the next push reviews from the
+  old head: a wider range, never a wrong one.
 - The summary comment starts with the coverage section that the command prints. It names each
-  unreviewed file with OCR's reason, and it lists the excluded files in a collapsed block.
+  unreviewed file with OCR's reason, and it lists the excluded files in a collapsed block. The
+  workflow puts the same section at the top of the job summary, and inserts it after the summary
+  comment's marker so the comment stays findable and keeps its single checkpoint marker.
 - Findings stay advisory, as with the size and mutation signals in
   [ADR 0009 (Advisory mutation testing and size as a review signal)](../stomme/shared/adr/0009-advisory-review-signals.md).
 - Low-severity findings go to the summary comment. Tau needs no review-bot entry, because OCR

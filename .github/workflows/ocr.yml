@@ -1,0 +1,16 @@
+name: OCR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  review:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/ocr-review.yml
+    with:
+      build-stomme: true
+    secrets:
+      model-token: ${{ secrets.MORPH_API_KEY }}
