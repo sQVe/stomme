@@ -94,21 +94,16 @@ fn guide_block(guide: &str) -> String {
     format!("File: {guide}\n\n{}", bundled_content(guide).trim_end())
 }
 
-fn assert_guide_section(text: &str, guides: &[&str]) {
-    let section = guides
+fn expected_guide_text(guides: &[&str]) -> String {
+    let intro = "Apply stomme's coding guides below. Each guide starts with its repository path. Resolve its relative links from that path, and read linked files with file_read.";
+    let outro = "Also apply the rules in the project's AGENTS.md and the decisions in docs/adr/ that cover the change. Read them with file_read.";
+    let blocks = guides
         .iter()
         .map(|guide| guide_block(guide))
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    assert!(
-        text.contains(&section),
-        "the guide blocks follow each other in order"
-    );
-
-    for guide in guides {
-        assert_eq!(text.matches(&guide_block(guide)).count(), 1, "{guide}");
-    }
+    format!("{intro}\n\n{blocks}\n\n{outro}")
 }
 
 fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
@@ -184,14 +179,7 @@ fn sync_writes_the_ocr_rule_file() {
         "docs/stomme/layers/gpui/guide.md",
     ];
 
-    assert_guide_section(rule, &guides);
-
-    for unselected in [
-        "docs/stomme/languages/typescript/guide.md",
-        "docs/stomme/layers/herdr/guide.md",
-    ] {
-        assert!(!rule.contains(&guide_block(unselected)), "{unselected}");
-    }
+    assert_eq!(rule, &expected_guide_text(&guides));
 
     let record = Record::read(root.path())
         .expect("read the record")
@@ -234,19 +222,19 @@ fn sync_merges_project_ocr_rules() {
         "docs/stomme/shared/coding.md",
         "docs/stomme/languages/rust/guide.md",
     ];
+    let guide_text = expected_guide_text(&guides);
     let system_rule = rules[2]["rule"].as_str().expect("the rule is text");
 
-    assert_guide_section(system_rule, &guides);
+    assert_eq!(system_rule, &guide_text);
 
     for (index, marker) in ["Keep modules small.", "Name the behavior."]
         .into_iter()
         .enumerate()
     {
         let rule = rules[index]["rule"].as_str().expect("the rule is text");
-        let expected = format!("{marker}\n\n{system_rule}");
+        let expected = format!("{marker}\n\n{guide_text}");
 
         assert_eq!(rule, &expected, "{marker}");
-        assert_guide_section(&rule[marker.len()..], &guides);
     }
 
     assert_eq!(document["exclude"], serde_json::json!(["fixtures/**"]));

@@ -185,16 +185,18 @@ fn rewrite_record(root: &Path, change: impl FnOnce(&mut Record)) {
     write_file(root, RECORD_FILE, &text);
 }
 
-fn reported(problems: &[Problem], path: &str) -> bool {
-    problems
-        .iter()
-        .any(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
-}
-
-fn message<'a>(problems: &'a [Problem], path: &str) -> &'a str {
+fn synced_problem<'a>(problems: &'a [Problem], path: &str) -> Option<&'a Problem> {
     problems
         .iter()
         .find(|problem| problem.path == path && problem.rule == Rule::SyncedFiles)
+}
+
+fn reported(problems: &[Problem], path: &str) -> bool {
+    synced_problem(problems, path).is_some()
+}
+
+fn message<'a>(problems: &'a [Problem], path: &str) -> &'a str {
+    synced_problem(problems, path)
         .map(|problem| problem.message.as_str())
         .unwrap_or_else(|| panic!("{path} is reported: {problems:?}"))
 }
