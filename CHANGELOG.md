@@ -14,6 +14,15 @@ Changes:
 - `stomme init` pins the reusable sync workflow by commit with a version comment. The Renovate
   preset keeps the pin current for the unquoted `uses:` form by converting an existing `@vX.Y.Z`
   call on the project's next stomme update. `stomme sync` does not change the file.
+- `stomme sync` writes `docs/stomme/ocr-rules.json`, which composes the selected guides and the
+  project's own `.opencodereview/rule.json` into one Open Code Review rule file, and `stomme check`
+  reports the file when it is stale or the project file is invalid.
+- `stomme ocr-coverage` classifies an Open Code Review result file and fails when the review left
+  files unreviewed.
+- stomme ships a reusable workflow that reviews a pull request with Open Code Review and leaves a
+  summary comment that starts with the review coverage. `stomme init` writes the caller workflow,
+  which calls it by release commit, and the release-pin gate checks both callers.
+- The Renovate preset keeps both reusable workflow calls current in the `stomme` group.
 
 ## 0.2.2
 
