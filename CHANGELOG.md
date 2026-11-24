@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.4
+
+- `stomme` 0.2.4.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.4.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Read arguments as OS strings, so `stomme ocr-coverage <path>` and `stomme guides <folder>` accept
+  a path that is not valid UTF-8. A non-text argument is refused with a `stomme:` error that names
+  the rejected bytes.
+- Escape a path before `stomme ocr-coverage` prints it, so a path with a line break or a backslash
+  stays one readable value in the coverage fragment, the excluded block, and the `stomme:` lines.
+- Report coverage on a same-head no-op run. The OCR workflow reads the coverage section of that
+  head's summary comment and passes only when it reports every selected file as reviewed.
+- Post every OCR finding as an inline comment, whatever its severity. The workflow no longer routes
+  a low-severity finding into the summary comment. A finding with no line, or an inline post GitHub
+  rejects, still lands in the summary comment with the reason.
+- Review the TypeScript packages under `packages/` against the TypeScript guide, tests included. A
+  project rule that names a language inlines the general guide and that language's guide.
+- Write a synced file through a staging file and a rename instead of truncating it in place, so a
+  hard link to the file keeps its own contents.
+
 ## 0.2.3
 
 - `stomme` 0.2.3.

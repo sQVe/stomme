@@ -34,13 +34,13 @@ Pin the binary in `mise.toml`:
 
 ```toml
 [tools]
-"github:sQVe/stomme" = "0.2.3"
+"github:sQVe/stomme" = "0.2.4"
 ```
 
 Set the same version in `stomme.toml`:
 
 ```toml
-version = "0.2.3"
+version = "0.2.4"
 ```
 
 Extend the Renovate preset in `renovate.json`:
@@ -52,9 +52,9 @@ Extend the Renovate preset in `renovate.json`:
 ```
 
 Add a workflow that syncs the update branch. `stomme init` writes the commit, and a reader copying
-by hand uses the commit of tag `v0.2.3`, from
-`gh api repos/sQVe/stomme/commits/v0.2.3 --jq .sha`, which works for annotated and lightweight
-tags. 0.2.3 is not tagged yet, so no real SHA exists to show:
+by hand uses the commit of tag `v0.2.4`, from
+`gh api repos/sQVe/stomme/commits/v0.2.4 --jq .sha`, which works for annotated and lightweight
+tags. 0.2.4 is not tagged yet, so no real SHA exists to show:
 
 ```yaml
 name: Sync stomme
@@ -68,7 +68,7 @@ permissions:
 
 jobs:
   sync:
-    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.3
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.4
     secrets:
       app-id: ${{ secrets.STOMME_APP_ID }}
       app-private-key: ${{ secrets.STOMME_APP_PRIVATE_KEY }}
@@ -92,7 +92,7 @@ permissions:
 
 jobs:
   sync:
-    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.3
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.4
     with:
       guides-directory: docs/guides
     secrets:
@@ -120,14 +120,15 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: sQVe/stomme/.github/workflows/ocr-review.yml@<commit> # v0.2.3
+    uses: sQVe/stomme/.github/workflows/ocr-review.yml@<commit> # v0.2.4
     secrets:
       model-token: ${{ secrets.MORPH_API_KEY }}
 ```
 
 Set the `MORPH_API_KEY` repository secret to the Morph token. The caller grants `contents: write`
 and `pull-requests: write`. The review posts every finding as an inline comment on the pull request,
-beside the line it describes, whatever its severity.
+beside the line it describes, whatever its severity. A finding with no line, or an inline post that
+GitHub rejects, still lands in the summary comment with the reason.
 
 Require the `review / OCR review` check in branch protection, so a pull request merges only after
 the review covers every selected file. The check fails until the secret is set. A fork pull request

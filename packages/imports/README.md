@@ -3,7 +3,7 @@
 stomme-ts-imports reads the module table in `stomme.toml` and checks TypeScript imports against it.
 It runs through [Vite Plus](https://viteplus.dev) on Node 24 and Bun 1.4.
 
-The package is public. The release publishes it to npm, and it is not on npm yet.
+The package is public. The release publishes it to npm.
 
 ## Module table
 
@@ -12,7 +12,7 @@ The package is public. The release publishes it to npm, and it is not on npm yet
 
 ```toml
 schema = 1
-version = "0.2.3"
+version = "0.2.4"
 language = "typescript"
 
 [modules.errors]
