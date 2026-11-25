@@ -326,15 +326,16 @@ jobs:
             // keeps its single checkpoint marker.
             const start = '<!-- ocr-coverage:start -->';
             const end = '<!-- ocr-coverage:end -->';
-            // A marker only counts on a line of its own. A path or reason that
-            // the coverage section renders can quote the marker, and it never
-            // sits alone on a line.
-            const markerAt = (text, marker, from) => {
+            // A marker only counts on a line of its own, ignoring trailing
+            // whitespace and a CRLF ending. A path or reason that the coverage
+            // section renders can quote the marker, and it never sits alone on
+            // a line.
+            const markerLineAt = (text, marker, from) => {
               let at = text.indexOf(marker, from);
               while (at !== -1) {
                 const lineStart = at === 0 || text[at - 1] === '\n';
-                const after = at + marker.length;
-                const lineEnd = after === text.length || text[after] === '\n';
+                const rest = text.slice(at + marker.length);
+                const lineEnd = /^[ \t]*(\r?\n|$)/.test(rest);
                 if (lineStart && lineEnd) {
                   return at;
                 }
@@ -348,8 +349,8 @@ jobs:
             const verdict = process.env.COVERAGE_VERDICT || 'failed';
             const block = `${start}\n<!-- stomme-ocr-coverage-verdict: ${verdict} head=${head} -->\n${coverage}\n${end}`;
             let body = comment.body || '';
-            const startAt = markerAt(body, start, 0);
-            const endAt = startAt === -1 ? -1 : markerAt(body, end, startAt + start.length);
+            const startAt = markerLineAt(body, start, 0);
+            const endAt = startAt === -1 ? -1 : markerLineAt(body, end, startAt + start.length);
             if (startAt !== -1 && endAt !== -1) {
               body = body.slice(0, startAt) + block + body.slice(endAt + end.length);
             } else {
@@ -401,15 +402,16 @@ jobs:
             });
             const start = '<!-- ocr-coverage:start -->';
             const end = '<!-- ocr-coverage:end -->';
-            // A marker only counts on a line of its own. A path or reason that
-            // the coverage section renders can quote the marker, and it never
-            // sits alone on a line.
-            const markerAt = (text, marker, from) => {
+            // A marker only counts on a line of its own, ignoring trailing
+            // whitespace and a CRLF ending. A path or reason that the coverage
+            // section renders can quote the marker, and it never sits alone on
+            // a line.
+            const markerLineAt = (text, marker, from) => {
               let at = text.indexOf(marker, from);
               while (at !== -1) {
                 const lineStart = at === 0 || text[at - 1] === '\n';
-                const after = at + marker.length;
-                const lineEnd = after === text.length || text[after] === '\n';
+                const rest = text.slice(at + marker.length);
+                const lineEnd = /^[ \t]*(\r?\n|$)/.test(rest);
                 if (lineStart && lineEnd) {
                   return at;
                 }
@@ -418,8 +420,8 @@ jobs:
               return -1;
             };
             const body = (comment && comment.body) || '';
-            const startAt = markerAt(body, start, 0);
-            const endAt = startAt === -1 ? -1 : markerAt(body, end, startAt + start.length);
+            const startAt = markerLineAt(body, start, 0);
+            const endAt = startAt === -1 ? -1 : markerLineAt(body, end, startAt + start.length);
             if (startAt === -1 || endAt === -1) {
               core.warning('The summary comment of the checkpointed head has no coverage section.');
               core.setOutput('verdict', 'missing');

@@ -1468,6 +1468,27 @@ fn coverage_replaces_the_whole_section_around_a_quoted_end_marker() {
 }
 
 #[test]
+fn coverage_replaces_a_section_that_ends_with_trailing_whitespace() {
+    let coverage = Coverage::new();
+    let observation = coverage.run(CoverageRun {
+        coverage: Some("Covered: src/lib.rs"),
+        comment: Some(
+            "<!-- ocr-summary -->\r\n<!-- ocr-coverage:start -->\r\nold\r\n<!-- ocr-coverage:end -->  \r\nSummary",
+        ),
+        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        ..CoverageRun::default()
+    });
+
+    let expected = format!(
+        "<!-- ocr-summary -->\r\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->  \r\nSummary",
+        verdict_line(HEAD_SHA, "complete")
+    );
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.updated.as_deref(), Some(expected.as_str()));
+}
+
+#[test]
 fn coverage_names_the_verdict_and_head_of_the_run() {
     let coverage = Coverage::new();
     let cases = [("partial", HEAD_SHA, "partial"), ("", OTHER_HEAD, "failed")];
@@ -1964,7 +1985,15 @@ fn checkpointed_coverage_reads_a_section_that_quotes_the_end_marker() {
             "a marker below the section",
             format!("{section}\n{findings}"),
         ),
+        (
+            "a section that ends with trailing whitespace",
+            format!("{section}  \nSummary text"),
+        ),
     ];
+    let expected = format!(
+        "{}\n### Review coverage\n\n{quoted}",
+        verdict_line(HEAD_SHA, "complete")
+    );
 
     for (name, body) in cases {
         let observation = checkpoint.run(Some(&body));
@@ -1976,12 +2005,11 @@ fn checkpointed_coverage_reads_a_section_that_quotes_the_end_marker() {
             "{name}: {}",
             observation.warnings
         );
-
-        let summary = observation
-            .summary
-            .expect("the section goes to the job summary");
-
-        assert!(summary.contains(quoted), "{name}: {summary}");
+        assert_eq!(
+            observation.summary.as_deref(),
+            Some(expected.as_str()),
+            "{name}: the section stops at its own end marker"
+        );
     }
 }
 
