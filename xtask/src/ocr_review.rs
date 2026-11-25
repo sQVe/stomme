@@ -1468,24 +1468,44 @@ fn coverage_replaces_the_whole_section_around_a_quoted_end_marker() {
 }
 
 #[test]
-fn coverage_replaces_a_section_that_ends_with_trailing_whitespace() {
+fn coverage_replaces_a_section_whose_marker_line_ends_with_whitespace() {
     let coverage = Coverage::new();
-    let observation = coverage.run(CoverageRun {
-        coverage: Some("Covered: src/lib.rs"),
-        comment: Some(
-            "<!-- ocr-summary -->\r\n<!-- ocr-coverage:start -->\r\nold\r\n<!-- ocr-coverage:end -->  \r\nSummary",
+    let cases = [
+        (
+            "a CRLF body",
+            "<!-- ocr-summary -->\r\n<!-- ocr-coverage:start -->\r\nold\r\n<!-- ocr-coverage:end -->\r\nSummary",
+            "<!-- ocr-summary -->\r\n",
+            "\r\nSummary",
         ),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
-        ..CoverageRun::default()
-    });
+        (
+            "trailing whitespace after the end marker",
+            "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\nold\n<!-- ocr-coverage:end -->  \nSummary",
+            "<!-- ocr-summary -->\n",
+            "  \nSummary",
+        ),
+    ];
 
-    let expected = format!(
-        "<!-- ocr-summary -->\r\n<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->  \r\nSummary",
-        verdict_line(HEAD_SHA, "complete")
-    );
+    for (name, comment, head, tail) in cases {
+        let observation = coverage.run(CoverageRun {
+            coverage: Some("Covered: src/lib.rs"),
+            comment: Some(comment),
+            first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+            ..CoverageRun::default()
+        });
 
-    assert_eq!(observation.exit, 0);
-    assert_eq!(observation.updated.as_deref(), Some(expected.as_str()));
+        let block = format!(
+            "<!-- ocr-coverage:start -->\n{}\nCovered: src/lib.rs\n<!-- ocr-coverage:end -->",
+            verdict_line(HEAD_SHA, "complete")
+        );
+        let expected = format!("{head}{block}{tail}");
+
+        assert_eq!(observation.exit, 0, "{name}");
+        assert_eq!(
+            observation.updated.as_deref(),
+            Some(expected.as_str()),
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -1968,7 +1988,7 @@ fn a_no_op_run_fails_with_a_failed_coverage_section() {
 }
 
 #[test]
-fn checkpointed_coverage_reads_a_section_that_quotes_the_end_marker() {
+fn checkpointed_coverage_reads_the_section_up_to_its_own_end_marker() {
     let checkpoint = CheckpointedCoverage::new();
     let quoted = "- `src/<!-- ocr-coverage:end -->.rs`: `unknown`, `no coverage record`";
     let section = format!(
