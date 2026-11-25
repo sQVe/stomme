@@ -13,13 +13,13 @@ pub(crate) enum WalkError {
 
 pub(crate) struct Files<'a> {
     root: &'a Path,
-    skip: &'a str,
+    skip: &'a [&'a str],
     pending: Option<PathBuf>,
     folders: Vec<(PathBuf, fs::ReadDir)>,
     done: bool,
 }
 
-pub(crate) fn files<'a>(root: &'a Path, skip: &'a str) -> Files<'a> {
+pub(crate) fn files<'a>(root: &'a Path, skip: &'a [&'a str]) -> Files<'a> {
     Files {
         root,
         skip,
@@ -80,7 +80,7 @@ impl Iterator for Files<'_> {
                 }));
             };
 
-            if relative == self.skip {
+            if self.skip.contains(&relative.as_str()) {
                 continue;
             }
 
@@ -177,7 +177,7 @@ mod tests {
         fs::write(root.path().join("docs/stomme/layers/two.md"), "two\n").expect("write a file");
         fs::write(root.path().join("docs/stomme/.sync-record.toml"), "").expect("write the record");
 
-        let mut found = files(root.path(), "docs/stomme/.sync-record.toml")
+        let mut found = files(root.path(), &["docs/stomme/.sync-record.toml"])
             .collect::<Result<Vec<_>, _>>()
             .expect("walk the synced tree");
 
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn files_reports_a_missing_synced_folder() {
         let root = tempfile::tempdir().expect("create a temporary directory");
-        let mut files = files(root.path(), ".sync-record.toml");
+        let mut files = files(root.path(), &[".sync-record.toml"]);
 
         let error = files
             .next()
@@ -219,7 +219,7 @@ mod tests {
         fs::set_permissions(&folder, fs::Permissions::from_mode(0o000))
             .expect("make the folder unreadable");
 
-        let error = files(root.path(), ".sync-record.toml")
+        let error = files(root.path(), &[".sync-record.toml"])
             .find_map(Result::err)
             .expect("the walk reports the unreadable folder");
 

@@ -217,6 +217,9 @@ fn sync_with_an_invalid_package_json_writes_nothing() {
         matches!(error, SyncError::PackageManifest { .. }),
         "{error:?}"
     );
-    assert!(!root.path().join("docs/stomme").exists());
+
+    let entries = fs::read_dir(root.path().join("docs/stomme")).expect("read the synced folder");
+
+    assert_eq!(entries.count(), 1, "the run writes only its lock file");
     assert!(!root.path().join(crate::sync::RECORD_FILE).exists());
 }

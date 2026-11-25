@@ -278,7 +278,7 @@ fn check_extra_files(
     known: &BTreeSet<&str>,
     problems: &mut Vec<Problem>,
 ) -> anyhow::Result<()> {
-    for item in synced_tree::files(root, RECORD_FILE) {
+    for item in synced_tree::files(root, &[RECORD_FILE, sync::LOCK_FILE]) {
         let relative = match item {
             Ok(relative) => relative,
             Err(WalkError::Read { path, source } | WalkError::MissingRoot { path, source }) => {

@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use tempfile::TempDir;
 
@@ -118,6 +121,11 @@ fn collect_files(root: &Path, folder: &Path, files: &mut BTreeMap<String, Vec<u8
     for entry in fs::read_dir(folder).expect("read a folder") {
         let entry = entry.expect("read a folder entry");
         let path = entry.path();
+
+        // The lock file is stomme's own bookkeeping, like the record.
+        if entry.file_name() == LOCK_NAME {
+            continue;
+        }
 
         if entry.file_type().expect("read the file type").is_dir() {
             collect_files(root, &path, files);
@@ -741,6 +749,61 @@ fn sync_keeps_a_stale_staging_file_when_it_refuses() {
         "{error:?}"
     );
     assert_eq!(snapshot(root.path()), before);
+}
+
+#[test]
+fn sync_waits_for_a_run_that_holds_the_lock() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+    add_project_rule(root.path());
+
+    let lock = root.path().join("docs/stomme/.sync-lock");
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock)
+        .expect("open the lock file");
+
+    held.lock().expect("take the lock");
+
+    let staging = root
+        .path()
+        .join("docs/stomme/shared")
+        .join(format!("{STAGING_PREFIX}4242.0.coding.md"));
+
+    fs::write(&staging, "partial\n").expect("write the live staging file");
+
+    let path = root.path().to_path_buf();
+    let (done, done_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        done.send(sync_project(&path)).expect("send the result");
+    });
+
+    assert!(
+        done_rx.recv_timeout(Duration::from_secs(1)).is_err(),
+        "the second run finished while another run held the lock"
+    );
+    assert!(
+        staging.exists(),
+        "the second run removed a live staging file"
+    );
+
+    drop(held);
+
+    let result = done_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the second run finishes once the lock is free");
+
+    result.expect("the second sync succeeds");
+    worker.join().expect("the sync thread joins");
+
+    assert!(
+        !staging.exists(),
+        "the second run removes the staging file after the wait"
+    );
 }
 
 #[test]

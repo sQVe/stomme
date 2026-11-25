@@ -35,6 +35,8 @@ pub(crate) fn run(directory: &Path, catalog: &Catalog) -> Result<(), GuidesError
     owned::validate_links(&files)?;
     check_directory(directory)?;
 
+    let label = directory.join(sync::LOCK_NAME).display().to_string();
+    let _lock = sync::Lock::acquire(directory, &label)?;
     let record = Record::read_file(&directory.join(BUNDLE_RECORD), BUNDLE_RECORD)?;
     let plan = plan(directory, &files, record.as_ref())?;
 
