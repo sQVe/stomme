@@ -99,17 +99,20 @@ the token comes from the `MORPH_API_KEY` repository secret.
 - A selected file counts as reviewed when the record lists it as completed, or as reused from an
   earlier run of the same session. A failed or waived file counts as unreviewed. A file that the
   rules exclude was never selected, so it leaves no gap.
-- Only a budget-only partial review resumes, and it resumes once. OCR exits 0 for that partial and
-  nonzero for every other failure, so the workflow resumes only when OCR exits 0, the coverage
+- A budget-only partial review resumes once. A provider failure is retried with the same provider
+  and model, up to three attempts in total, because a provider error is a failure of the review
+  service and says nothing about the change. OCR exits 0 for the budget partial and nonzero for
+  every other failure, so the workflow resumes a budget partial only when OCR exits 0, the coverage
   command reports a partial review, and the result holds a session. The resume reviews only the
   unreviewed files. It uses the same range, rule file, provider, and model as the first run, and
   it passes no token budget, so the resumed run does not stop at the same budget again. The check
   fails when files stay unreviewed after the resume, because a pass would let a change merge with
   code that no one read.
-- A provider or other operational failure stops the review. The check fails with the failure's
-  reason, and the workflow never retries it with another model. A failed run, such as on a missing
-  secret or an unusable result, may keep the files it already recorded as reviewed; it needs a fix
-  to the setup, so the workflow does not resume it.
+- A provider failure that survives the retries fails the check with an error that names the provider
+  as the cause and lists the files it left unreviewed, so a reader can tell an outage from a problem
+  with the change. A failed run, such as on a missing secret or an unusable result, may keep the
+  files it already recorded as reviewed; it needs a fix to the setup, so the workflow does not
+  resume it.
 - The workflow classifies a resumed result whenever it holds usable JSON, even when the resume
   exits nonzero, and then fails the check with its reason. A missing or unusable resumed result is
   a failed run that keeps the first result's coverage.

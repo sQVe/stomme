@@ -41,6 +41,23 @@ const MIXED_RESULT: &str = r#"{
     }
   }
 }"#;
+const BUDGET_RESULT: &str = r#"{
+  "status": "partial",
+  "session_id": "session-1",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "partial",
+    "coverage": {
+      "selected": [{"item_id": "a", "path": "src/a.rs"}],
+      "completed": [],
+      "reused": [],
+      "failed": [{"item_id": "a", "path": "src/a.rs", "classification": "budget", "reason": "the token budget ran out"}],
+      "waived": [],
+      "excluded": []
+    }
+  }
+}"#;
+
 const TIMEOUT_RESULT: &str = r#"{
   "status": "failed",
   "session_id": "session-2",
@@ -94,7 +111,7 @@ exit 0
 "#;
 
 const OCR_FAKE: &str = r#"#!/bin/bash
-printf '%s\n' "$*" > "$OCR_ARGUMENTS"
+printf '%s\n' "$*" >> "$OCR_ARGUMENTS"
 body="${OCR_RESUME_BODY-}"
 if [ -z "$body" ]; then
   body='{"session_id":"session-1"}'
@@ -441,6 +458,12 @@ impl Observation {
         self.output.lines().any(|line| line == "post_resumed=true")
     }
 
+    fn resume_calls(&self) -> usize {
+        self.ocr_arguments
+            .as_deref()
+            .map_or(0, |arguments| arguments.lines().count())
+    }
+
     fn coverage_source(&self) -> Option<String> {
         last_output(&self.output, "coverage_source")
     }
@@ -606,12 +629,12 @@ fn workflow_skips_the_install_for_a_no_op_review() {
 }
 
 #[test]
-fn workflow_resumes_only_a_budget_partial() {
+fn workflow_retries_a_provider_failure() {
     let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
 
     assert!(classify.contains("if: steps.ocr.outputs.range_reason != 'same_head_noop'"));
-    assert!(classify.contains("if [ \"${OCR_EXIT_CODE:-}\" != \"0\" ]; then"));
-    assert!(classify.contains("if [ \"$final\" != \"2\" ]; then"));
+    assert!(classify.contains("MAX_ATTEMPTS=3"));
+    assert!(classify.contains("while resumable; do"));
     assert!(classify.contains("session_id=\"$(jq -r '.session_id // empty'"));
     assert!(!classify.contains("build-stomme"));
 }
@@ -931,43 +954,60 @@ fn classifier_warns_and_fails_a_partial_without_a_session() {
 }
 
 #[test]
-fn classifier_does_not_resume_a_provider_failure() {
+fn classifier_retries_a_provider_failure() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
         ocr_exit: Some(1),
         first: 2,
         result: Some(MIXED_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.final_status().as_deref(), Some("0"));
+    assert_eq!(observation.resume_calls(), 1);
+    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("complete"));
+    assert!(observation.post_resumed());
+    assert_eq!(observation.reason(), None);
+    assert!(
+        observation
+            .coverage
+            .expect("the resumed result writes coverage")
+            .contains("ocr-resume.json")
+    );
+}
+
+#[test]
+fn classifier_fails_a_provider_failure_that_survives_the_retries() {
+    let classifier = Classifier::new();
+    let reason = "the review provider could not review 1 file after 3 attempts: src/b.rs";
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 2,
+        result: Some(MIXED_RESULT),
+        resume: 1,
+        resumed: 2,
+        resume_result: Some(MIXED_RESULT),
         ..Run::default()
     });
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
-    assert!(!observation.resumed());
-    assert_eq!(
-        observation.ocr_arguments, None,
-        "a provider failure is never resumed"
-    );
-    assert_eq!(observation.reason().as_deref(), Some("provider"));
-    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
+    assert_eq!(observation.resume_calls(), 2, "the retries are bounded");
+    assert_eq!(observation.reason().as_deref(), Some(reason));
+    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
-    assert!(
-        observation
-            .coverage
-            .expect("the mixed result writes coverage")
-            .contains("ocr-result.json")
-    );
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
-        reason: "provider",
+        reason,
         ..Report::default()
     });
 
     assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review failed: provider"),
-        "{stdout}"
-    );
+    assert!(stdout.contains(reason), "{stdout}");
     assert!(stdout.contains("not reviewed"), "{stdout}");
 }
 
@@ -1110,14 +1150,19 @@ fn classifier_posts_a_partial_resume_that_exits_nonzero() {
         result: Some(SESSION_RESULT),
         resume: 1,
         resumed: 2,
-        resume_result: Some(MIXED_RESULT),
+        resume_result: Some(BUDGET_RESULT),
         ..Run::default()
     });
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
-    assert_eq!(observation.reason().as_deref(), Some("provider"));
+    assert_eq!(observation.reason().as_deref(), Some("budget"));
     assert!(observation.resumed());
+    assert_eq!(
+        observation.resume_calls(),
+        1,
+        "a budget partial resumes once"
+    );
     assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert!(
         observation.post_resumed(),
@@ -1133,7 +1178,7 @@ fn classifier_posts_a_partial_resume_that_exits_nonzero() {
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
-        reason: "provider",
+        reason: "budget",
         ..Report::default()
     });
 
