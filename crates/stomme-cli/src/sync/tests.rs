@@ -817,9 +817,14 @@ fn sync_refuses_a_record_naming_the_lock_file() {
     let error = sync_project(root.path()).expect_err("sync refuses");
 
     assert!(
-        matches!(error, SyncError::MalformedRecord { ref reason, .. } if reason.contains(".sync-lock")),
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref path, ref reason }
+                if path == RECORD_FILE && reason.contains(".sync-lock")
+        ),
         "{error:?}"
     );
+    assert!(!root.path().join("docs/stomme/shared").exists());
 }
 
 #[cfg(unix)]

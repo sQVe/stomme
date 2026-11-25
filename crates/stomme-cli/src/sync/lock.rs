@@ -22,7 +22,8 @@ impl Lock {
 
         let path = folder.join(LOCK_NAME);
 
-        // A stat failure leaves the open below to report it.
+        // The check is best effort: another process can still put a link here between the two
+        // calls, and a stat failure leaves the open below to report it.
         if let Ok(metadata) = fs::symlink_metadata(&path)
             && !metadata.is_file()
         {

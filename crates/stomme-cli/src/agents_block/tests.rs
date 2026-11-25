@@ -219,7 +219,7 @@ fn link_targets(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn sync_refuses_a_missing_block_link_target_and_writes_nothing() {
+fn sync_refuses_a_missing_block_link_target_and_writes_only_the_lock_file() {
     let original = "# Project\n";
     let root = project(Some(original));
 

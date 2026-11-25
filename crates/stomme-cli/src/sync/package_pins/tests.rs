@@ -196,7 +196,7 @@ fn sync_writes_pins_and_a_second_sync_changes_nothing() {
 }
 
 #[test]
-fn sync_with_an_invalid_package_json_writes_nothing() {
+fn sync_with_an_invalid_package_json_writes_only_the_lock_file() {
     let root = tempfile::tempdir().expect("create a temporary directory");
     let config = format!(
         "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n",
