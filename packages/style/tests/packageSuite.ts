@@ -487,8 +487,6 @@ export const behaviorTests: PackageTests = (context) => {
     const declaration = 'declare const gate: string;\n';
     const use = 'export const check = (): boolean => gate !== null;\n';
 
-    await context.caseFolder({ 'globals.d.ts': declaration }, onTestFinished);
-
     const together = await context.caseFolder(
       { 'globals.d.ts': declaration, 'use.ts': use },
       onTestFinished,
