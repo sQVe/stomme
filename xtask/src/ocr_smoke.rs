@@ -6,33 +6,14 @@ use anyhow::Context as _;
 use serde::Deserialize;
 use tempfile::TempDir;
 
+use crate::git_isolation::isolate_git;
+
 const USAGE: &str = "Usage:\n  cargo xtask ocr-smoke";
 
 const OCR_BINARY: &str = "node_modules/.bin/ocr";
 const RULES: &str = "docs/stomme/ocr-rules.json";
 const CUSTOM_RULE_SOURCE: &str = "Custom (--rule)";
 const COMMIT_DATE: &str = "2020-01-01T00:00:00Z";
-
-const REPOSITORY_VARIABLES: &[&str] = &[
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_COMMON_DIR",
-    "GIT_CONFIG",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_DIR",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_GRAFT_FILE",
-    "GIT_IMPLICIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_NAMESPACE",
-    "GIT_NO_REPLACE_OBJECTS",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_PREFIX",
-    "GIT_REPLACE_REF_BASE",
-    "GIT_SHALLOW_FILE",
-    "GIT_WORK_TREE",
-];
 
 const BASE_LIB: &str = "\
 pub fn add(left: i32, right: i32) -> i32 {
@@ -563,16 +544,6 @@ fn git_command(folder: &Path) -> Command {
     isolate_git(&mut command);
 
     command
-}
-
-fn isolate_git(command: &mut Command) {
-    for name in REPOSITORY_VARIABLES {
-        command.env_remove(name);
-    }
-
-    command
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1");
 }
 
 fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {

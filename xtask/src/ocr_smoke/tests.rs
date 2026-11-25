@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::git_isolation::REPOSITORY_VARIABLES;
 use crate::test_support::temporary_directory;
 
 fn ocr(root: &Path, home: &Path) -> Ocr {
