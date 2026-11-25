@@ -1431,6 +1431,43 @@ fn coverage_replaces_an_existing_block() {
 }
 
 #[test]
+fn coverage_replaces_the_whole_section_around_a_quoted_end_marker() {
+    let coverage = Coverage::new();
+    let fragment = "- `src/<!-- ocr-coverage:end -->.rs`: `unknown`, `no coverage record`";
+    let section = format!(
+        "<!-- ocr-coverage:start -->\n{}\n### Review coverage\n\n{fragment}\n<!-- ocr-coverage:end -->",
+        verdict_line(OTHER_HEAD, "partial")
+    );
+    let findings = format!("Findings name {fragment}");
+    let cases = [
+        ("a marker in the section", "Summary text"),
+        ("a marker below the section", findings.as_str()),
+    ];
+
+    for (name, after) in cases {
+        let comment = format!("<!-- ocr-summary -->\n{section}\n{after}");
+        let observation = coverage.run(CoverageRun {
+            coverage: Some(&format!("### Review coverage\n\n{fragment}")),
+            comment: Some(&comment),
+            first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+            verdict: "partial",
+            ..CoverageRun::default()
+        });
+
+        let expected = format!(
+            "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\n### Review coverage\n\n{fragment}\n<!-- ocr-coverage:end -->\n{after}",
+            verdict_line(HEAD_SHA, "partial")
+        );
+
+        assert_eq!(
+            observation.updated.as_deref(),
+            Some(expected.as_str()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn coverage_names_the_verdict_and_head_of_the_run() {
     let coverage = Coverage::new();
     let cases = [("partial", HEAD_SHA, "partial"), ("", OTHER_HEAD, "failed")];
@@ -1907,6 +1944,45 @@ fn a_no_op_run_fails_with_a_failed_coverage_section() {
     assert_eq!(exit, 1);
     assert!(stdout.contains("failed run"), "{stdout}");
     assert!(stdout.contains("Push a new commit"), "{stdout}");
+}
+
+#[test]
+fn checkpointed_coverage_reads_a_section_that_quotes_the_end_marker() {
+    let checkpoint = CheckpointedCoverage::new();
+    let quoted = "- `src/<!-- ocr-coverage:end -->.rs`: `unknown`, `no coverage record`";
+    let section = format!(
+        "<!-- ocr-summary -->\n<!-- ocr-summary-run: 123 -->\n<!-- ocr-coverage:start -->\n{}\n### Review coverage\n\n{quoted}\n<!-- ocr-coverage:end -->",
+        verdict_line(HEAD_SHA, "complete")
+    );
+    let findings = format!("Findings name {quoted}");
+    let cases = [
+        (
+            "a marker in the section",
+            format!("{section}\nSummary text"),
+        ),
+        (
+            "a marker below the section",
+            format!("{section}\n{findings}"),
+        ),
+    ];
+
+    for (name, body) in cases {
+        let observation = checkpoint.run(Some(&body));
+
+        assert_eq!(observation.exit, 0, "{name}");
+        assert_eq!(
+            observation.verdict.as_deref(),
+            Some("complete"),
+            "{name}: {}",
+            observation.warnings
+        );
+
+        let summary = observation
+            .summary
+            .expect("the section goes to the job summary");
+
+        assert!(summary.contains(quoted), "{name}: {summary}");
+    }
 }
 
 #[test]
