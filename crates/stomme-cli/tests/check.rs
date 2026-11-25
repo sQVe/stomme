@@ -666,6 +666,26 @@ fn guides_writes_a_bundle_to_a_directory_that_is_not_utf8() {
     assert!(bundle.join("shared/coding.md").is_file());
 }
 
+#[cfg(unix)]
+#[test]
+fn guides_writes_to_an_absolute_directory_from_a_deleted_current_directory() {
+    let working = tempfile::tempdir().expect("create a temporary directory");
+    let destination = tempfile::tempdir().expect("create a temporary directory");
+    let bundle = destination.path().join("bundle");
+    let script = "cd \"$1\" && rm -rf \"$1\" && exec \"$2\" guides \"$3\"";
+
+    let output = Command::new("sh")
+        .args(["-c", script, "sh"])
+        .arg(working.path())
+        .arg(env!("CARGO_BIN_EXE_stomme"))
+        .arg(&bundle)
+        .output()
+        .expect("run stomme");
+
+    assert_eq!(output.status.code(), Some(0), "guides: {output:?}");
+    assert!(bundle.join("shared/coding.md").is_file());
+}
+
 #[test]
 fn guides_writes_a_bundle_without_stomme_toml() {
     let root = tempfile::tempdir().expect("create a temporary directory");

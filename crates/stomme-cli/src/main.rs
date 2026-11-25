@@ -1,6 +1,6 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context as _;
@@ -138,18 +138,12 @@ fn run_guides(directory: &Path) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let root = match env::current_dir().context("Could not read the current directory") {
-        Ok(root) => root,
+    let directory = match absolute_directory(directory) {
+        Ok(directory) => directory,
         Err(error) => {
             eprintln!("stomme: {error:#}");
             return ExitCode::FAILURE;
         }
-    };
-
-    let directory = if directory.is_absolute() {
-        directory.to_path_buf()
-    } else {
-        root.join(directory)
     };
 
     match guides::run(&directory, layer::catalog()) {
@@ -159,6 +153,16 @@ fn run_guides(directory: &Path) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn absolute_directory(directory: &Path) -> anyhow::Result<PathBuf> {
+    if directory.is_absolute() {
+        return Ok(directory.to_path_buf());
+    }
+
+    let root = env::current_dir().context("Could not read the current directory")?;
+
+    Ok(root.join(directory))
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
