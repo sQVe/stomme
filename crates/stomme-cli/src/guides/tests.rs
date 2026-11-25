@@ -20,12 +20,6 @@ fn collect(root: &Path, folder: &Path, files: &mut BTreeMap<String, Vec<u8>>) {
     for entry in fs::read_dir(folder).expect("read a folder") {
         let entry = entry.expect("read a folder entry");
         let path = entry.path();
-
-        // The lock file is stomme's own bookkeeping, like the record.
-        if entry.file_name() == sync::LOCK_NAME {
-            continue;
-        }
-
         let relative = path
             .strip_prefix(root)
             .expect("a file lies inside the root")
@@ -212,6 +206,7 @@ fn guides_refuses_a_non_regular_bundled_target() {
     let path = root.path().join("shared/coding.md");
 
     fs::create_dir_all(&path).expect("create a directory in place of a file");
+    fs::write(root.path().join(sync::LOCK_NAME), "").expect("write the lock file");
 
     let before = snapshot(root.path());
     let error = run(root.path(), layer::catalog()).expect_err("the run refuses");
@@ -336,7 +331,7 @@ fn guides_waits_for_a_run_that_holds_the_lock() {
         .write(true)
         .create(true)
         .truncate(false)
-        .open(root.path().join(".sync-lock"))
+        .open(root.path().join(sync::LOCK_NAME))
         .expect("open the lock file");
 
     held.lock().expect("take the lock");
@@ -349,15 +344,23 @@ fn guides_waits_for_a_run_that_holds_the_lock() {
     fs::write(&staging, "partial\n").expect("write the live staging file");
 
     let path = root.path().to_path_buf();
+    let (started, started_rx) = mpsc::channel();
     let (done, done_rx) = mpsc::channel();
     let worker = thread::spawn(move || {
+        started.send(()).expect("send the start");
         done.send(run(&path, layer::catalog()))
             .expect("send the result");
     });
 
-    assert!(
-        done_rx.recv_timeout(Duration::from_secs(1)).is_err(),
-        "the second run finished while another run held the lock"
+    started_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the second run starts");
+
+    let waited = done_rx.recv_timeout(Duration::from_secs(1));
+
+    assert_eq!(
+        waited.expect_err("the second run finished while another run held the lock"),
+        mpsc::RecvTimeoutError::Timeout
     );
     assert!(
         staging.exists(),

@@ -219,7 +219,20 @@ fn sync_with_an_invalid_package_json_writes_nothing() {
     );
 
     let entries = fs::read_dir(root.path().join("docs/stomme")).expect("read the synced folder");
+    let names: Vec<String> = entries
+        .map(|entry| {
+            entry
+                .expect("read an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
 
-    assert_eq!(entries.count(), 1, "the run writes only its lock file");
+    assert_eq!(
+        names,
+        [crate::sync::LOCK_NAME],
+        "the run writes no other file"
+    );
     assert!(!root.path().join(crate::sync::RECORD_FILE).exists());
 }

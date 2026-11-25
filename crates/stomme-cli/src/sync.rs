@@ -248,7 +248,7 @@ fn malformed(path: &str, reason: String) -> SyncError {
 }
 
 fn valid_key(key: &str) -> bool {
-    let reserved = key == ".sync-record.toml" || key == agents_block::PATH;
+    let reserved = key == ".sync-record.toml" || key == LOCK_NAME || key == agents_block::PATH;
     let clean = !key.starts_with('/')
         && !key
             .split('/')
@@ -270,8 +270,6 @@ fn sync(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<(), S
 }
 
 fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan, SyncError> {
-    check_parent_folders(root, RECORD_FILE)?;
-
     let record = Record::read(root)?;
 
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();

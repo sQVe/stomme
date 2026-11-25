@@ -169,15 +169,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn files_returns_relative_paths_and_skips_the_record() {
+    fn files_returns_relative_paths_and_skips_the_record_and_the_lock() {
         let root = tempfile::tempdir().expect("create a temporary directory");
 
         fs::create_dir_all(root.path().join("docs/stomme/layers")).expect("create a folder");
         fs::write(root.path().join("docs/stomme/one.md"), "one\n").expect("write a file");
         fs::write(root.path().join("docs/stomme/layers/two.md"), "two\n").expect("write a file");
         fs::write(root.path().join("docs/stomme/.sync-record.toml"), "").expect("write the record");
+        fs::write(root.path().join("docs/stomme/.sync-lock"), "").expect("write the lock file");
 
-        let mut found = files(root.path(), &["docs/stomme/.sync-record.toml"])
+        let skip = ["docs/stomme/.sync-record.toml", "docs/stomme/.sync-lock"];
+        let mut found = files(root.path(), &skip)
             .collect::<Result<Vec<_>, _>>()
             .expect("walk the synced tree");
 
