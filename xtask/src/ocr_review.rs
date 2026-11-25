@@ -1483,6 +1483,12 @@ fn coverage_replaces_a_section_whose_marker_line_ends_with_whitespace() {
             "<!-- ocr-summary -->\n",
             "  \nSummary",
         ),
+        (
+            "trailing whitespace before a CRLF ending",
+            "<!-- ocr-summary -->\r\n<!-- ocr-coverage:start -->\r\nold\r\n<!-- ocr-coverage:end -->  \r\nSummary",
+            "<!-- ocr-summary -->\r\n",
+            "  \r\nSummary",
+        ),
     ];
 
     for (name, comment, head, tail) in cases {
