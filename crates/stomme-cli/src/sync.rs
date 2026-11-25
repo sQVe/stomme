@@ -673,6 +673,14 @@ fn read_existing(root: &Path, path: &str) -> Result<Option<Vec<u8>>, SyncError> 
 }
 
 pub(crate) fn write_file(root: &Path, path: &str, content: &str) -> Result<(), SyncError> {
+    // Publishing an unchanged target would move its modification time, which file watchers report
+    // as a change.
+    let unchanged = read_existing(root, path)?.is_some_and(|bytes| bytes == content.as_bytes());
+
+    if unchanged {
+        return Ok(());
+    }
+
     let target = root.join(path);
 
     if let Some(parent) = target.parent() {

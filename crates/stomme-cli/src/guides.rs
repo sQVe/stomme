@@ -58,20 +58,7 @@ pub(crate) fn run(directory: &Path, catalog: &Catalog) -> Result<(), GuidesError
     };
     let text = toml::to_string(&record).expect("the bundle record serializes");
 
-    write_record(directory, &text)?;
-
-    Ok(())
-}
-
-fn write_record(directory: &Path, text: &str) -> Result<(), GuidesError> {
-    let path = directory.join(BUNDLE_RECORD);
-    let unchanged = fs::read(&path).is_ok_and(|bytes| bytes == text.as_bytes());
-
-    if unchanged {
-        return Ok(());
-    }
-
-    sync::write_file(directory, BUNDLE_RECORD, text)?;
+    sync::write_file(directory, BUNDLE_RECORD, &text)?;
 
     Ok(())
 }
