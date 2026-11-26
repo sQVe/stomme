@@ -1,0 +1,3 @@
+jobs:
+  lint:
+    uses: octo-org/tools/.github/workflows/lint.yml@v1

@@ -1,0 +1,3 @@
+jobs:
+  review:
+    uses: ./.github/workflows/ocr-review.yml

@@ -249,6 +249,48 @@ fn weakened_test_fail_fixture_reports_each_form() {
 }
 
 #[test]
+fn workflow_pin_fail_fixture_reports_each_form() {
+    let source = crate_path("tests/fixtures/rules/workflow-pin").join("fail");
+    let root = prepare_fixture(&source);
+    let problems = check::run(
+        root.path(),
+        layer::catalog(),
+        &check::TargetBranch::git("origin/main".to_string()),
+        &crate::config::FileRead::filesystem(),
+    )
+    .expect("check the fixture");
+    let version = env!("CARGO_PKG_VERSION");
+    let messages: BTreeSet<String> = problems
+        .iter()
+        .filter(|problem| problem.rule == Rule::WorkflowPin)
+        .map(|problem| problem.message.clone())
+        .collect();
+    let expected: BTreeSet<String> = [
+        "line 4: quotes the call to `ocr-review.yml`; write it unquoted so Renovate can move it"
+            .to_string(),
+        "line 7: calls `ocr-review.yml` through `sqve/stomme`; write `sQVe/stomme` so Renovate can move it"
+            .to_string(),
+        format!(
+            "line 10: calls `ocr-review.yml` by the moving name `v0.2.0`; pin the release commit of v{version} with `# v{version}`"
+        ),
+        format!(
+            "line 13: pins `ocr-review.yml` at a commit with no version comment; add `# v{version}`"
+        ),
+        format!(
+            "line 16: pins `ocr-review.yml` with the comment `# main at 961e6c7, before the next release`; pin a release commit with `# v{version}`"
+        ),
+        format!(
+            "line 19: pins `ocr-review.yml` at v9.9.9; `stomme.toml` has version {version}"
+        ),
+    ]
+    .into_iter()
+    .collect();
+
+    assert_eq!(messages.len(), 6);
+    assert_eq!(messages, expected);
+}
+
+#[test]
 fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
@@ -326,15 +368,35 @@ fn prepare_git_base(root: &Path) {
 fn rewrite_fixture_version(root: &Path) {
     let config = root.join("stomme.toml");
 
-    if !config.is_file() {
+    if config.is_file() {
+        let text = fs::read_to_string(&config).expect("read the fixture config");
+        let rewritten = crate::test_support::with_crate_version(&text);
+
+        if rewritten != text {
+            fs::write(&config, rewritten).expect("write the fixture config");
+        }
+    }
+
+    rewrite_fixture_workflow_versions(root);
+}
+
+fn rewrite_fixture_workflow_versions(root: &Path) {
+    let workflows = root.join(".github/workflows");
+
+    if !workflows.is_dir() {
         return;
     }
 
-    let text = fs::read_to_string(&config).expect("read the fixture config");
-    let rewritten = crate::test_support::with_crate_version(&text);
+    let version = env!("CARGO_PKG_VERSION");
 
-    if rewritten != text {
-        fs::write(&config, rewritten).expect("write the fixture config");
+    for entry in fs::read_dir(&workflows).expect("list the fixture workflows") {
+        let path = entry.expect("read a fixture workflow entry").path();
+        let text = fs::read_to_string(&path).expect("read the fixture workflow");
+        let rewritten = text.replace("# v0.0.0", &format!("# v{version}"));
+
+        if rewritten != text {
+            fs::write(&path, rewritten).expect("write the fixture workflow");
+        }
     }
 }
 

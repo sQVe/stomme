@@ -27,6 +27,7 @@ mod target_branch;
 mod test_support;
 mod violations;
 mod weakened;
+mod workflow_pins;
 
 pub(crate) use target_branch::{TargetBranch, default_reference};
 
@@ -114,6 +115,7 @@ pub(crate) fn run(
 
         problems.extend(roles::check(root, &selection.roles));
         problems.extend(layout::check(root, selection, catalog)?);
+        problems.extend(workflow_pins::check(root, &selection.version)?);
         problems = violations::apply(problems, &selection.violations);
         problems.extend(violations::growth(root, &selection.violations, target));
         problems.extend(weakened::check(root, target));

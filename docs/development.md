@@ -66,9 +66,9 @@
   that is not made from a release tag needs `STOMME_RELEASE_COMMIT` set to the commit of tag
   `v<version>`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
-- `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
-  candidate `stomme` binary against one project as its update would, and exits 1 only when an
-  adopted project fails.
+- `cargo xtask release-gate --stomme <binary> --version <candidate> --commit <sha> <project-folder>`
+  runs a candidate `stomme` binary against one project as its update would, moves the project's
+  stomme workflow calls to that commit, and exits 1 only when an adopted project fails.
 - `cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>`
   runs the candidate's `stomme init` in an empty folder and exits 1 unless the written sync and OCR
   workflows equal their common skeletons with `{{commit}}` and `{{version}}` replaced.
@@ -204,7 +204,8 @@ fails at the publish step, because it cannot create the package.
 
 A `v<version>` tag builds `stomme` with cargo-dist and publishes a GitHub Release. `CHANGELOG.md`
 holds the release notes, and `packages.toml` records the npm package versions compatible with that
-binary.
+binary. A merged change to `.github/workflows/ocr-review.yml` or `.github/workflows/sync-update.yml`
+is followed by a patch release, so a project can pin the release commit instead of a `main` commit.
 
 The release runs the gate jobs in `.github/workflows/release-gate.yml` before hosting. They run the
 candidate binary against every adopted project's `main` and against `release/consumer/`. An adopted

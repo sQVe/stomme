@@ -48,12 +48,23 @@ preset resolves the commit through the `github-releases` datasource, which looks
 the exact tag name, so the version keeps its `v` prefix. A `packageRules` entry with `pinDigests`
 adds the commit to a tag call that has none, for workflow files only.
 
+### Between two releases
+
+A project pins only a release commit, with a `# v<version>` comment whose version equals the
+`version` in its `stomme.toml`. It never pins a `main` commit, even for a fix it needs: a `main`
+commit skipped the release gate, and the workflow would run with a binary of another version. A
+merged change to a reusable workflow is followed by a patch release, so a project waits for that
+release, not for the next planned one. `stomme check` refuses every other form of a call to a
+reusable stomme workflow, and a call that names another version than `stomme.toml` (rule
+`workflow-pin`).
+
 ### The release gate
 
 Every release runs the candidate binary's `stomme init` in an empty folder and requires each written
 workflow, sync and OCR, to equal its common skeleton with `{{commit}}` and `{{version}}` replaced. A
 binary that embeds the wrong commit, or writes any other difference, fails before the release is
-hosted.
+hosted. Before it checks an adopted project, the gate moves the project's reusable stomme workflow
+calls to the tag commit with the candidate version, as the project's update does.
 
 ## Consequences
 
@@ -71,6 +82,7 @@ hosted.
   was recorded and no real commit is shown in the README.
 - A release build outside the tag context must set `STOMME_RELEASE_COMMIT`, or `stomme init`
   refuses.
+- A workflow fix needs a release before a project can use it.
 
 ## Alternatives considered
 
@@ -96,3 +108,14 @@ update leaves it further behind with no check.
 Ask GitHub for the tag's commit when `stomme init` runs. Rejected because it needs network access
 and a repository URL, and the result would depend on the tag at that moment instead of the release
 the binary came from.
+
+### Follow `main` commits with Renovate
+
+Point each call at a `main` commit and let Renovate follow new commits. Rejected because a `main`
+commit skipped the release gate, the workflow runs with a binary of another version, and every
+stomme merge would open a pull request in every project.
+
+### Version the workflows separately
+
+Give the workflows their own version and release train. Rejected because it needs a second release
+train and gate, and the workflow still picks a binary version.

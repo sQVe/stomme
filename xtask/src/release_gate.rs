@@ -10,7 +10,10 @@ use crate::release_check::{self, Outcome};
 
 const USAGE: &str = "\
 Usage:
-  cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>";
+  cargo xtask release-gate --stomme <binary> --version <candidate> --commit <sha> <project-folder>";
+
+const WORKFLOWS_PREFIX: &str = "sqve/stomme/.github/workflows/";
+const OWNER: &str = "sQVe/stomme";
 
 struct Runner {
     run: fn(binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<Output>,
@@ -42,6 +45,7 @@ enum ConfigError {
 struct Arguments {
     binary: PathBuf,
     version: String,
+    commit: String,
     folder: PathBuf,
 }
 
@@ -66,7 +70,13 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
         read: read_entry,
     };
 
-    match gate(&runner, &binary, &arguments.version, &folder) {
+    match gate(
+        &runner,
+        &binary,
+        &arguments.version,
+        &arguments.commit,
+        &folder,
+    ) {
         Ok(outcome) => release_check::print_report(&folder, &outcome),
         Err(error) => {
             eprintln!("{error:#}");
@@ -75,7 +85,13 @@ pub(crate) fn run(root: &Path, arguments: &[String]) -> ExitCode {
     }
 }
 
-fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow::Result<Outcome> {
+fn gate(
+    runner: &Runner,
+    binary: &Path,
+    version: &str,
+    commit: &str,
+    folder: &Path,
+) -> anyhow::Result<Outcome> {
     let config = folder.join("stomme.toml");
 
     if !is_adopted(runner, &config)? {
@@ -86,6 +102,7 @@ fn gate(runner: &Runner, binary: &Path, version: &str, folder: &Path) -> anyhow:
     }
 
     rewrite_pinned_version(runner, &config, folder, version)?;
+    rewrite_workflow_pins(folder, version, commit)?;
 
     let sync = run_tool(runner, binary, folder, &["sync"])?;
 
@@ -145,12 +162,17 @@ fn read_entry(path: &Path) -> io::Result<String> {
 
 fn parse_arguments(arguments: &[String]) -> Option<Arguments> {
     match arguments {
-        [stomme, binary, version, candidate, folder]
-            if stomme == "--stomme" && version == "--version" =>
+        [stomme, binary, version, candidate, commit, sha, folder]
+            if stomme == "--stomme" && version == "--version" && commit == "--commit" =>
         {
+            if !release_check::is_release_commit(sha) {
+                return None;
+            }
+
             Some(Arguments {
                 binary: PathBuf::from(binary),
                 version: candidate.clone(),
+                commit: sha.clone(),
                 folder: PathBuf::from(folder),
             })
         }
@@ -221,6 +243,142 @@ fn rewrite_top_level_version(text: &str, folder: &Path, version: &str) -> anyhow
         &text[..span.start],
         &text[span.end..]
     ))
+}
+
+fn rewrite_workflow_pins(folder: &Path, version: &str, commit: &str) -> anyhow::Result<()> {
+    for path in workflow_paths(folder)? {
+        let text = fs::read_to_string(&path)
+            .with_context(|| format!("Could not read {}", path.display()))?;
+        let rewritten = rewrite_workflow_calls(&text, version, commit);
+
+        if rewritten == text {
+            continue;
+        }
+
+        fs::write(&path, rewritten)
+            .with_context(|| format!("Could not write {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn workflow_paths(folder: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let github = folder.join(".github");
+
+    if is_symlink(&github) || !github.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let workflows = github.join("workflows");
+
+    if is_symlink(&workflows) || !workflows.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let entries = fs::read_dir(&workflows)
+        .with_context(|| format!("Could not read {}", workflows.display()))?;
+    let mut paths = Vec::new();
+
+    for entry in entries {
+        let entry =
+            entry.with_context(|| format!("Could not read an entry of {}", workflows.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("Could not inspect {}", entry.path().display()))?;
+
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+
+        if is_workflow_name(&name) {
+            paths.push(entry.path());
+        }
+    }
+
+    paths.sort();
+
+    Ok(paths)
+}
+
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+}
+
+fn is_workflow_name(name: &str) -> bool {
+    name.ends_with(".yml") || name.ends_with(".yaml")
+}
+
+fn rewrite_workflow_calls(text: &str, version: &str, commit: &str) -> String {
+    let mut rewritten = String::with_capacity(text.len());
+
+    for line in text.split_inclusive('\n') {
+        let (body, ending) = split_line_ending(line);
+
+        match rewrite_workflow_call(body, version, commit) {
+            Some(call) => rewritten.push_str(&call),
+            None => rewritten.push_str(body),
+        }
+
+        rewritten.push_str(ending);
+    }
+
+    rewritten
+}
+
+fn split_line_ending(line: &str) -> (&str, &str) {
+    let Some(body) = line.strip_suffix('\n') else {
+        return (line, "");
+    };
+
+    match body.strip_suffix('\r') {
+        Some(body) => (body, "\r\n"),
+        None => (body, "\n"),
+    }
+}
+
+fn rewrite_workflow_call(line: &str, version: &str, commit: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let indent = &line[..line.len() - trimmed.len()];
+    let (dash, trimmed) = match trimmed.strip_prefix('-') {
+        Some(rest) if rest.starts_with(char::is_whitespace) => ("- ", rest.trim_start()),
+        _ => ("", trimmed),
+    };
+    let rest = trimmed.strip_prefix("uses:")?;
+    let called = called_workflow(rest.trim());
+
+    if !called.to_ascii_lowercase().starts_with(WORKFLOWS_PREFIX) {
+        return None;
+    }
+
+    let workflow = called.rsplit('/').next().unwrap_or(called);
+    let call = format!("{OWNER}/.github/workflows/{workflow}@{commit} # v{version}");
+
+    Some(format!("{indent}{dash}uses: {call}"))
+}
+
+fn called_workflow(value: &str) -> &str {
+    let value = unquoted(value);
+    let value = value
+        .split_once(char::is_whitespace)
+        .map_or(value, |(value, _)| value);
+    let value = value.trim_end_matches(['"', '\'']);
+
+    value.split_once('@').map_or(value, |(called, _)| called)
+}
+
+fn unquoted(value: &str) -> &str {
+    for quote in ['"', '\''] {
+        let Some(rest) = value.strip_prefix(quote) else {
+            continue;
+        };
+
+        return rest.strip_suffix(quote).unwrap_or(rest);
+    }
+
+    value
 }
 
 #[cfg(test)]

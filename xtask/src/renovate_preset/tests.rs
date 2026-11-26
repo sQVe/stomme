@@ -292,6 +292,26 @@ fn workflow_manager_leaves_quoted_and_run_calls_alone() {
 }
 
 #[test]
+fn workflow_manager_ignores_a_main_comment() {
+    let preset = renovate_preset();
+    let manager = workflow_manager(&preset);
+
+    for (_, reference) in WORKFLOWS {
+        let line = format!(
+            "    uses: {reference}@{RELEASE_COMMIT} # main at 961e6c7, before the next release\n"
+        );
+
+        assert_eq!(matching_captures(manager, &line).len(), 0, "{line}");
+        assert_eq!(extract(manager, &line), None, "{line}");
+        assert_eq!(
+            rewrite(manager, &line, RELEASE_COMMIT, RELEASE_VERSION),
+            line,
+            "{line}"
+        );
+    }
+}
+
+#[test]
 fn workflow_manager_rewrites_both_workflows_in_one_file() {
     let preset = renovate_preset();
     let manager = workflow_manager(&preset);

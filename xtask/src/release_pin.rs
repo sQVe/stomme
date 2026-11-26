@@ -22,7 +22,6 @@ const WORKFLOWS: [(&str, &str); 2] = [
     ),
 ];
 const COMMIT_OVERRIDE: &str = "STOMME_RELEASE_COMMIT";
-const COMMIT_LENGTH: usize = 40;
 
 struct Runner {
     run: fn(binary: &Path, folder: &Path) -> io::Result<Output>,
@@ -240,7 +239,7 @@ fn parse_arguments(arguments: &[String]) -> Option<Arguments> {
         [stomme, binary, version, candidate, commit, sha, folder]
             if stomme == "--stomme" && version == "--version" && commit == "--commit" =>
         {
-            if !is_release_commit(sha) {
+            if !release_check::is_release_commit(sha) {
                 return None;
             }
 
@@ -253,14 +252,6 @@ fn parse_arguments(arguments: &[String]) -> Option<Arguments> {
         }
         _ => None,
     }
-}
-
-fn is_release_commit(value: &str) -> bool {
-    value.len() == COMMIT_LENGTH && value.bytes().all(is_commit_byte)
-}
-
-fn is_commit_byte(byte: u8) -> bool {
-    byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
 }
 
 #[cfg(test)]
