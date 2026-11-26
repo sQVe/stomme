@@ -11,6 +11,7 @@ const INDEX_FILE: &str = "README.md";
 const NUMBER_LENGTH: usize = 4;
 const MAX_BLOCK_INDENT: usize = 3;
 const INDENTED_CODE: usize = 4;
+const MAX_MARKER_SPACING: usize = 4;
 const TAB_WIDTH: usize = 4;
 const MAX_ORDERED_DIGITS: usize = 9;
 const BULLETS: [&str; 3] = ["- ", "* ", "+ "];
@@ -381,9 +382,15 @@ fn list_content_column(line: &Line) -> Option<usize> {
         .bytes()
         .take_while(|byte| *byte == b' ')
         .count();
-    let spaces = spaces.clamp(1, INDENTED_CODE);
+    // Five or more spaces after the marker start an indented code block in the item, so its
+    // content column is one space past the marker.
+    let spacing = if (1..=MAX_MARKER_SPACING).contains(&spaces) {
+        spaces
+    } else {
+        1
+    };
 
-    Some(line.indent + marker + spaces)
+    Some(line.indent + marker + spacing)
 }
 
 fn list_marker(content: &str) -> Option<usize> {

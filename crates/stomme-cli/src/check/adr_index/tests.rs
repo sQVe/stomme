@@ -491,6 +491,10 @@ fn check_reports_an_index_link_inside_indented_code_in_a_list() {
             "four spaces below a heading that ends the list",
             "- Topic\n\n ### Group\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
         ),
+        (
+            "five spaces after the bullet",
+            "-     Topic\n\n      - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
     ];
 
     for (case, replacement) in cases {
