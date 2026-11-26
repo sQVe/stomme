@@ -103,12 +103,15 @@ jobs:
           }
 
           # A provider error is a service failure, not a finding about the
-          # change. A run failure is not retried.
+          # change. It is retried only when every unreviewed file failed that
+          # way, so a run failure or another classification is reported at once.
           provider_failure() {
             [ -f "$1" ] || return 1
             jq -e '
               (.manifest.run_failure == null)
-              and ([.manifest.coverage.failed[]? | select(.classification == "provider")] | length > 0)
+              and ([.manifest.coverage.failed[]?] | length > 0)
+              and ([.manifest.coverage.failed[]? | select(.classification != "provider")] | length == 0)
+              and ([.manifest.coverage.waived[]?] | length == 0)
             ' "$1" > /dev/null 2>&1
           }
 
@@ -145,6 +148,7 @@ jobs:
           reason_file=/tmp/ocr-result.json
           attempts=1
           resumes=0
+          classified=0
           final=0
           posted=0
           ocr_exit="${OCR_EXIT_CODE:-}"
@@ -152,6 +156,9 @@ jobs:
           if [ -f "$result" ]; then
             "$STOMME" ocr-coverage "$result" \
               > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || final=$?
+            if [ -s /tmp/ocr-coverage.md ]; then
+              classified=1
+            fi
           else
             final=1
           fi
@@ -178,14 +185,13 @@ jobs:
           fi
 
           # A budget partial is resumed once, because its budget is spent. A
-          # provider failure is retried until the attempts run out. Only a
-          # partial review is resumed, so a failed run or an unusable result
-          # still needs a fix to the setup.
+          # provider failure is retried until the attempts run out. A result
+          # that the coverage command rejects is never resumed.
           resumable() {
             if [ -z "$session_id" ]; then
               return 1
             fi
-            if [ "$final" != "2" ]; then
+            if [ "$classified" != "1" ]; then
               return 1
             fi
             if provider_failure "$result"; then
@@ -194,7 +200,7 @@ jobs:
               fi
               return 0
             fi
-            if [ "$ocr_exit" != "0" ] || [ "$resumes" != "0" ]; then
+            if [ "$final" != "2" ] || [ "$ocr_exit" != "0" ] || [ "$resumes" != "0" ]; then
               return 1
             fi
             return 0
@@ -240,6 +246,7 @@ jobs:
 
             result=/tmp/ocr-resume.json
             final="$resumed"
+            classified=1
             posted=1
             mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
             mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
@@ -268,7 +275,7 @@ jobs:
             exit 0
           fi
 
-          if provider_failure "$result"; then
+          if [ "$classified" = "1" ] && provider_failure "$result"; then
             reason="$(provider_reason "$result" "$attempts")"
           else
             reason="$(failure_reason "$reason_file")"

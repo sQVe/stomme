@@ -110,9 +110,11 @@ the token comes from the `MORPH_API_KEY` repository secret.
   after the resume, because a pass would let a change merge with code that no one read.
 - A provider failure that survives the retries fails the check with an error that names the provider
   as the cause and lists the files it left unreviewed, so a reader can tell an outage from a problem
-  with the change. A failed run, such as on a missing secret or an unusable result, may keep the
-  files it already recorded as reviewed; it needs a fix to the setup, so the workflow does not
-  resume it.
+  with the change.
+- Only a result that `stomme ocr-coverage` classifies is retried, and only when every unreviewed file
+  failed on the provider. A result the command rejects, a run failure, or another classification is
+  reported at once: it needs a fix to the setup, so the workflow does not resume it. A failed run
+  may keep the files it already recorded as reviewed.
 - The workflow classifies a resumed result whenever it holds usable JSON, even when the resume
   exits nonzero, and then fails the check with its reason. A missing or unusable resumed result is
   a failed run: the check fails with that attempt's reason, the coverage stays the last usable one,

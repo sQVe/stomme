@@ -113,6 +113,12 @@ case "$2" in
       exit 1
     fi
     ;;
+  *ocr-result.json)
+    if [ "${STOMME_FIRST_UNUSABLE:-}" = "1" ]; then
+      echo "stomme: $2 is not a usable OCR result" >&2
+      exit 1
+    fi
+    ;;
 esac
 echo "coverage from $2"
 if [ -n "${STOMME_STDERR_LINE:-}" ]; then
@@ -428,6 +434,7 @@ struct Run<'a> {
     resumed: i32,
     resume_result: Option<&'a str>,
     resume_unusable: bool,
+    first_unusable: bool,
     stderr_line: Option<&'a str>,
 }
 
@@ -441,6 +448,7 @@ impl Default for Run<'_> {
             resumed: 0,
             resume_result: None,
             resume_unusable: false,
+            first_unusable: false,
             stderr_line: None,
         }
     }
@@ -562,6 +570,10 @@ impl Classifier {
 
         if run.resume_unusable {
             command.env("STOMME_RESUME_UNUSABLE", "1");
+        }
+
+        if run.first_unusable {
+            command.env("STOMME_FIRST_UNUSABLE", "1");
         }
 
         if let Some(line) = run.stderr_line {
@@ -1054,7 +1066,7 @@ fn classifier_does_not_retry_a_failed_run() {
 }
 
 #[test]
-fn classifier_does_not_retry_a_failed_run_with_a_provider_failure() {
+fn classifier_retries_a_failed_run_whose_files_all_failed_on_the_provider() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
         ocr_exit: Some(1),
@@ -1064,15 +1076,29 @@ fn classifier_does_not_retry_a_failed_run_with_a_provider_failure() {
         ..Run::default()
     });
 
+    assert_eq!(observation.final_status().as_deref(), Some("0"));
+    assert_eq!(observation.resume_calls(), 1);
+    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
+    assert!(observation.post_resumed());
+}
+
+#[test]
+fn classifier_does_not_retry_a_result_the_coverage_command_rejects() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(FAILED_PROVIDER_RESULT),
+        first_unusable: true,
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
     assert_eq!(observation.final_status().as_deref(), Some("1"));
     assert_eq!(
         observation.resume_calls(),
         0,
-        "a failed run is not retried, even when every failure is the provider's"
-    );
-    assert_eq!(
-        observation.reason().as_deref(),
-        Some("the review provider could not review 1 file after 1 attempt: src/a.rs")
+        "an unclassified result is not retried"
     );
 }
 
