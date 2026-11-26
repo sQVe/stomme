@@ -19,12 +19,13 @@ pub(crate) struct UnfencedLine<'a> {
 
 // A heading and a fence both belong to the container they appear in, so their indentation is read
 // from the content column of the enclosing list item, not from the start of the line.
-pub(crate) fn unfenced_lines(text: &str) -> Vec<UnfencedLine<'_>> {
+pub(crate) fn unfenced_lines<'a>(
+    lines: impl Iterator<Item = &'a str>,
+) -> impl Iterator<Item = UnfencedLine<'a>> {
     let mut containers = Containers::new();
     let mut fence: Option<OpenFence> = None;
-    let mut lines = Vec::new();
 
-    for (index, raw) in text.lines().enumerate() {
+    lines.enumerate().filter_map(move |(index, raw)| {
         let view = containers.view(raw);
 
         if let Some(open) = &fence {
@@ -37,12 +38,12 @@ pub(crate) fn unfenced_lines(text: &str) -> Vec<UnfencedLine<'_>> {
             }
 
             if !container_ended {
-                continue;
+                return None;
             }
         }
 
         if view.relative >= INDENTED_CODE {
-            continue;
+            return None;
         }
 
         if let Some(open) = opening_fence(view.content) {
@@ -50,14 +51,13 @@ pub(crate) fn unfenced_lines(text: &str) -> Vec<UnfencedLine<'_>> {
                 fence: open,
                 depth: view.depth,
             });
-            continue;
+            return None;
         }
 
         containers.open_list_item(&view);
-        lines.push(UnfencedLine { index, view });
-    }
 
-    lines
+        Some(UnfencedLine { index, view })
+    })
 }
 
 // A list item holds its content at a fixed column. Reading a line against the open items tells

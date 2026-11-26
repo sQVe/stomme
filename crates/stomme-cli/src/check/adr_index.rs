@@ -261,8 +261,7 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 }
 
 fn heading_line(text: &str) -> Option<&str> {
-    unfenced_lines(text)
-        .into_iter()
+    unfenced_lines(text.lines())
         .find(|line| line.view.relative <= MAX_BLOCK_INDENT && line.view.content.starts_with('#'))
         .map(|line| line.view.content)
 }

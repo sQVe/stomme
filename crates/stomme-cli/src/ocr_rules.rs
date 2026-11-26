@@ -412,7 +412,7 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut blocks = Vec::new();
 
-    for (index, marker_role, content) in marked_lines(text) {
+    for (index, marker_role, content) in marked_lines(&lines) {
         if marker_role == role {
             blocks.push(block_text(&lines, index, content));
         }
@@ -421,11 +421,10 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     blocks
 }
 
-fn marked_lines(text: &str) -> Vec<(usize, &str, &str)> {
-    let lines: Vec<&str> = text.lines().collect();
+fn marked_lines<'a>(lines: &[&'a str]) -> Vec<(usize, &'a str, &'a str)> {
     let mut markers = Vec::new();
 
-    for line in unfenced_lines(text) {
+    for line in unfenced_lines(lines.iter().copied()) {
         if let Some((role, content)) = marker(lines[line.index]) {
             markers.push((line.index, role, content));
         }
@@ -492,7 +491,7 @@ pub(crate) fn without_marked_blocks(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut dropped = vec![false; lines.len()];
 
-    for (index, _, _) in marked_lines(text) {
+    for (index, _, _) in marked_lines(&lines) {
         let start = block_start(&lines, index);
 
         for flag in &mut dropped[start..=index] {
