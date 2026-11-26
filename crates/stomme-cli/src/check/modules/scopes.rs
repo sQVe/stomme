@@ -8,6 +8,7 @@ use super::use_paths::{
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Scope {
+    pub(super) keeps_exports: bool,
     pub(super) inline_path: Vec<String>,
     pub(super) inline_modules: BTreeSet<String>,
     pub(super) public_modules: BTreeSet<String>,
@@ -22,6 +23,7 @@ impl Scope {
 
     fn inline(inline_path: Vec<String>) -> Self {
         Self {
+            keeps_exports: true,
             inline_path,
             inline_modules: BTreeSet::new(),
             public_modules: BTreeSet::new(),

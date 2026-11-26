@@ -1333,6 +1333,44 @@ fn a_value_export_does_not_hide_a_glob_module_of_the_same_name() {
     );
 }
 
+#[test]
+fn an_unresolved_export_hides_the_glob_module_of_the_same_name() {
+    let root = alias_project(
+        "pub use serde::de as thing;\npub use modules::*;\nmod modules;\n",
+        &[
+            ("src/fact/modules.rs", "pub mod thing;\n"),
+            ("src/fact/modules/thing.rs", "pub fn helper() {}\n"),
+        ],
+        "",
+        "use crate::fact::thing::helper;\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_eq!(problems, Vec::<Problem>::new(), "unresolved export");
+}
+
+#[test]
+fn a_private_files_export_hides_its_own_glob_module() {
+    let files = [
+        ("src/fact.rs", "mod hidden;\npub use hidden::*;\n"),
+        (
+            "src/fact/hidden.rs",
+            "pub use alias as x;\npub use globber::*;\n",
+        ),
+        ("src/fact/hidden/alias.rs", "pub fn helper() {}\n"),
+        ("src/fact/hidden/globber.rs", "pub mod x;\n"),
+        ("src/fact/hidden/globber/x.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", "use crate::fact::x::helper;\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\npublic = [\"src/fact/hidden/alias.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_eq!(problems, Vec::<Problem>::new(), "private file export");
+}
+
 fn problems_within_timeout(
     name: &str,
     fact_entry: String,

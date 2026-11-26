@@ -19,7 +19,10 @@ struct Place {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Meaning {
     Module(Place),
+    // A name bound inside a file the walk reached, which names no module.
     Item,
+    // A name whose target lies outside the tree, so it may still name a module.
+    Unresolved,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -147,11 +150,11 @@ impl<'a> Resolver<'a> {
         }
 
         let open = walk.enter(pair);
-        let (mut meanings, exports_module) = self.export_meanings(place, scope, name, walk);
+        let (mut meanings, shadows_glob) = self.export_meanings(place, scope, name, walk);
 
-        // A value and a module share a name in separate namespaces, so only an export of the
-        // module itself hides the module a glob binds.
-        if children.is_empty() && !exports_module {
+        // A value and a module share a name in separate namespaces, so only an export that may
+        // name the module hides the module a glob binds.
+        if children.is_empty() && !shadows_glob {
             meanings.extend(self.glob_meanings(place, scope, name, walk));
         }
 
@@ -167,13 +170,14 @@ impl<'a> Resolver<'a> {
 
     fn binds_publicly(&self, module: &Module, place: &Place, name: &str) -> bool {
         if !place.path.starts_with(&module.path) {
-            return is_module(&ancestor_step(module, place, name));
+            return may_name_module(&ancestor_step(module, place, name));
         }
 
         let Some(scope) = self.scope(module, &place.path) else {
             return false;
         };
-        let exported = scope.exports.iter().any(|export| export.name == name);
+        let exported =
+            scope.keeps_exports && scope.exports.iter().any(|export| export.name == name);
 
         exported || !scope.globs.is_empty() || scope.public_modules.contains(name)
     }
@@ -186,14 +190,21 @@ impl<'a> Resolver<'a> {
         walk: &mut Walk,
     ) -> (BTreeSet<Meaning>, bool) {
         let mut meanings = BTreeSet::new();
+        let mut shadows_glob = false;
 
         for export in scope.exports.iter().filter(|export| export.name == name) {
-            meanings.extend(self.resolve_target(place, &export.target, walk));
+            if !scope.keeps_exports {
+                shadows_glob = true;
+
+                continue;
+            }
+
+            let found = self.resolve_target(place, &export.target, walk);
+            shadows_glob |= may_name_module(&found);
+            meanings.extend(found);
         }
 
-        let exports_module = is_module(&meanings);
-
-        (meanings, exports_module)
+        (meanings, shadows_glob)
     }
 
     fn glob_meanings(
@@ -239,7 +250,7 @@ impl<'a> Resolver<'a> {
         };
 
         if self.in_deeper_row(module, &path) {
-            return BTreeSet::from([Meaning::Item]);
+            return BTreeSet::from([Meaning::Unresolved]);
         }
 
         let child = Place {
@@ -270,16 +281,14 @@ impl<'a> Resolver<'a> {
             .into_iter()
             .filter_map(|meaning| match meaning {
                 Meaning::Module(found) => Some(found),
-                Meaning::Item => None,
+                Meaning::Item | Meaning::Unresolved => None,
             })
             .collect()
     }
 
     fn resolve_target(&self, place: &Place, target: &Target, walk: &mut Walk) -> BTreeSet<Meaning> {
-        let item = BTreeSet::from([Meaning::Item]);
-
         match target {
-            Target::External => item,
+            Target::External => BTreeSet::from([Meaning::Unresolved]),
             Target::Bare(segments) => self.walk_target(place, segments, walk),
             Target::Relative {
                 supers: 0,
@@ -287,7 +296,7 @@ impl<'a> Resolver<'a> {
             } => self.walk_target(place, segments, walk),
             Target::Relative { supers, segments } => {
                 let Some(kept) = place.path.len().checked_sub(*supers) else {
-                    return item;
+                    return BTreeSet::from([Meaning::Unresolved]);
                 };
                 let mut absolute = place.path[..kept].to_vec();
                 absolute.extend(segments.iter().cloned());
@@ -309,7 +318,7 @@ impl<'a> Resolver<'a> {
             absolute.starts_with(&module.path) && !self.in_deeper_row(module, absolute);
 
         if !inside_row {
-            return BTreeSet::from([Meaning::Item]);
+            return BTreeSet::from([Meaning::Unresolved]);
         }
 
         let start = entry_place(module);
@@ -337,7 +346,7 @@ impl<'a> Resolver<'a> {
                 let found = self.module_places(place, segment, walk);
 
                 if found.is_empty() {
-                    meanings.insert(Meaning::Item);
+                    meanings.insert(Meaning::Unresolved);
                 }
 
                 next.extend(found);
@@ -371,10 +380,8 @@ fn read_scopes(
 
     for mut scope in scopes::scopes(source) {
         // A glob in a private file still binds names inside it, and the walk needs those names
-        // to reach the module a use names. Only the explicit exports stay out of the surface.
-        if !keep_exports {
-            scope.exports.clear();
-        }
+        // to reach the module a use names. Its explicit exports only hide its own globs.
+        scope.keeps_exports = keep_exports;
 
         let mut scope_path = file_path.clone();
         scope_path.extend(scope.inline_path.iter().cloned());
@@ -422,10 +429,10 @@ fn is_strict_ancestor(module: &Module, path: &[String]) -> bool {
     path.len() < module.path.len() && module.path.starts_with(path)
 }
 
-fn is_module(meanings: &BTreeSet<Meaning>) -> bool {
+fn may_name_module(meanings: &BTreeSet<Meaning>) -> bool {
     meanings
         .iter()
-        .any(|meaning| matches!(meaning, Meaning::Module(_)))
+        .any(|meaning| !matches!(meaning, Meaning::Item))
 }
 
 fn visible_children(
@@ -444,7 +451,10 @@ fn visible_children(
 }
 
 fn terminal_files(place: &Place, meanings: &BTreeSet<Meaning>) -> Vec<String> {
-    let names_item = meanings.is_empty() || meanings.contains(&Meaning::Item);
+    let names_item = meanings.is_empty()
+        || meanings
+            .iter()
+            .any(|meaning| !matches!(meaning, Meaning::Module(_)));
 
     if names_item {
         return place.file.iter().cloned().collect();
@@ -454,7 +464,7 @@ fn terminal_files(place: &Place, meanings: &BTreeSet<Meaning>) -> Vec<String> {
         .iter()
         .filter_map(|meaning| match meaning {
             Meaning::Module(found) => found.file.clone(),
-            Meaning::Item => None,
+            Meaning::Item | Meaning::Unresolved => None,
         })
         .collect()
 }
