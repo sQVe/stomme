@@ -426,6 +426,10 @@ fn check_accepts_a_nested_indented_index_entry() {
             "-   Topic\n\n      - [0001: Documentation scope](./0001-documentation-scope.md)",
         ),
         (
+            "four spaces after the bullet",
+            "-    Topic\n\n       - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
             "two spaces and a tab",
             "- Topic\n\n  \t- [0001: Documentation scope](./0001-documentation-scope.md)",
         ),
@@ -494,6 +498,10 @@ fn check_reports_an_index_link_inside_indented_code_in_a_list() {
         (
             "five spaces after the bullet",
             "-     Topic\n\n      - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "below a blank list item with three spaces",
+            "-   \n      - [0001: Documentation scope](./0001-documentation-scope.md)",
         ),
     ];
 

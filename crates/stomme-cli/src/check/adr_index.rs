@@ -378,17 +378,13 @@ fn indentation(whitespace: &str) -> usize {
 
 fn list_content_column(line: &Line) -> Option<usize> {
     let marker = list_marker(line.content)?;
-    let spaces = line.content[marker..]
-        .bytes()
-        .take_while(|byte| *byte == b' ')
-        .count();
-    // Five or more spaces after the marker start an indented code block in the item, so its
-    // content column is one space past the marker.
-    let spacing = if (1..=MAX_MARKER_SPACING).contains(&spaces) {
-        spaces
-    } else {
-        1
-    };
+    let rest = &line.content[marker..];
+    let spaces = rest.bytes().take_while(|byte| *byte == b' ').count();
+    let has_content = !rest[spaces..].is_empty();
+    let is_wide = spaces > MAX_MARKER_SPACING;
+    // A first line that holds only the marker and spaces, and a marker followed by five or more
+    // spaces, both hold the item's content one space past the marker.
+    let spacing = if has_content && !is_wide { spaces } else { 1 };
 
     Some(line.indent + marker + spacing)
 }
