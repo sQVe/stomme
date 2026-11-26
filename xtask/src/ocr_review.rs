@@ -181,6 +181,9 @@ exit 0
 
 const OCR_FAKE: &str = r#"#!/bin/bash
 printf '%s\n' "$*" >> "$OCR_ARGUMENTS"
+if [ -n "${OCR_STDERR:-}" ]; then
+  echo "$OCR_STDERR" >&2
+fi
 if [ "${OCR_SILENT:-}" = "1" ]; then
   echo "ocr: the provider request failed" >&2
   exit "${OCR_RESUME_CODE:-1}"
@@ -485,6 +488,7 @@ struct Run<'a> {
     resume_result: Option<&'a str>,
     resume_unusable: bool,
     resume_silent: bool,
+    resume_stderr: Option<&'a str>,
     first_unusable: bool,
     stderr_line: Option<&'a str>,
 }
@@ -500,6 +504,7 @@ impl Default for Run<'_> {
             resume_result: None,
             resume_unusable: false,
             resume_silent: false,
+            resume_stderr: None,
             first_unusable: false,
             stderr_line: None,
         }
@@ -630,6 +635,10 @@ impl Classifier {
 
         if run.resume_silent {
             command.env("OCR_SILENT", "1");
+        }
+
+        if let Some(line) = run.resume_stderr {
+            command.env("OCR_STDERR", line);
         }
 
         if let Some(line) = run.stderr_line {
@@ -1217,6 +1226,25 @@ fn classifier_resumes_a_budget_partial_once() {
 }
 
 #[test]
+fn classifier_keeps_a_parsed_result_over_the_cli_error() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 1,
+        resume_stderr: Some("ocr: retrying a provider request"),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the OCR run recorded no failure reason"),
+        "a result that parsed keeps its own reason"
+    );
+}
+
+#[test]
 fn classifier_takes_the_reason_from_an_unusable_retry() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
@@ -1450,9 +1478,13 @@ fn classifier_keeps_the_first_coverage_when_the_resume_is_unusable() {
             .expect("the resume ran")
             .contains("--resume session-1")
     );
-    assert_eq!(
-        observation.reason().as_deref(),
-        Some("the OCR run recorded no failure reason")
+    assert!(
+        observation
+            .reason()
+            .as_deref()
+            .expect("the unusable resume reports a reason")
+            .contains("is not a usable OCR result"),
+        "the coverage command's own error explains the rejection"
     );
 }
 

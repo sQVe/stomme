@@ -72,8 +72,9 @@ jobs:
           MAX_ATTEMPTS=3
 
           failure_reason() {
-            local result="$1" errors="${2:-}" reason=""
-            if [ -f "$result" ]; then
+            local result="$1" errors="${2:-}" reason="" parsed=0 hint=""
+            if [ -f "$result" ] && jq -e 'true' "$result" > /dev/null 2>&1; then
+              parsed=1
               reason="$(jq -r '
                 if .manifest.run_failure != null then
                   (if ((.manifest.run_failure.reason // "") | length) > 0
@@ -90,14 +91,17 @@ jobs:
               return
             fi
             if [ -n "$errors" ] && [ -s "$errors" ]; then
-              echo "the OCR run wrote no usable result: $(tail -n 1 "$errors")"
+              hint="$(grep -v '^[[:space:]]*$' "$errors" | tail -n 1)"
+            fi
+            if [ -n "$hint" ]; then
+              echo "the OCR run wrote no usable result: $hint"
               return
             fi
-            if [ ! -f "$result" ]; then
-              echo "the OCR run wrote no result"
+            if [ "$parsed" = "1" ]; then
+              echo "the OCR run recorded no failure reason"
               return
             fi
-            echo "the OCR run recorded no failure reason"
+            echo "the OCR run wrote no result"
           }
 
           verdict() {
@@ -132,8 +136,14 @@ jobs:
           provider_reason() {
             local result="$1" attempts="$2" reason
             reason="$(jq -r --argjson attempts "$attempts" '
-              [.manifest.coverage.failed[]? | select(.classification == "provider")
-                | (.path | gsub("[[:cntrl:]]"; " "))] as $paths
+              def unreviewed_ids:
+                [.coverage.selected[]? | .item_id]
+                - ([.coverage.completed[]? | .item_id] + [.coverage.reused[]? | .item_id]);
+              .manifest as $manifest
+              | ($manifest | unreviewed_ids) as $unreviewed
+              | [$manifest.coverage.selected[]?
+                  | select(.item_id as $id | $unreviewed | index($id))
+                  | (.path | gsub("[[:cntrl:]]"; " "))] as $paths
               | ($paths | length) as $count
               | if $count == 0 then empty
                 else
@@ -169,6 +179,8 @@ jobs:
               > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || final=$?
             if [ -s /tmp/ocr-coverage.md ]; then
               classified=1
+            else
+              reason_errors=/tmp/ocr-coverage.err
             fi
           else
             final=1
@@ -239,7 +251,6 @@ jobs:
             OCR_LLM_TOKEN="$token" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
               ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || ocr_exit=$?
             reason_file=/tmp/ocr-resume.json
-            reason_errors=/tmp/ocr-resume.err
 
             # The resumed JSON is classified whenever it holds usable JSON,
             # whatever the resume exit code. An unusable or missing result keeps
@@ -255,6 +266,10 @@ jobs:
             if [ ! -s /tmp/ocr-resume-coverage.md ]; then
               posted=0
               final=1
+              reason_errors=/tmp/ocr-resume-coverage.err
+              if [ -s /tmp/ocr-resume.err ]; then
+                reason_errors=/tmp/ocr-resume.err
+              fi
               break
             fi
 
