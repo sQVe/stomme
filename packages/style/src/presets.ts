@@ -14,6 +14,8 @@ export const react: OxlintConfig = {
 export const vitest: OxlintConfig = {
   plugins: ['vitest'],
   rules: {
+    'vitest/no-disabled-tests': 'error',
+    'vitest/no-focused-tests': 'error',
     'vitest/prefer-import-in-mock': 'error',
   },
   overrides: [
