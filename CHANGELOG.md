@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.5
+
+- `stomme` 0.2.5.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.5.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Leave a synced file alone when its content would not change, so `stomme sync` no longer replaces
+  `docs/stomme/.sync-record.toml` on every run and a file watcher sees no change.
+- Read the current directory only to resolve a relative `stomme guides` destination, so an absolute
+  destination works in a folder that has been deleted.
+- Lock the folder a run writes for its whole plan and write, so two syncs on one folder wait for
+  each other instead of removing a staging file the other run is about to publish.
+- Fail the sync workflow when Git ignores a file the guides refresh wrote, instead of committing an
+  incomplete folder.
+- End the OCR coverage section only at a marker on a line of its own, so a path that quotes the
+  marker cannot end the section early and leave its tail after the new section.
+- Retry a provider failure in the OCR check before the check fails. A retry needs every unreviewed
+  file to have failed on the provider, and a failure that survives the retries names the provider
+  and the files it left unreviewed.
+- Read the ADR index and its fences from the content column of each open list item, so a link that
+  Markdown renders as indented code is not an entry and a fenced sample is not a heading.
+- Follow a glob in a private file, a glob of the crate root or a parent, and a glob module beside a
+  value export of the same name in `module-private-file`.
+- Add the rule `weakened-test`, which compares the working tree with the target branch and reports
+  an added test skip, an added suppression, and a deleted test case.
+- Add one clause to every Open Code Review rule entry for each role the project declares, built
+  from the role duty blocks in its ADRs and from role-scoped layer rules.
+- Match a layout test with an owner of either TypeScript extension, so a `.test.ts` file may sit
+  beside a `.tsx` owner.
+- Add the rule `workflow-pin`, which refuses a stomme reusable workflow call that pins no release
+  commit, and move a project's workflow calls to the release commit in the release gate.
+
 ## 0.2.4
 
 - `stomme` 0.2.4.

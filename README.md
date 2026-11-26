@@ -34,13 +34,13 @@ Pin the binary in `mise.toml`:
 
 ```toml
 [tools]
-"github:sQVe/stomme" = "0.2.4"
+"github:sQVe/stomme" = "0.2.5"
 ```
 
 Set the same version in `stomme.toml`:
 
 ```toml
-version = "0.2.4"
+version = "0.2.5"
 ```
 
 Extend the Renovate preset in `renovate.json`:
@@ -52,9 +52,9 @@ Extend the Renovate preset in `renovate.json`:
 ```
 
 Add a workflow that syncs the update branch. `stomme init` writes the commit, and a reader copying
-by hand uses the commit of tag `v0.2.4`, from
-`gh api repos/sQVe/stomme/commits/v0.2.4 --jq .sha`, which works for annotated and lightweight
-tags. 0.2.4 is not tagged yet, so no real SHA exists to show:
+by hand uses the commit of tag `v0.2.5`, from
+`gh api repos/sQVe/stomme/commits/v0.2.5 --jq .sha`, which works for annotated and lightweight
+tags. 0.2.5 is not tagged yet, so no real SHA exists to show:
 
 ```yaml
 name: Sync stomme
@@ -68,7 +68,7 @@ permissions:
 
 jobs:
   sync:
-    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.4
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.5
     secrets:
       app-id: ${{ secrets.STOMME_APP_ID }}
       app-private-key: ${{ secrets.STOMME_APP_PRIVATE_KEY }}
@@ -94,7 +94,7 @@ permissions:
 
 jobs:
   sync:
-    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.4
+    uses: sQVe/stomme/.github/workflows/sync-update.yml@<commit> # v0.2.5
     with:
       guides-directory: docs/guides
     secrets:
@@ -122,7 +122,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: sQVe/stomme/.github/workflows/ocr-review.yml@<commit> # v0.2.4
+    uses: sQVe/stomme/.github/workflows/ocr-review.yml@<commit> # v0.2.5
     secrets:
       model-token: ${{ secrets.MORPH_API_KEY }}
 ```
