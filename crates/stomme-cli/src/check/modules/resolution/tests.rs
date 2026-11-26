@@ -1110,7 +1110,7 @@ fn glob_reexport_cases_decide_the_reached_private_file() {
             "G15 glob over the crate root",
             "mod attention;\npub use crate::*;\n",
             "use crate::fact::fact::attention::helper;\n",
-            &["fact:*"],
+            &["fact:*", ATTENTION],
         ),
         Case {
             extra_files: &[
@@ -1118,7 +1118,12 @@ fn glob_reexport_cases_decide_the_reached_private_file() {
                 ("src/fact/attention/hidden.rs", "pub mod inner;\n"),
                 ("src/fact/attention/hidden/inner.rs", "pub fn helper() {}\n"),
             ],
-            ..case("G16 glob in a private file", GLOB_ENTRY, INNER_HELPER, &[])
+            ..case(
+                "G16 glob in a private file",
+                GLOB_ENTRY,
+                INNER_HELPER,
+                &["ticket:src/fact/attention/hidden/inner.rs"],
+            )
         },
         Case {
             extra_files: INNER_FILES,
@@ -1255,6 +1260,140 @@ fn globs_of_modules_that_bind_nothing_do_not_spend_the_lookup_budget() {
     let problems = problems_within_timeout(name, fact_entry, files, INNER_HELPER);
 
     assert_keys(&problems, &[INNER], name);
+}
+
+const GLOB_CHAIN_FILES: &[(&str, &str)] = &[
+    ("src/fact/mid.rs", "mod attention;\npub use attention::*;\n"),
+    ("src/fact/mid/attention.rs", "pub mod inner;\n"),
+    ("src/fact/mid/attention/inner.rs", "pub fn helper() {}\n"),
+];
+
+#[test]
+fn a_glob_in_a_private_file_reports_the_private_file_it_reaches() {
+    let root = alias_project(
+        "mod mid;\npub use mid::*;\n",
+        GLOB_CHAIN_FILES,
+        "",
+        INNER_HELPER,
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(
+        &problems,
+        &["ticket:src/fact/mid/attention/inner.rs"],
+        "glob in a private file",
+    );
+}
+
+#[test]
+fn a_crate_root_glob_in_the_entry_file_reports_the_private_file_it_reaches() {
+    let root = alias_project(
+        "pub use super::*;\nmod attention;\n",
+        &[("src/fact/attention.rs", "pub fn helper() {}\n")],
+        "",
+        "use crate::fact::fact::attention::helper;\n",
+    );
+
+    let problems = problems(root.path());
+    let found: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.path.as_str(), problem.rule, problem.key.as_deref()))
+        .collect();
+
+    assert_eq!(
+        found,
+        [
+            ("src/fact.rs", Rule::CrateRootPath, Some("fact:*")),
+            ("src/ticket.rs", Rule::ModulePrivateFile, Some(ATTENTION)),
+        ],
+        "crate root glob"
+    );
+}
+
+#[test]
+fn a_value_export_does_not_hide_a_glob_module_of_the_same_name() {
+    let root = alias_project(
+        "pub use funcs::thing;\npub use modules::*;\nmod funcs;\nmod modules;\n",
+        &[
+            ("src/fact/funcs.rs", "pub fn thing() {}\n"),
+            ("src/fact/modules.rs", "pub mod thing;\n"),
+            ("src/fact/modules/thing.rs", "pub fn helper() {}\n"),
+        ],
+        "",
+        "use crate::fact::thing::helper;\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_keys(
+        &problems,
+        &["ticket:src/fact/modules/thing.rs"],
+        "value export and glob module",
+    );
+}
+
+#[test]
+fn an_unresolved_export_hides_the_glob_module_of_the_same_name() {
+    let root = alias_project(
+        "pub use serde::de as thing;\npub use modules::*;\nmod modules;\n",
+        &[
+            ("src/fact/modules.rs", "pub mod thing;\n"),
+            ("src/fact/modules/thing.rs", "pub fn helper() {}\n"),
+        ],
+        "",
+        "use crate::fact::thing::helper;\n",
+    );
+
+    let problems = problems(root.path());
+
+    assert_eq!(problems, Vec::<Problem>::new(), "unresolved export");
+}
+
+#[test]
+fn a_private_files_export_hides_its_own_glob_module() {
+    let files = [
+        ("src/fact.rs", "mod hidden;\npub use hidden::*;\n"),
+        (
+            "src/fact/hidden.rs",
+            "pub use alias as x;\npub use globber::*;\n",
+        ),
+        ("src/fact/hidden/alias.rs", "pub fn helper() {}\n"),
+        ("src/fact/hidden/globber.rs", "pub mod x;\n"),
+        ("src/fact/hidden/globber/x.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", "use crate::fact::x::helper;\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\npublic = [\"src/fact/hidden/alias.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_eq!(problems, Vec::<Problem>::new(), "private file export");
+}
+
+#[test]
+fn a_private_files_value_export_does_not_hide_its_glob_module() {
+    let files = [
+        ("src/fact.rs", "mod hidden;\npub use hidden::*;\n"),
+        (
+            "src/fact/hidden.rs",
+            "pub use funcs::thing as x;\npub use globber::*;\n",
+        ),
+        ("src/fact/hidden/funcs.rs", "pub fn thing() {}\n"),
+        ("src/fact/hidden/globber.rs", "pub mod x;\n"),
+        ("src/fact/hidden/globber/x.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", "use crate::fact::x::helper;\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_keys(
+        &problems,
+        &["ticket:src/fact/hidden/globber/x.rs"],
+        "private file value export",
+    );
 }
 
 fn problems_within_timeout(
