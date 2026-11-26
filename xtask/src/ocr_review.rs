@@ -520,6 +520,7 @@ struct Observation {
     stdout: String,
     output: String,
     coverage: Option<String>,
+    resume_errors: Option<String>,
     ocr_arguments: Option<String>,
 }
 
@@ -538,6 +539,10 @@ impl Observation {
 
     fn post_resumed(&self) -> bool {
         self.output.lines().any(|line| line == "post_resumed=true")
+    }
+
+    fn resume_errors(&self) -> Option<&str> {
+        self.resume_errors.as_deref()
     }
 
     fn resume_calls(&self) -> usize {
@@ -657,6 +662,7 @@ impl Classifier {
             stdout: String::from_utf8_lossy(&completed.stdout).into_owned(),
             output: read(&output_file).unwrap_or_default(),
             coverage: read(&results.join("ocr-coverage.md")),
+            resume_errors: read(&results.join("ocr-resume.err")),
             ocr_arguments: read(&root.join("ocr-arguments")),
         }
     }
@@ -1185,6 +1191,30 @@ fn classifier_retries_a_failed_run_whose_files_all_failed_on_the_provider() {
 }
 
 #[test]
+fn classifier_reports_the_coverage_error_of_a_rejected_first_result() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some("not json"),
+        first_unusable: true,
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(observation.resume_calls(), 0);
+    assert!(
+        observation
+            .reason()
+            .as_deref()
+            .expect("the rejected result reports a reason")
+            .contains("is not a usable OCR result"),
+        "{:?}",
+        observation.reason()
+    );
+}
+
+#[test]
 fn classifier_does_not_retry_a_result_the_coverage_command_rejects() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
@@ -1237,6 +1267,13 @@ fn classifier_keeps_a_parsed_result_over_the_cli_error() {
     });
 
     assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert!(
+        observation
+            .resume_errors()
+            .expect("the retry wrote its error")
+            .contains("ocr: retrying a provider request"),
+        "the CLI error was captured"
+    );
     assert_eq!(
         observation.reason().as_deref(),
         Some("the OCR run recorded no failure reason"),

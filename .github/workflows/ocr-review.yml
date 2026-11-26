@@ -112,20 +112,23 @@ jobs:
             esac
           }
 
+          # The files a result leaves unreviewed. The retry decision and the
+          # message it reports must agree on them.
+          UNREVIEWED='def unreviewed_ids:
+            [.coverage.selected[]? | .item_id]
+            - ([.coverage.completed[]? | .item_id] + [.coverage.reused[]? | .item_id]);'
+
           # A provider error is a service failure, not a finding about the
           # change. It is retried only when every unreviewed file failed that
           # way, so a run failure or another classification is reported at once.
           provider_failure() {
             [ -f "$1" ] || return 1
-            jq -e '
-              def unreviewed:
-                [.coverage.selected[]? | .item_id]
-                - ([.coverage.completed[]? | .item_id] + [.coverage.reused[]? | .item_id]);
+            jq -e "$UNREVIEWED"'
               def provider_ids:
                 [.coverage.failed[]? | select(.classification == "provider") | .item_id];
               .manifest as $manifest
               | ($manifest.run_failure == null)
-                and (($manifest | unreviewed) as $unreviewed
+                and (($manifest | unreviewed_ids) as $unreviewed
                   | ($unreviewed | length) > 0
                     and (($unreviewed - ($manifest | provider_ids)) | length) == 0)
             ' "$1" > /dev/null 2>&1
@@ -135,10 +138,7 @@ jobs:
           # change.
           provider_reason() {
             local result="$1" attempts="$2" reason
-            reason="$(jq -r --argjson attempts "$attempts" '
-              def unreviewed_ids:
-                [.coverage.selected[]? | .item_id]
-                - ([.coverage.completed[]? | .item_id] + [.coverage.reused[]? | .item_id]);
+            reason="$(jq -r --argjson attempts "$attempts" "$UNREVIEWED"'
               .manifest as $manifest
               | ($manifest | unreviewed_ids) as $unreviewed
               | [$manifest.coverage.selected[]?
