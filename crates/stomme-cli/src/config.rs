@@ -190,6 +190,7 @@ fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
     }
 
     validate_modules(&config.modules)?;
+    let modules = normalized_modules(config.modules);
 
     let layers = layer::select(catalog, config.language, config.layers)
         .map_err(|error| error.to_string())?;
@@ -201,7 +202,7 @@ fn parse(text: &str, catalog: &Catalog) -> Result<Selection, String> {
         roles: config.roles,
         violations,
         extra_docs: config.exceptions.extra_docs,
-        modules: config.modules,
+        modules,
     })
 }
 
@@ -301,6 +302,25 @@ fn validate_modules(modules: &BTreeMap<String, ModuleRow>) -> Result<(), String>
     }
 
     Ok(())
+}
+
+fn normalized_modules(modules: BTreeMap<String, ModuleRow>) -> BTreeMap<String, ModuleRow> {
+    modules
+        .into_iter()
+        .map(|(name, row)| {
+            let entry = normalize(&row.entry);
+            let public = row.public.iter().map(|path| normalize(path)).collect();
+
+            (
+                name,
+                ModuleRow {
+                    entry,
+                    public,
+                    imports: row.imports,
+                },
+            )
+        })
+        .collect()
 }
 
 fn validate_rust_modules(root: &Path, selection: Selection) -> Result<Selection, String> {

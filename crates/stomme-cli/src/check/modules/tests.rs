@@ -47,6 +47,31 @@ fn forbidden_use_is_reported() {
 }
 
 #[test]
+fn a_non_canonical_entry_reports_the_same_violation() {
+    for entry in ["src/ticket.rs", "./src/ticket.rs", "src//ticket.rs"] {
+        let root = project(
+            &[
+                ("src/ticket.rs", "\nuse crate::store::read;\n"),
+                ("src/store.rs", ""),
+            ],
+            &format!(
+                "[modules.ticket]\nentry = \"{entry}\"\n\n[modules.store]\nentry = \"src/store.rs\"\n"
+            ),
+        );
+
+        let problems = problems(root.path());
+
+        assert_problem(
+            &problems,
+            "src/ticket.rs",
+            Rule::ModuleImports,
+            "ticket:store",
+            entry,
+        );
+    }
+}
+
+#[test]
 fn unlisted_module_is_reported() {
     let root = project(
         &[("src/ticket.rs", ""), ("src/cache.rs", "")],
@@ -358,6 +383,20 @@ fn use_past_an_entry_file_passes_when_the_file_is_public() {
             ("src/ticket.rs", "use crate::config::parse::read;\n"),
         ],
         "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"src/config/parse.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n",
+    );
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_public_file_with_a_dot_prefix_is_public() {
+    let root = project(
+        &[
+            ("src/config.rs", "pub mod parse;\n"),
+            ("src/config/parse.rs", "pub fn read() {}\n"),
+            ("src/ticket.rs", "use crate::config::parse::read;\n"),
+        ],
+        "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"./src/config/parse.rs\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n",
     );
 
     assert_eq!(problems(root.path()), Vec::<Problem>::new());
