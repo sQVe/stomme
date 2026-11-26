@@ -11,7 +11,7 @@ pub(super) fn check(tree: &Tree) -> Vec<Problem> {
             continue;
         }
 
-        if file.name.ends_with(".test.tsx") {
+        if typescript::is_test_file(file) {
             problems.extend(test_placement(file, tree));
         } else {
             problems.extend(component_file(file));
@@ -35,6 +35,17 @@ fn component_file(file: &SourceFile) -> Option<Problem> {
 
 // Placement follows the TypeScript layer's owner rule, so both layers give one answer for a tree.
 fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
+    if typescript::is_in_tests_folder(file) {
+        return Some(problem(
+            file,
+            Rule::ReactTestPlacement,
+            format!(
+                "puts `{}` in a `__tests__` folder; put a unit test beside its owner",
+                file.name
+            ),
+        ));
+    }
+
     let base = file.name.strip_suffix(".test.tsx")?;
 
     if typescript::has_owner(tree, file, base) {

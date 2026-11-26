@@ -126,7 +126,7 @@ fn test_name(file: &SourceFile, tree: &Tree, skip_tsx: bool) -> Option<Problem> 
         return None;
     }
 
-    if file.path.split('/').any(|part| part == "__tests__") {
+    if is_in_tests_folder(file) {
         return Some(problem(
             file,
             Rule::TestFileName,
@@ -184,9 +184,11 @@ fn is_owner_stem(owner: &str, test_base: &str) -> bool {
 }
 
 pub(super) fn is_test_file(file: &SourceFile) -> bool {
-    file.name.ends_with(".test.ts")
-        || file.name.ends_with(".test.tsx")
-        || file.path.split('/').any(|part| part == "__tests__")
+    test_base(file).is_some() || is_in_tests_folder(file)
+}
+
+pub(super) fn is_in_tests_folder(file: &SourceFile) -> bool {
+    file.path.split('/').any(|part| part == "__tests__")
 }
 
 fn owner_folder(tree: &Tree) -> Vec<Problem> {

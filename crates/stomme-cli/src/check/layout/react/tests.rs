@@ -72,6 +72,33 @@ fn tsx_test_placement_accepts_an_owner_of_either_extension() {
 }
 
 #[test]
+fn tsx_placement_reports_a_tests_folder() {
+    let cases = [
+        (
+            "test file",
+            "src/__tests__/Ticket.test.tsx",
+            "Ticket.test.tsx",
+        ),
+        ("component file", "src/__tests__/Ticket.tsx", "Ticket.tsx"),
+    ];
+
+    for (case, path, name) in cases {
+        let root = tempfile::tempdir().expect("create a temporary directory");
+
+        write_file(root.path(), path, "");
+
+        let problems = check(&tree(root.path()));
+        let expected =
+            format!("puts `{name}` in a `__tests__` folder; put a unit test beside its owner");
+
+        assert_eq!(problems.len(), 1, "{case}: {problems:?}");
+        assert_eq!(problems[0].path, path, "{case}");
+        assert_eq!(problems[0].rule, Rule::ReactTestPlacement, "{case}");
+        assert_eq!(problems[0].message, expected, "{case}");
+    }
+}
+
+#[test]
 fn tsx_rules_run_only_with_the_react_layer() {
     let root = tempfile::tempdir().expect("create a temporary directory");
     write_file(root.path(), "src/button.tsx", "");
