@@ -1271,7 +1271,7 @@ fn classifier_takes_the_run_failure_reason_first() {
     assert_eq!(
         observation.resume_calls(),
         0,
-        "a failed run needs a fix to the setup, not a retry"
+        "a run failure needs a fix to the setup, not a retry"
     );
 }
 
