@@ -8,7 +8,9 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
-use crate::fence::{list_item_content, list_marker, unfenced_lines};
+use crate::fence::{
+    indentation, item_content_column, list_item_content, list_marker, unfenced_lines,
+};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
@@ -448,7 +450,7 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
             "a marked block is a list item whose marker ends its last line"
         );
         assert!(
-            !item_continues(lines, line.index),
+            !item_continues(lines, line.index, line.item_start),
             "a marked block is a list item whose marker ends its last line"
         );
 
@@ -463,16 +465,21 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
     markers
 }
 
-// Any later line indented deeper than the marker line belongs to its item, including a fenced or
-// indented code block that `unfenced_lines` hides. A blank line keeps the item open.
-fn item_continues(lines: &[&str], marker_index: usize) -> bool {
-    let indent_of = |line: &str| line.len() - line.trim_start().len();
-    let indent = indent_of(lines[marker_index]);
+// Any later line that reaches the item's content column belongs to its item, including a fenced
+// or indented code block that `unfenced_lines` hides. A blank line keeps the item open.
+fn item_continues(lines: &[&str], marker_index: usize, start: usize) -> bool {
+    let Some(column) = item_content_column(lines[start]) else {
+        return false;
+    };
 
     lines[marker_index + 1..]
         .iter()
         .find(|line| !line.trim().is_empty())
-        .is_some_and(|line| indent_of(line) > indent)
+        .is_some_and(|line| {
+            let content = line.trim_start_matches([' ', '\t']);
+
+            indentation(&line[..line.len() - content.len()]) >= column
+        })
 }
 
 fn marker(line: &str) -> Option<(&str, &str)> {

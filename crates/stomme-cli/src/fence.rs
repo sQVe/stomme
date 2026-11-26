@@ -57,7 +57,7 @@ pub(crate) fn unfenced_lines<'a>(
 
         let item_start = containers.item_start().unwrap_or(index);
 
-        containers.open_list_item(&view, index);
+        containers.open_list_item(&view);
 
         Some(UnfencedLine {
             index,
@@ -71,6 +71,7 @@ pub(crate) fn unfenced_lines<'a>(
 // indented code and fenced code apart from content, which a count of leading spaces cannot do.
 pub(crate) struct Containers {
     items: Vec<Item>,
+    viewed: usize,
 }
 
 struct Item {
@@ -80,12 +81,17 @@ struct Item {
 
 impl Containers {
     pub(crate) fn new() -> Self {
-        Self { items: Vec::new() }
+        Self {
+            items: Vec::new(),
+            viewed: 0,
+        }
     }
 
     // Reads the line against the open items. A blank line continues every open item, so it closes
     // none of them.
     pub(crate) fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
+        self.viewed += 1;
+
         let leading = raw.len() - raw.trim_start_matches([' ', '\t']).len();
         let indent = indentation(&raw[..leading]);
         let content = &raw[leading..];
@@ -119,7 +125,10 @@ impl Containers {
         self.items.last().map(|item| item.index)
     }
 
-    pub(crate) fn open_list_item(&mut self, line: &Line, index: usize) {
+    // Opens an item at the line `view` read last. The line index counts the lines read so far.
+    pub(crate) fn open_list_item(&mut self, line: &Line) {
+        let index = self.viewed - 1;
+
         if let Some(column) = list_content_column(line) {
             self.items.push(Item { column, index });
         }
@@ -131,7 +140,7 @@ struct OpenFence {
     depth: usize,
 }
 
-fn indentation(whitespace: &str) -> usize {
+pub(crate) fn indentation(whitespace: &str) -> usize {
     whitespace.chars().fold(0, |column, character| {
         if character == '\t' {
             column + TAB_WIDTH - column % TAB_WIDTH
@@ -157,6 +166,19 @@ fn list_spacing(rest: &str) -> usize {
     // A first line that holds only the marker and spaces, and a marker followed by five or more
     // spaces, both hold the item's content one space past the marker.
     if has_content && !is_wide { spaces } else { 1 }
+}
+
+// The column where the content of a list item on `line` starts, or None when it opens no item.
+pub(crate) fn item_content_column(line: &str) -> Option<usize> {
+    let content = line.trim_start_matches([' ', '\t']);
+    let indent = indentation(&line[..line.len() - content.len()]);
+
+    list_content_column(&Line {
+        indent,
+        relative: 0,
+        depth: 0,
+        content,
+    })
 }
 
 pub(crate) fn list_item_content(line: &str) -> Option<&str> {

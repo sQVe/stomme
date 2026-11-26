@@ -119,3 +119,18 @@ fn list_item_content_drops_the_marker_and_its_spacing() {
         assert_eq!(list_item_content(line), expected, "{case}");
     }
 }
+
+#[test]
+fn item_content_column_counts_the_marker_its_spacing_and_tabs() {
+    let cases = [
+        ("dash", "- Topic", Some(2)),
+        ("ordered", "12. Topic", Some(4)),
+        ("indented", "  - Topic", Some(4)),
+        ("tab", "\t- Topic", Some(6)),
+        ("not an item", "Topic", None),
+    ];
+
+    for (case, line, expected) in cases {
+        assert_eq!(item_content_column(line), expected, "{case}");
+    }
+}

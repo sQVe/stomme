@@ -296,7 +296,7 @@ fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
             unparsed.push(line);
         }
 
-        containers.open_list_item(&view, 0);
+        containers.open_list_item(&view);
     }
 
     (entries, unparsed)
