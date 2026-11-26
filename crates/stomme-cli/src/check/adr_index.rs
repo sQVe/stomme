@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
-use crate::fence::{Containers, INDENTED_CODE, MAX_BLOCK_INDENT, unfenced_lines};
+use crate::fence::{Containers, INDENTED_CODE, unfenced_lines};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
@@ -262,7 +262,7 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 
 fn heading_line(text: &str) -> Option<&str> {
     unfenced_lines(text.lines())
-        .find(|line| line.view.relative <= MAX_BLOCK_INDENT && line.view.content.starts_with('#'))
+        .find(|line| line.view.content.starts_with('#'))
         .map(|line| line.view.content)
 }
 
