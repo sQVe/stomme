@@ -158,6 +158,35 @@ fn sync_twice_changes_nothing() {
 }
 
 #[test]
+fn sync_twice_writes_no_file() {
+    use std::fs::FileTimes;
+    use std::time::{Duration, SystemTime};
+
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+
+    let record = root.path().join(RECORD_FILE);
+    let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&record)
+        .expect("open the record")
+        .set_times(FileTimes::new().set_modified(modified))
+        .expect("set the modification time");
+
+    sync_project(root.path()).expect("the second sync succeeds");
+
+    let actual = fs::metadata(&record)
+        .expect("read the metadata")
+        .modified()
+        .expect("read the modification time");
+
+    assert_eq!(actual, modified);
+}
+
+#[test]
 fn sync_writes_the_ocr_rule_file() {
     let root = rust_project(&["gpui"]);
 
