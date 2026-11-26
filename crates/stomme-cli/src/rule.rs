@@ -168,6 +168,17 @@ rules! {
             fixtures: "tests/fixtures/rules/violation-growth",
         }),
     },
+    WeakenedTest => Metadata {
+        id: "weakened-test",
+        summary: "A change adds no test skip or lint suppression and deletes no test case against the target branch.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &[],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/weakened.rs",
+            fixtures: "tests/fixtures/rules/weakened-test",
+        }),
+    },
     RequiredPart => Metadata {
         id: "required-part",
         summary: "Every required file exists.",

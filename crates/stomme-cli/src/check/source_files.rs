@@ -67,6 +67,28 @@ impl Tree {
     }
 }
 
+pub(super) fn skips_folder(name: &str) -> bool {
+    name.starts_with('.') || SKIP_FOLDERS.contains(&name)
+}
+
+pub(super) fn language_of(path: &str) -> Option<Language> {
+    if path.ends_with(".rs") {
+        return Some(Language::Rust);
+    }
+
+    let typescript = path.ends_with(".tsx") || is_typescript_module(path);
+
+    if typescript {
+        Some(Language::TypeScript)
+    } else {
+        None
+    }
+}
+
+fn is_typescript_module(path: &str) -> bool {
+    path.ends_with(".ts") && !path.ends_with(".d.ts")
+}
+
 pub(super) fn walk(root: &Path, language: Language) -> anyhow::Result<Tree> {
     let mut files = Vec::new();
     let mut folders = BTreeSet::new();
@@ -96,7 +118,7 @@ pub(super) fn walk(root: &Path, language: Language) -> anyhow::Result<Tree> {
                     return Err(not_utf8(root, &path));
                 };
 
-                if name.starts_with('.') || SKIP_FOLDERS.contains(&name) {
+                if skips_folder(name) {
                     continue;
                 }
 
@@ -143,12 +165,7 @@ fn source_file(path: String, language: Language) -> anyhow::Result<Option<Source
 }
 
 fn matches_language(name: &str, language: Language) -> bool {
-    match language {
-        Language::Rust => name.ends_with(".rs"),
-        Language::TypeScript => {
-            (name.ends_with(".ts") || name.ends_with(".tsx")) && !name.ends_with(".d.ts")
-        }
-    }
+    language_of(name) == Some(language)
 }
 
 fn not_utf8(root: &Path, path: &Path) -> anyhow::Error {

@@ -52,6 +52,10 @@ const SHARED: &[(&str, &str)] = &[
         include_str!("../../../foundation/shared/adr/0010-recorded-violations.md"),
     ),
     (
+        "shared/adr/0011-weakened-test-ratchet.md",
+        include_str!("../../../foundation/shared/adr/0011-weakened-test-ratchet.md"),
+    ),
+    (
         "shared/adr/README.md",
         include_str!("../../../foundation/shared/adr/README.md"),
     ),
@@ -62,6 +66,10 @@ const SHARED: &[(&str, &str)] = &[
     (
         "shared/coding.md",
         include_str!("../../../foundation/shared/coding.md"),
+    ),
+    (
+        "shared/ratchet.md",
+        include_str!("../../../foundation/shared/ratchet.md"),
     ),
     (
         "shared/rules.md",

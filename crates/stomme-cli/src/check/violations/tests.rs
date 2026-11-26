@@ -111,10 +111,7 @@ fn growth_fails_for_each_case() {
     ];
 
     for (case, recorded, read, expected) in cases {
-        let target = TargetBranch {
-            reference: "origin/main".to_string(),
-            read,
-        };
+        let target = TargetBranch::with_reader("origin/main".to_string(), read);
 
         let problems = growth(Path::new("."), &recorded, &target);
 

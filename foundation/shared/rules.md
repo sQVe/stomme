@@ -12,6 +12,7 @@ paths are relative to the stomme crate.
 | `role-folder` | A role folder is named after the role or ends with `-<role>`. | common | `stomme.toml` is valid | `roles` | src/check/roles.rs | tests/fixtures/rules/role-folder | enforced |
 | `violation-stale` | Every entry in `[[violations]]` matches a reported problem. | common | `stomme.toml` is valid | `violations` | src/check/violations.rs | tests/fixtures/rules/violation-stale | enforced |
 | `violation-growth` | `[[violations]]` does not grow against the target branch. | common | `stomme.toml` is valid and has entries | `violations` | src/check/violations.rs | tests/fixtures/rules/violation-growth | enforced |
+| `weakened-test` | A change adds no test skip or lint suppression and deletes no test case against the target branch. | common | `stomme.toml` is valid | none | src/check/weakened.rs | tests/fixtures/rules/weakened-test | enforced |
 | `required-part` | Every required file exists. | common | always | none | src/check/required_parts.rs | tests/fixtures/rules/required-part | enforced |
 | `synced-files` | `docs/stomme/` equals the owned set, and its record matches the files and the version. | common | `stomme.toml` is valid | `version`, `language`, `layers` | src/check/synced_files.rs | tests/fixtures/rules/synced-files | enforced |
 | `agents-block` | `AGENTS.md` holds the managed block between its markers, and its record matches the block. | common | `AGENTS.md` exists | `version`, `language`, `layers` | src/check/synced_files.rs | tests/fixtures/rules/agents-block | enforced |
