@@ -91,6 +91,66 @@ fn reads_yaml_extension_files() {
 }
 
 #[test]
+fn refuses_a_comment_version_that_is_not_a_release_version() {
+    let cases = [
+        ("an empty core", "v-rc1"),
+        (
+            "a core character that is neither a digit nor a dot",
+            "v1.2x3",
+        ),
+        ("an empty suffix", "v1.2.3-"),
+        (
+            "a suffix character that is neither a letter, a digit, a dot, nor a dash",
+            "v1.2.3-rc_1",
+        ),
+    ];
+
+    for (name, version) in cases {
+        let (path, text) = workflow(
+            "ci.yml",
+            &format!("uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # {version}"),
+        );
+        let root = project_with(&[(&path, &text)]);
+
+        let problems = check(root.path(), "1.2.3").expect("check the workflows");
+
+        assert_eq!(problems.len(), 1, "{name}: {problems:?}");
+        assert!(
+            problems[0].message.contains("pin a release commit"),
+            "{name}: {problems:?}"
+        );
+    }
+}
+
+#[test]
+fn accepts_a_release_candidate_comment_version() {
+    let (path, text) = workflow(
+        "ci.yml",
+        &format!("uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # v1.2.3-rc.1"),
+    );
+    let root = project_with(&[(&path, &text)]);
+
+    assert_eq!(
+        check(root.path(), "1.2.3-rc.1").expect("check the workflows"),
+        []
+    );
+}
+
+#[test]
+fn ignores_a_workflow_file_with_another_extension() {
+    let (path, text) = workflow(
+        "notes.txt",
+        "uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0",
+    );
+    let root = project_with(&[(&path, &text)]);
+
+    assert_eq!(
+        check(root.path(), "1.2.3").expect("check the workflows"),
+        []
+    );
+}
+
+#[test]
 fn reads_a_call_without_an_at_sign_as_an_empty_moving_name() {
     let (path, text) = workflow(
         "ci.yml",
@@ -110,6 +170,30 @@ fn reads_a_call_without_an_at_sign_as_an_empty_moving_name() {
 #[cfg(unix)]
 #[test]
 fn skips_a_symlinked_workflows_folder() {
+    let root = project_with(&[]);
+    let target = tempfile::tempdir().expect("create a temporary directory");
+    let (path, text) = workflow(
+        "ci.yml",
+        "uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0",
+    );
+
+    write_file(target.path(), &path, &text);
+    write_file(root.path(), ".github/README.md", "github\n");
+    std::os::unix::fs::symlink(
+        target.path().join(".github/workflows"),
+        root.path().join(".github/workflows"),
+    )
+    .expect("create the symlink");
+
+    assert_eq!(
+        check(root.path(), "1.2.3").expect("check the workflows"),
+        []
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn skips_a_symlinked_github_folder() {
     let root = project_with(&[]);
     let target = tempfile::tempdir().expect("create a temporary directory");
     let (path, text) = workflow(

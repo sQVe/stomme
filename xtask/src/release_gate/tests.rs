@@ -222,6 +222,47 @@ fn gate_keeps_crlf_line_endings_when_rewriting_a_workflow_pin() {
 }
 
 #[test]
+fn gate_skips_a_symlinked_github_folder() {
+    let folder = project(CONFIG);
+    let target = temporary_directory();
+    let call = "  - uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.0\n";
+    write_workflow(&target, "sync.yml", call);
+    std::os::unix::fs::symlink(target.path().join(".github"), folder.path().join(".github"))
+        .expect("create the symlink");
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(workflow_text(&target, "sync.yml"), call);
+}
+
+#[test]
+fn gate_ignores_a_workflow_file_with_another_extension() {
+    let folder = project(CONFIG);
+    let call = "  - uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.0\n";
+    write_workflow(&folder, "notes.txt", call);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(workflow_text(&folder, "notes.txt"), call);
+}
+
+#[test]
 fn gate_passes_a_project_without_a_workflows_folder() {
     let folder = project(CONFIG);
     install(Response::default(), Response::default());
