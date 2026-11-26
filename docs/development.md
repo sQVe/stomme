@@ -176,9 +176,7 @@ including major updates, without automerge. `tests/pins.test.ts` in the package 
 for tools declared by Vite Plus.
 
 The dependency audit workflow runs `pnpm audit --audit-level high` weekly. Dependency review
-checks the dependencies each pull request adds or changes, including `pnpm-lock.yaml`. Its
-`allow-ghsas` list holds the advisories of the pinned `vite-plus` 0.3.0 tool set until that set
-is upgraded.
+checks the dependencies each pull request adds or changes, including `pnpm-lock.yaml`.
 
 ## Package releases
 

@@ -54,19 +54,19 @@
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "@oxlint/plugins": "1.79.0",
+    "@oxlint/plugins": "1.93.0",
     "@stylistic/eslint-plugin": "5.10.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
-    "oxlint": "1.79.0",
-    "oxlint-tsgolint": "7.0.2001",
+    "oxlint": "1.93.0",
+    "oxlint-tsgolint": "7.0.2006",
     "typescript": "7.0.2",
-    "vite-plus": "0.3.0",
-    "vitest": "4.1.11"
+    "vite-plus": "1.6.0",
+    "vitest": "5.1.0"
   },
   "peerDependencies": {
-    "vite-plus": "0.3.0"
+    "vite-plus": "1.6.0"
   },
   "engines": {
     "bun": ">=1.4.2",
