@@ -78,26 +78,39 @@ fn tsx_placement_reports_a_tests_folder() {
             "test file",
             "src/__tests__/Ticket.test.tsx",
             "Ticket.test.tsx",
+            "put it beside its owner",
         ),
-        ("component file", "src/__tests__/Ticket.tsx", "Ticket.tsx"),
+        (
+            "component file",
+            "src/__tests__/Ticket.tsx",
+            "Ticket.tsx",
+            "move it out of the tests folder",
+        ),
     ];
 
-    for (case, path, name) in cases {
+    for (case, path, name, advice) in cases {
         let root = tempfile::tempdir().expect("create a temporary directory");
 
         write_file(root.path(), path, "");
 
         let problems = check(&tree(root.path()));
-        let fragment = format!("puts `{name}` in a `__tests__` folder");
+        let named = format!("puts `{name}` in a `__tests__` folder");
 
         assert_eq!(problems.len(), 1, "{case}: {problems:?}");
         assert_eq!(problems[0].path, path, "{case}");
         assert_eq!(problems[0].rule, Rule::ReactTestPlacement, "{case}");
-        assert!(
-            problems[0].message.contains(&fragment),
-            "{case}: {problems:?}"
-        );
+        assert!(problems[0].message.contains(&named), "{case}: {problems:?}");
+        assert!(problems[0].message.contains(advice), "{case}: {problems:?}");
     }
+}
+
+#[test]
+fn tsx_placement_ignores_a_tests_folder_outside_src() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "e2e/__tests__/login.test.tsx", "");
+
+    assert_eq!(rules(&check(&tree(root.path()))), Vec::<Rule>::new());
 }
 
 #[test]

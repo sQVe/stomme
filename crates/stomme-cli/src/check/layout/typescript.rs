@@ -168,19 +168,7 @@ pub(super) fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
 }
 
 fn is_owner_stem(owner: &str, test_base: &str) -> bool {
-    if owner == test_base {
-        return true;
-    }
-
-    let Some(rest) = test_base.strip_prefix(owner) else {
-        return false;
-    };
-    let mut characters = rest.chars();
-    let Some(first) = characters.next() else {
-        return false;
-    };
-
-    first.is_ascii_uppercase() && characters.next().is_some()
+    owner == test_base || is_family_stem(test_base, owner)
 }
 
 pub(super) fn is_test_file(file: &SourceFile) -> bool {
