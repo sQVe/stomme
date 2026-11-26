@@ -70,28 +70,34 @@ jobs:
           # The first review and its retries. A provider error says nothing
           # about the change, so the review is retried before the check fails.
           MAX_ATTEMPTS=3
+
           failure_reason() {
-            local result="$1"
+            local result="$1" errors="${2:-}" reason=""
+            if [ -f "$result" ]; then
+              reason="$(jq -r '
+                if .manifest.run_failure != null then
+                  (if ((.manifest.run_failure.reason // "") | length) > 0
+                   then .manifest.run_failure.reason
+                   else .manifest.run_failure.classification end)
+                else
+                  ([.manifest.coverage.failed[]? | .classification // empty] | unique
+                    | if length > 0 then join(", ") else empty end)
+                end
+              ' "$result" 2>/dev/null || true)"
+            fi
+            if [ -n "$reason" ]; then
+              echo "$reason"
+              return
+            fi
+            if [ -n "$errors" ] && [ -s "$errors" ]; then
+              echo "the OCR run wrote no usable result: $(tail -n 1 "$errors")"
+              return
+            fi
             if [ ! -f "$result" ]; then
               echo "the OCR run wrote no result"
               return
             fi
-            local reason
-            reason="$(jq -r '
-              if .manifest.run_failure != null then
-                (if ((.manifest.run_failure.reason // "") | length) > 0
-                 then .manifest.run_failure.reason
-                 else .manifest.run_failure.classification end)
-              else
-                ([.manifest.coverage.failed[]? | .classification // empty] | unique
-                  | if length > 0 then join(", ") else empty end)
-              end
-            ' "$result" 2>/dev/null || true)"
-            if [ -n "$reason" ]; then
-              echo "$reason"
-            else
-              echo "the OCR run recorded no failure reason"
-            fi
+            echo "the OCR run recorded no failure reason"
           }
 
           verdict() {
@@ -108,46 +114,51 @@ jobs:
           provider_failure() {
             [ -f "$1" ] || return 1
             jq -e '
-              (.manifest.run_failure == null)
-              and ([.manifest.coverage.failed[]?] | length > 0)
-              and ([.manifest.coverage.failed[]? | select(.classification != "provider")] | length == 0)
-              and ([.manifest.coverage.waived[]?] | length == 0)
+              def unreviewed:
+                [.coverage.selected[]? | .item_id]
+                - ([.coverage.completed[]? | .item_id] + [.coverage.reused[]? | .item_id]);
+              def provider_ids:
+                [.coverage.failed[]? | select(.classification == "provider") | .item_id];
+              .manifest as $manifest
+              | ($manifest.run_failure == null)
+                and (($manifest | unreviewed) as $unreviewed
+                  | ($unreviewed | length) > 0
+                    and (($unreviewed - ($manifest | provider_ids)) | length) == 0)
             ' "$1" > /dev/null 2>&1
           }
 
           # A reader must be able to tell an outage from a problem with the
           # change.
           provider_reason() {
-            local result="$1" attempts="$2" count paths reviewed_files attempt_noun
-            count="$(jq -r '
-              [.manifest.coverage.failed[]? | select(.classification == "provider")] | length
-            ' "$result" 2>/dev/null || true)"
-            paths="$(jq -r '
+            local result="$1" attempts="$2" reason
+            reason="$(jq -r --argjson attempts "$attempts" '
               [.manifest.coverage.failed[]? | select(.classification == "provider")
                 | (.path | gsub("[[:cntrl:]]"; " "))] as $paths
-              | if ($paths | length) > 5
-                then ($paths[:5] | join(", ")) + ", and \(($paths | length) - 5) more"
-                else $paths | join(", ") end
+              | ($paths | length) as $count
+              | if $count == 0 then empty
+                else
+                  "the review provider could not review "
+                  + (if $count == 1 then "1 file" else "\($count) files" end)
+                  + " after \($attempts) "
+                  + (if $attempts == 1 then "attempt" else "attempts" end)
+                  + ": "
+                  + (if $count > 5
+                     then ($paths[:5] | join(", ")) + ", and \($count - 5) more"
+                     else $paths | join(", ") end)
+                end
             ' "$result" 2>/dev/null || true)"
-            if [ -z "$paths" ]; then
-              echo "the review provider failed, so the review did not run"
+            if [ -z "$reason" ]; then
+              echo "the review provider failed and left files unreviewed"
               return
             fi
-            reviewed_files="$count files"
-            if [ "$count" = "1" ]; then
-              reviewed_files="1 file"
-            fi
-            attempt_noun=attempts
-            if [ "$attempts" = "1" ]; then
-              attempt_noun=attempt
-            fi
-            echo "the review provider could not review $reviewed_files after $attempts $attempt_noun: $paths"
+            echo "$reason"
           }
 
           result=/tmp/ocr-result.json
           reason_file=/tmp/ocr-result.json
+          reason_errors=""
           attempts=1
-          resumes=0
+          budget_resumes=0
           classified=0
           final=0
           posted=0
@@ -185,8 +196,8 @@ jobs:
           fi
 
           # A budget partial is resumed once, because its budget is spent. A
-          # provider failure is retried until the attempts run out. A result
-          # that the coverage command rejects is never resumed.
+          # provider failure is retried. A result that the coverage command
+          # rejects is never resumed.
           resumable() {
             if [ -z "$session_id" ]; then
               return 1
@@ -194,13 +205,13 @@ jobs:
             if [ "$classified" != "1" ]; then
               return 1
             fi
+            if [ "$attempts" -ge "$MAX_ATTEMPTS" ]; then
+              return 1
+            fi
             if provider_failure "$result"; then
-              if [ "$attempts" -ge "$MAX_ATTEMPTS" ]; then
-                return 1
-              fi
               return 0
             fi
-            if [ "$final" != "2" ] || [ "$ocr_exit" != "0" ] || [ "$resumes" != "0" ]; then
+            if [ "$final" != "2" ] || [ "$ocr_exit" != "0" ] || [ "$budget_resumes" != "0" ]; then
               return 1
             fi
             return 0
@@ -208,7 +219,9 @@ jobs:
 
           while resumable; do
             attempts=$((attempts + 1))
-            resumes=$((resumes + 1))
+            if ! provider_failure "$result"; then
+              budget_resumes=$((budget_resumes + 1))
+            fi
             args=(
               --from "${RANGE_FROM:-$MERGE_BASE}"
               --to "$HEAD_SHA"
@@ -226,6 +239,7 @@ jobs:
             OCR_LLM_TOKEN="$token" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
               ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || ocr_exit=$?
             reason_file=/tmp/ocr-resume.json
+            reason_errors=/tmp/ocr-resume.err
 
             # The resumed JSON is classified whenever it holds usable JSON,
             # whatever the resume exit code. An unusable or missing result keeps
@@ -278,7 +292,7 @@ jobs:
           if [ "$classified" = "1" ] && provider_failure "$result"; then
             reason="$(provider_reason "$result" "$attempts")"
           else
-            reason="$(failure_reason "$reason_file")"
+            reason="$(failure_reason "$reason_file" "$reason_errors")"
           fi
           echo "final=1" >> "$GITHUB_OUTPUT"
           {

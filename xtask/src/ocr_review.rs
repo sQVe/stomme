@@ -41,6 +41,52 @@ const MIXED_RESULT: &str = r#"{
     }
   }
 }"#;
+const MIXED_CAUSE_RESULT: &str = r#"{
+  "status": "partial",
+  "session_id": "session-4",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "partial",
+    "coverage": {
+      "selected": [
+        {"item_id": "a", "path": "src/a.rs"},
+        {"item_id": "b", "path": "src/b.rs"}
+      ],
+      "completed": [],
+      "reused": [],
+      "failed": [
+        {"item_id": "a", "path": "src/a.rs", "classification": "provider", "reason": "upstream 500"},
+        {"item_id": "b", "path": "src/b.rs", "classification": "timeout", "reason": "the item deadline elapsed"}
+      ],
+      "waived": [],
+      "excluded": []
+    }
+  }
+}"#;
+
+const WAIVED_RESULT: &str = r#"{
+  "status": "partial",
+  "session_id": "session-5",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "partial",
+    "coverage": {
+      "selected": [
+        {"item_id": "a", "path": "src/a.rs"},
+        {"item_id": "b", "path": "src/b.rs"},
+        {"item_id": "c", "path": "src/c.rs"}
+      ],
+      "completed": [{"item_id": "a", "path": "src/a.rs"}],
+      "reused": [],
+      "failed": [
+        {"item_id": "b", "path": "src/b.rs", "classification": "provider", "reason": "upstream 500"}
+      ],
+      "waived": [{"item_id": "c", "path": "src/c.rs", "reason": "the file is too large"}],
+      "excluded": []
+    }
+  }
+}"#;
+
 const FAILED_PROVIDER_RESULT: &str = r#"{
   "status": "failed",
   "session_id": "session-3",
@@ -135,6 +181,10 @@ exit 0
 
 const OCR_FAKE: &str = r#"#!/bin/bash
 printf '%s\n' "$*" >> "$OCR_ARGUMENTS"
+if [ "${OCR_SILENT:-}" = "1" ]; then
+  echo "ocr: the provider request failed" >&2
+  exit "${OCR_RESUME_CODE:-1}"
+fi
 body="${OCR_RESUME_BODY-}"
 if [ -z "$body" ]; then
   body='{"session_id":"session-1"}'
@@ -434,6 +484,7 @@ struct Run<'a> {
     resumed: i32,
     resume_result: Option<&'a str>,
     resume_unusable: bool,
+    resume_silent: bool,
     first_unusable: bool,
     stderr_line: Option<&'a str>,
 }
@@ -448,6 +499,7 @@ impl Default for Run<'_> {
             resumed: 0,
             resume_result: None,
             resume_unusable: false,
+            resume_silent: false,
             first_unusable: false,
             stderr_line: None,
         }
@@ -574,6 +626,10 @@ impl Classifier {
 
         if run.first_unusable {
             command.env("STOMME_FIRST_UNUSABLE", "1");
+        }
+
+        if run.resume_silent {
+            command.env("OCR_SILENT", "1");
         }
 
         if let Some(line) = run.stderr_line {
@@ -1043,26 +1099,63 @@ fn classifier_fails_a_provider_failure_that_survives_the_retries() {
 }
 
 #[test]
-fn classifier_does_not_retry_a_failed_run() {
+fn classifier_does_not_retry_a_mixed_cause() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
         ocr_exit: Some(1),
-        first: 1,
-        result: Some(TIMEOUT_RESULT),
+        first: 2,
+        result: Some(MIXED_CAUSE_RESULT),
         resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a file that failed for another reason is not retried"
+    );
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("provider, timeout"),
+        "the reason names every failed classification"
+    );
+}
+
+#[test]
+fn classifier_does_not_retry_a_waived_file() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 2,
+        result: Some(WAIVED_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a waived file needs no retry"
+    );
+}
+
+#[test]
+fn classifier_takes_the_reason_of_a_retry_that_wrote_no_result() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_silent: true,
+        resume_unusable: true,
         ..Run::default()
     });
 
     assert_eq!(observation.final_status().as_deref(), Some("1"));
     assert_eq!(
-        observation.resume_calls(),
-        0,
-        "a failed run needs a fix to the setup, not a retry"
-    );
-    assert_eq!(
         observation.reason().as_deref(),
-        Some("the global deadline elapsed")
+        Some("the OCR run wrote no usable result: ocr: the provider request failed")
     );
+    assert!(!observation.post_resumed());
 }
 
 #[test]
@@ -1166,6 +1259,7 @@ fn classifier_takes_the_run_failure_reason_first() {
         ocr_exit: Some(1),
         first: 1,
         result: Some(TIMEOUT_RESULT),
+        resume_result: Some(SESSION_RESULT),
         ..Run::default()
     });
 
@@ -1174,7 +1268,11 @@ fn classifier_takes_the_run_failure_reason_first() {
         observation.reason().as_deref(),
         Some("the global deadline elapsed")
     );
-    assert_eq!(observation.ocr_arguments, None);
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a failed run needs a fix to the setup, not a retry"
+    );
 }
 
 #[test]
