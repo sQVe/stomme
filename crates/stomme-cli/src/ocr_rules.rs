@@ -8,7 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
-use crate::fence::{Fence, MAX_BLOCK_INDENT, closes_fence, opening_fence};
+use crate::fence::unfenced_lines;
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
@@ -412,7 +412,7 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut blocks = Vec::new();
 
-    for (index, marker_role, content) in marked_lines(&lines) {
+    for (index, marker_role, content) in marked_lines(text) {
         if marker_role == role {
             blocks.push(block_text(&lines, index, content));
         }
@@ -421,31 +421,13 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     blocks
 }
 
-fn marked_lines<'a>(lines: &[&'a str]) -> Vec<(usize, &'a str, &'a str)> {
+fn marked_lines(text: &str) -> Vec<(usize, &str, &str)> {
+    let lines: Vec<&str> = text.lines().collect();
     let mut markers = Vec::new();
-    let mut fence: Option<Fence> = None;
 
-    for (index, line) in lines.iter().enumerate() {
-        let indent = line.len() - line.trim_start_matches(' ').len();
-        let content = &line[indent..];
-
-        if let Some(open) = &fence {
-            if indent <= MAX_BLOCK_INDENT && closes_fence(content, open) {
-                fence = None;
-            }
-
-            continue;
-        }
-
-        if indent <= MAX_BLOCK_INDENT
-            && let Some(open) = opening_fence(content)
-        {
-            fence = Some(open);
-            continue;
-        }
-
-        if let Some((role, content)) = marker(line) {
-            markers.push((index, role, content));
+    for line in unfenced_lines(text) {
+        if let Some((role, content)) = marker(lines[line.index]) {
+            markers.push((line.index, role, content));
         }
     }
 
@@ -510,7 +492,7 @@ pub(crate) fn without_marked_blocks(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut dropped = vec![false; lines.len()];
 
-    for (index, _, _) in marked_lines(&lines) {
+    for (index, _, _) in marked_lines(text) {
         let start = block_start(&lines, index);
 
         for flag in &mut dropped[start..=index] {

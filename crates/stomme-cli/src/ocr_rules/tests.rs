@@ -774,6 +774,16 @@ fn a_backtick_fenced_marker_adds_no_role_text() {
 }
 
 #[test]
+fn a_marker_after_a_closed_fence_adds_role_text() {
+    let text = "```markdown\n<!-- role:app -->\n```\n\n- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: Own the app lifetime."]
+    );
+}
+
+#[test]
 fn a_marker_followed_by_prose_adds_no_role_text() {
     let text = "- Use <!-- role:app --> in prose.\n";
 

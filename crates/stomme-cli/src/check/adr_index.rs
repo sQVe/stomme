@@ -5,15 +5,11 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
-use crate::fence::{Fence, MAX_BLOCK_INDENT, closes_fence, opening_fence};
+use crate::fence::{Containers, INDENTED_CODE, MAX_BLOCK_INDENT, unfenced_lines};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
 const NUMBER_LENGTH: usize = 4;
-const INDENTED_CODE: usize = 4;
-const MAX_MARKER_SPACING: usize = 4;
-const TAB_WIDTH: usize = 4;
-const MAX_ORDERED_DIGITS: usize = 9;
 const BULLETS: [&str; 3] = ["- ", "* ", "+ "];
 
 struct AdrFile {
@@ -264,166 +260,11 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
     if title.is_empty() { None } else { Some(title) }
 }
 
-// A heading and a fence both belong to the container they appear in, so their indentation is read
-// from the content column of the enclosing list item, not from the start of the line.
 fn heading_line(text: &str) -> Option<&str> {
-    let mut containers = Containers::new();
-    let mut fence: Option<OpenFence> = None;
-
-    for line in text.lines() {
-        let view = containers.view(line);
-
-        if let Some(open) = &fence {
-            let container_ended = view.depth < open.depth;
-            let closes =
-                view.relative <= MAX_BLOCK_INDENT && closes_fence(view.content, &open.fence);
-
-            if container_ended || closes {
-                fence = None;
-            }
-
-            if !container_ended {
-                continue;
-            }
-        }
-
-        if view.relative >= INDENTED_CODE {
-            continue;
-        }
-
-        if let Some(open) = opening_fence(view.content) {
-            fence = Some(OpenFence {
-                fence: open,
-                depth: view.depth,
-            });
-            continue;
-        }
-
-        if view.content.starts_with('#') {
-            return Some(view.content);
-        }
-
-        containers.open_list_item(&view);
-    }
-
-    None
-}
-
-struct OpenFence {
-    fence: Fence,
-    depth: usize,
-}
-
-// A list item holds its content at a fixed column. Reading a line against the open items tells
-// indented code and fenced code apart from content, which a count of leading spaces cannot do.
-struct Containers {
-    content_columns: Vec<usize>,
-}
-
-struct Line<'a> {
-    indent: usize,
-    relative: usize,
-    depth: usize,
-    content: &'a str,
-}
-
-impl Containers {
-    fn new() -> Self {
-        Self {
-            content_columns: Vec::new(),
-        }
-    }
-
-    // Reads the line against the open items. A blank line continues every open item, so it closes
-    // none of them.
-    fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
-        let leading = raw.len() - raw.trim_start_matches([' ', '\t']).len();
-        let indent = indentation(&raw[..leading]);
-        let content = &raw[leading..];
-
-        if content.is_empty() {
-            return Line {
-                indent,
-                relative: 0,
-                depth: self.content_columns.len(),
-                content,
-            };
-        }
-
-        while self
-            .content_columns
-            .last()
-            .is_some_and(|column| *column > indent)
-        {
-            self.content_columns.pop();
-        }
-
-        let base = self.content_columns.last().copied().unwrap_or(0);
-
-        Line {
-            indent,
-            relative: indent - base,
-            depth: self.content_columns.len(),
-            content,
-        }
-    }
-
-    fn open_list_item(&mut self, line: &Line) {
-        if let Some(column) = list_content_column(line) {
-            self.content_columns.push(column);
-        }
-    }
-}
-
-fn indentation(whitespace: &str) -> usize {
-    whitespace.chars().fold(0, |column, character| {
-        if character == '\t' {
-            column + TAB_WIDTH - column % TAB_WIDTH
-        } else {
-            column + 1
-        }
-    })
-}
-
-fn list_content_column(line: &Line) -> Option<usize> {
-    let marker = list_marker(line.content)?;
-    let rest = &line.content[marker..];
-    let spaces = rest.bytes().take_while(|byte| *byte == b' ').count();
-    let has_content = !rest[spaces..].is_empty();
-    let is_wide = spaces > MAX_MARKER_SPACING;
-    // A first line that holds only the marker and spaces, and a marker followed by five or more
-    // spaces, both hold the item's content one space past the marker.
-    let spacing = if has_content && !is_wide { spaces } else { 1 };
-
-    Some(line.indent + marker + spacing)
-}
-
-fn list_marker(content: &str) -> Option<usize> {
-    let marker = match content.as_bytes().first()? {
-        b'-' | b'*' | b'+' => 1,
-        b'0'..=b'9' => ordered_marker(content)?,
-        _ => return None,
-    };
-    let rest = &content[marker..];
-
-    if rest.is_empty() || rest.starts_with(' ') {
-        Some(marker)
-    } else {
-        None
-    }
-}
-
-fn ordered_marker(content: &str) -> Option<usize> {
-    let digits = content.bytes().take_while(u8::is_ascii_digit).count();
-
-    if digits > MAX_ORDERED_DIGITS {
-        return None;
-    }
-
-    match content.as_bytes().get(digits) {
-        Some(b'.' | b')') => Some(digits + 1),
-        _ => None,
-    }
+    unfenced_lines(text)
+        .into_iter()
+        .find(|line| line.view.relative <= MAX_BLOCK_INDENT && line.view.content.starts_with('#'))
+        .map(|line| line.view.content)
 }
 
 fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
