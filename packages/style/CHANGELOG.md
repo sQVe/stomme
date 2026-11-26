@@ -1,5 +1,23 @@
 # @sqve/seam
 
+## 1.0.0
+
+### Major Changes
+
+- [#72](https://github.com/sQVe/stomme/pull/72)
+  [`e7e219b`](https://github.com/sQVe/stomme/commit/e7e219b610207bf95bf73b717515f785f9b1aa35) Thanks
+  [@sQVe](https://github.com/sQVe)! - Upgrade `vite-plus` from 0.3.0 to 1.6.0, and the tools pinned
+  with it: `oxlint` and `@oxlint/plugins` to 1.93.0, `oxlint-tsgolint` to 7.0.2006, and `vitest` to
+  5.1.0. `vite-plus` is a peer dependency, so consumers must upgrade to 1.6.0 as well.
+
+### Minor Changes
+
+- [#68](https://github.com/sQVe/stomme/pull/68)
+  [`b32937c`](https://github.com/sQVe/stomme/commit/b32937c092f6c4cc9f5d79fb192ebda71c23a7b4) Thanks
+  [@sQVe](https://github.com/sQVe)! - Pin `vitest/no-focused-tests` and `vitest/no-disabled-tests`
+  in the Vitest preset, so the bans stay on if oxlint moves either rule out of the default
+  `correctness` category.
+
 ## 0.4.0
 
 ### Minor Changes
