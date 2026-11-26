@@ -193,15 +193,12 @@ impl<'a> Resolver<'a> {
         let mut shadows_glob = false;
 
         for export in scope.exports.iter().filter(|export| export.name == name) {
-            if !scope.keeps_exports {
-                shadows_glob = true;
-
-                continue;
-            }
-
             let found = self.resolve_target(place, &export.target, walk);
             shadows_glob |= may_name_module(&found);
-            meanings.extend(found);
+
+            if scope.keeps_exports {
+                meanings.extend(found);
+            }
         }
 
         (meanings, shadows_glob)

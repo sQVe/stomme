@@ -1371,6 +1371,31 @@ fn a_private_files_export_hides_its_own_glob_module() {
     assert_eq!(problems, Vec::<Problem>::new(), "private file export");
 }
 
+#[test]
+fn a_private_files_value_export_does_not_hide_its_glob_module() {
+    let files = [
+        ("src/fact.rs", "mod hidden;\npub use hidden::*;\n"),
+        (
+            "src/fact/hidden.rs",
+            "pub use funcs::thing as x;\npub use globber::*;\n",
+        ),
+        ("src/fact/hidden/funcs.rs", "pub fn thing() {}\n"),
+        ("src/fact/hidden/globber.rs", "pub mod x;\n"),
+        ("src/fact/hidden/globber/x.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", "use crate::fact::x::helper;\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_keys(
+        &problems,
+        &["ticket:src/fact/hidden/globber/x.rs"],
+        "private file value export",
+    );
+}
+
 fn problems_within_timeout(
     name: &str,
     fact_entry: String,
