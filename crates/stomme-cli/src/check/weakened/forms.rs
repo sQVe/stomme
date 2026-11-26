@@ -106,9 +106,10 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
 
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
+        let line_depth = next_depth(attribute_depth, trimmed, &mut in_block_comment);
 
         if attribute_depth > 0 {
-            attribute_depth = next_depth(attribute_depth, trimmed, &mut in_block_comment);
+            attribute_depth = line_depth;
             continue;
         }
 
@@ -118,7 +119,7 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
             }
 
             if trimmed.starts_with("#[") {
-                attribute_depth = next_depth(0, trimmed, &mut in_block_comment);
+                attribute_depth = line_depth;
                 continue;
             }
 
@@ -136,7 +137,7 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
 
         if is_test_attribute(trimmed) {
             pending = true;
-            attribute_depth = next_depth(0, trimmed, &mut in_block_comment);
+            attribute_depth = line_depth;
         }
     }
 
@@ -160,7 +161,7 @@ fn next_depth(mut depth: usize, line: &str, in_block_comment: &mut bool) -> usiz
             '[' => depth += 1,
             ']' => depth = depth.saturating_sub(1),
             '"' => skip_quoted(&mut characters, '"'),
-            '\'' => skip_quoted(&mut characters, '\''),
+            '\'' => skip_char_literal(&mut characters),
             '/' if characters.peek() == Some(&'/') => break,
             '/' if characters.peek() == Some(&'*') => {
                 characters.next();
@@ -182,6 +183,33 @@ fn skip_quoted(characters: &mut Peekable<Chars<'_>>, quote: char) {
             other if other == quote => return,
             _ => {}
         }
+    }
+}
+
+fn skip_char_literal(characters: &mut Peekable<Chars<'_>>) {
+    let Some(length) = char_literal_length(characters) else {
+        return;
+    };
+
+    for _ in 0..length {
+        characters.next();
+    }
+}
+
+fn char_literal_length(characters: &Peekable<Chars<'_>>) -> Option<usize> {
+    let mut lookahead = characters.clone();
+    let first = lookahead.next()?;
+    let length = if first == '\\' {
+        lookahead.next()?;
+        2
+    } else {
+        1
+    };
+
+    if lookahead.next() == Some('\'') {
+        Some(length + 1)
+    } else {
+        None
     }
 }
 

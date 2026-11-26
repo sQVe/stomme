@@ -798,3 +798,57 @@ fn multiline_block_comment_in_an_attribute_keeps_the_declaration() {
         "deletes the test case `cases` that `origin/main` declares on line 4",
     );
 }
+
+#[test]
+fn block_comment_opened_on_an_attribute_line_stays_closed() {
+    let root = repository(&[(
+        "src/lib.rs",
+        "#[test] /*\n*/\n#[test_case(\n    1,\n)]\nfn cases() {}\n",
+    )]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `cases` that `origin/main` declares on line 6",
+    );
+}
+
+#[test]
+fn lifetime_argument_in_an_attribute_keeps_the_declaration() {
+    let root = repository(&[(
+        "src/lib.rs",
+        "#[test_case(&'static [1, 2])]\nfn cases() {}\n",
+    )]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `cases` that `origin/main` declares on line 2",
+    );
+}
+
+#[test]
+fn char_literal_argument_in_an_attribute_keeps_the_declaration() {
+    let root = repository(&[("src/lib.rs", "#[test_case('[')]\nfn cases() {}\n")]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `cases` that `origin/main` declares on line 2",
+    );
+}

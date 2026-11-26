@@ -20,6 +20,7 @@ fn stomme<A: AsRef<OsStr>>(root: &Path, arguments: &[A]) -> Output {
         .args(arguments)
         .current_dir(root)
         .env_remove("GITHUB_BASE_REF")
+        .env_remove("GIT_DIR")
         .output()
         .expect("run stomme")
 }
