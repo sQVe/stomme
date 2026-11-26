@@ -181,6 +181,13 @@ export const loadingTests: PackageTests = (context) => {
         '  expect(1).toBe(1);',
         '});',
       ),
+      'skipped.test.ts': lines(
+        "import { expect, it } from 'vitest';",
+        '',
+        "it.skip('skips', () => {",
+        '  expect(1).toBe(1);',
+        '});',
+      ),
       'mocked.test.ts': lines("import { vi } from 'vitest';", '', "vi.mock('./hooks.tsx');"),
     };
 
@@ -192,9 +199,11 @@ export const loadingTests: PackageTests = (context) => {
 
     expect(withPresets.stdout).toContain('(rules-of-hooks)');
     expect(withPresets.stdout).toContain('(no-focused-tests)');
+    expect(withPresets.stdout).toContain('(no-disabled-tests)');
     expect(withPresets.stdout).toContain('(prefer-import-in-mock)');
     expect(withoutPresets.stdout).not.toContain('rules-of-hooks');
     expect(withoutPresets.stdout).not.toContain('no-focused-tests');
+    expect(withoutPresets.stdout).not.toContain('no-disabled-tests');
     expect(withoutPresets.stdout).not.toContain('prefer-import-in-mock');
   });
 
