@@ -2,13 +2,11 @@ packages:
   - packages/*
 
 overrides:
-  # oxfmt pins tinypool 2.1.0, which has critical advisories fixed in 2.1.2.
-  tinypool: 2.1.2
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
 # Vite+ uses its own version for the Vite-compatible core.
 peerDependencyRules:
   allowedVersions:
-    vite: 0.3.0
+    vite: 1.6.0
 
 allowBuilds:
   # The postinstall only downloads a binary that the platform package provides.

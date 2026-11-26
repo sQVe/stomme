@@ -143,7 +143,7 @@ const consumerFiles = (tarball: string) => ({
     name: 'consumer',
     private: true,
     type: 'module',
-    devDependencies: { '@sqve/stomme-ts-style': `file:${tarball}`, 'vite-plus': '0.3.0' },
+    devDependencies: { '@sqve/stomme-ts-style': `file:${tarball}`, 'vite-plus': '1.6.0' },
   }),
   'tsconfig.json': JSON.stringify({
     compilerOptions: {

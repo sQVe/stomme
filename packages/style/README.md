@@ -12,13 +12,13 @@ It ships three parts:
 ## Install
 
 ```sh
-pnpm add --save-dev --save-exact @sqve/stomme-ts-style vite-plus@0.3.0
+pnpm add --save-dev --save-exact @sqve/stomme-ts-style vite-plus@1.6.0
 ```
 
 With Bun:
 
 ```sh
-bun add --dev --exact @sqve/stomme-ts-style vite-plus@0.3.0
+bun add --dev --exact @sqve/stomme-ts-style vite-plus@1.6.0
 ```
 
 stomme-ts-style pins the Vite Plus version it supports. Install that exact version.
