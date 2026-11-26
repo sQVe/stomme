@@ -1,6 +1,6 @@
 {
   "name": "@sqve/stomme-ts-style",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Zero-config Oxlint house style for TypeScript projects, run through Vite Plus.",
   "keywords": [
     "lint",
