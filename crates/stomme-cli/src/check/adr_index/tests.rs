@@ -179,6 +179,76 @@ fn check_reports_a_heading_that_is_a_code_block() {
 }
 
 #[test]
+fn check_reads_a_heading_past_a_fence_inside_a_list_item() {
+    let cases = [
+        (
+            "bullet with a deeper fence",
+            "- Topic\n\n     ```md\n  # ADR 0001: Other\n     ```\n\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "ordered list with a deeper fence",
+            "1. Topic\n\n    ```md\n   # ADR 0001: Other\n    ```\n\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "ordered list with a fence at the content column",
+            "1. Topic\n\n   ```md\n   # ADR 0001: Other\n   ```\n\n# ADR 0001: Documentation scope",
+        ),
+    ];
+
+    for (case, text) in cases {
+        let root = complete_project();
+
+        write_file(root.path(), ADR, &format!("{text}\n"));
+
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn check_reports_a_missing_heading_when_only_a_fence_inside_a_list_item_has_one() {
+    let cases = [
+        (
+            "bullet",
+            "- Topic\n\n     ```md\n  # ADR 0001: Documentation scope\n     ```",
+        ),
+        (
+            "ordered list",
+            "1. Topic\n\n    ```md\n   # ADR 0001: Documentation scope\n    ```",
+        ),
+    ];
+
+    for (case, text) in cases {
+        let root = complete_project();
+
+        write_file(root.path(), ADR, &format!("{text}\n"));
+
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+        assert_eq!(found(&problems), [(ADR, Rule::AdrHeading)], "{case}");
+    }
+}
+
+#[test]
+fn check_reads_a_heading_after_a_fence_that_ends_with_its_list_item() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        ADR,
+        "1. Topic\n\n    ```md\n# ADR 0001: Other\n    ```\n\n# ADR 0001: Documentation scope\n",
+    );
+
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+    assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexLabel)]);
+    assert!(problems[0].message.contains("`0001: Other`"));
+}
+
+#[test]
 fn check_reports_a_numbered_adr_file_without_a_slug() {
     let cases = ["0001-.md", "0001.md"];
 
@@ -351,6 +421,22 @@ fn check_accepts_a_nested_indented_index_entry() {
             "after an indented continuation",
             "- Topic\n\n  Details\n\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
         ),
+        (
+            "three spaces after the bullet",
+            "-   Topic\n\n      - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "four spaces after the bullet",
+            "-    Topic\n\n       - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "two spaces and a tab",
+            "- Topic\n\n  \t- [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "nine-digit ordered marker",
+            "123456789. Topic\n\n           - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
     ];
 
     for (case, replacement) in cases {
@@ -384,6 +470,38 @@ fn check_reports_a_standalone_indented_index_link_as_not_listed() {
         (
             "after a code block",
             "    - Topic\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+    ];
+
+    for (case, replacement) in cases {
+        let root = complete_project();
+
+        replace_in_index(root.path(), ENTRY.trim_end(), replacement);
+
+        let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+        assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexCount)], "{case}");
+    }
+}
+
+#[test]
+fn check_reports_an_index_link_inside_indented_code_in_a_list() {
+    let cases = [
+        (
+            "four spaces below a list item",
+            "- Topic\n\n      - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "four spaces below a heading that ends the list",
+            "- Topic\n\n ### Group\n    - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "five spaces after the bullet",
+            "-     Topic\n\n      - [0001: Documentation scope](./0001-documentation-scope.md)",
+        ),
+        (
+            "below a blank list item with three spaces",
+            "-   \n      - [0001: Documentation scope](./0001-documentation-scope.md)",
         ),
     ];
 
