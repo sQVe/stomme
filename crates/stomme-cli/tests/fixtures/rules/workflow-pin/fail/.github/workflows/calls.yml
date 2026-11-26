@@ -1,0 +1,19 @@
+jobs:
+  quoted:
+    steps:
+      - uses: "sQVe/stomme/.github/workflows/ocr-review.yml@0123456789abcdef0123456789abcdef01234567 # v0.0.0"
+  wrong-owner:
+    steps:
+      - uses: sqve/stomme/.github/workflows/ocr-review.yml@0123456789abcdef0123456789abcdef01234567 # v0.0.0
+  moving-name:
+    steps:
+      - uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0
+  no-comment:
+    steps:
+      - uses: sQVe/stomme/.github/workflows/ocr-review.yml@0123456789abcdef0123456789abcdef01234567
+  bad-comment:
+    steps:
+      - uses: sQVe/stomme/.github/workflows/ocr-review.yml@0123456789abcdef0123456789abcdef01234567 # main at 961e6c7, before the next release
+  other-version:
+    steps:
+      - uses: sQVe/stomme/.github/workflows/ocr-review.yml@0123456789abcdef0123456789abcdef01234567 # v9.9.9

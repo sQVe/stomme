@@ -223,6 +223,17 @@ rules! {
             fixtures: "tests/fixtures/rules/package-pin",
         }),
     },
+    WorkflowPin => Metadata {
+        id: "workflow-pin",
+        summary: "A call to a reusable stomme workflow pins a release commit with the `stomme.toml` version as a `# v<version>` comment.",
+        owner: Owner::Common,
+        applies: "`stomme.toml` is valid",
+        fields: &["version"],
+        enforcement: Enforcement::Enforced(Check {
+            checker: "src/check/workflow_pins.rs",
+            fixtures: "tests/fixtures/rules/workflow-pin",
+        }),
+    },
     LayerDeclared => Metadata {
         id: "layer-declared",
         summary: "A project lists the layer of each framework it uses, so removing a layer cannot switch its rules off.",

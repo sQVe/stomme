@@ -204,7 +204,8 @@ fails at the publish step, because it cannot create the package.
 
 A `v<version>` tag builds `stomme` with cargo-dist and publishes a GitHub Release. `CHANGELOG.md`
 holds the release notes, and `packages.toml` records the npm package versions compatible with that
-binary.
+binary. A merged change to `.github/workflows/ocr-review.yml` or `.github/workflows/sync-update.yml`
+is followed by a patch release, so a project can pin the release commit instead of a `main` commit.
 
 The release runs the gate jobs in `.github/workflows/release-gate.yml` before hosting. They run the
 candidate binary against every adopted project's `main` and against `release/consumer/`. An adopted
