@@ -75,7 +75,7 @@ pub(crate) struct Containers {
 
 struct Item {
     column: usize,
-    line: usize,
+    index: usize,
 }
 
 impl Containers {
@@ -116,15 +116,12 @@ impl Containers {
     // The line that opened the innermost open item, which is the first line of the item a
     // continuation line belongs to.
     pub(crate) fn item_start(&self) -> Option<usize> {
-        self.items.last().map(|item| item.line)
+        self.items.last().map(|item| item.index)
     }
 
     pub(crate) fn open_list_item(&mut self, line: &Line, index: usize) {
         if let Some(column) = list_content_column(line) {
-            self.items.push(Item {
-                column,
-                line: index,
-            });
+            self.items.push(Item { column, index });
         }
     }
 }

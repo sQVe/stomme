@@ -8,7 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
-use crate::fence::{UnfencedLine, list_item_content, list_marker, unfenced_lines};
+use crate::fence::{list_item_content, list_marker, unfenced_lines};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
@@ -430,15 +430,17 @@ struct Marker<'a> {
 
 fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
     let mut markers = Vec::new();
-    let mut scanned = unfenced_lines(lines.iter().copied()).peekable();
 
-    while let Some(line) = scanned.next() {
+    for line in unfenced_lines(lines.iter().copied()) {
         let Some((role, content)) = marker(lines[line.index]) else {
             continue;
         };
+        let opens_a_nested_item =
+            line.item_start != line.index && list_marker(lines[line.index].trim_start()).is_some();
+        let continues_a_nested_item = line.view.depth > 1;
 
         assert!(
-            line.item_start == line.index || list_marker(lines[line.index].trim_start()).is_none(),
+            !(opens_a_nested_item || continues_a_nested_item),
             "a marked block is a top-level list item, not a nested one"
         );
         assert!(
@@ -446,7 +448,7 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
             "a marked block is a list item whose marker ends its last line"
         );
         assert!(
-            !item_continues(&mut scanned, line.item_start),
+            !item_continues(lines, line.index),
             "a marked block is a list item whose marker ends its last line"
         );
 
@@ -461,20 +463,16 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
     markers
 }
 
-// A blank line keeps every open item, so it neither ends the item nor names a marker.
-fn item_continues<'a>(
-    scanned: &mut std::iter::Peekable<impl Iterator<Item = UnfencedLine<'a>>>,
-    start: usize,
-) -> bool {
-    while let Some(line) = scanned.peek() {
-        if !line.view.content.is_empty() {
-            return line.item_start == start;
-        }
+// Any later line indented deeper than the marker line belongs to its item, including a fenced or
+// indented code block that `unfenced_lines` hides. A blank line keeps the item open.
+fn item_continues(lines: &[&str], marker_index: usize) -> bool {
+    let indent_of = |line: &str| line.len() - line.trim_start().len();
+    let indent = indent_of(lines[marker_index]);
 
-        scanned.next();
-    }
-
-    false
+    lines[marker_index + 1..]
+        .iter()
+        .find(|line| !line.trim().is_empty())
+        .is_some_and(|line| indent_of(line) > indent)
 }
 
 fn marker(line: &str) -> Option<(&str, &str)> {

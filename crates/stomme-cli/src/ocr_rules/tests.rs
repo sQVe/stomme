@@ -828,6 +828,21 @@ fn a_marker_on_a_four_space_nested_list_item_is_refused() {
 }
 
 #[test]
+#[should_panic(expected = "a marked block is a top-level list item, not a nested one")]
+fn a_marker_on_a_nested_item_continuation_is_refused() {
+    marked_blocks("- parent\n  - child\n    more <!-- role:core -->\n", "core");
+}
+
+#[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_before_a_fenced_continuation_is_refused() {
+    marked_blocks(
+        "- `core`: Text. <!-- role:core -->\n  ```markdown\n  code\n  ```\n",
+        "core",
+    );
+}
+
+#[test]
 #[should_panic(expected = "unknown role")]
 fn without_marked_blocks_refuses_an_unknown_role_marker() {
     without_marked_blocks("- `x`: Text. <!-- role:clii -->\n");

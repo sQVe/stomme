@@ -278,7 +278,7 @@ fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
     let mut unparsed = Vec::new();
     let mut containers = Containers::new();
 
-    for (line_number, raw_line) in section(index, "## Index").enumerate() {
+    for raw_line in section(index, "## Index") {
         let view = containers.view(raw_line);
         let line = view.content.trim();
 
@@ -296,7 +296,7 @@ fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
             unparsed.push(line);
         }
 
-        containers.open_list_item(&view, line_number);
+        containers.open_list_item(&view, 0);
     }
 
     (entries, unparsed)
