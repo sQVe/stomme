@@ -30,6 +30,13 @@ export interface PackageSuiteOptions<ConsumerType extends { directory: string }>
 // Each test spawns up to three commands, and a fix runs lint and the formatter.
 const spawnedTestTimeout = 120_000;
 
+// A type-aware run loads every file of the tsconfig project that covers a linted file. A case folder
+// is therefore its own project, so a run never reads the folders other tests create and remove.
+const caseProject = JSON.stringify({
+  extends: '../../tsconfig.json',
+  include: ['**/*.ts', '**/*.tsx'],
+});
+
 export const describePackage = <ConsumerType extends { directory: string }>(
   runtime: Runtime,
   groups: PackageTests<ConsumerType>[],
@@ -41,7 +48,6 @@ export const describePackage = <ConsumerType extends { directory: string }>(
       let consumerDirectory = '';
       let consumer: ConsumerType;
 
-      // Each test writes its fixtures into its own folder inside the consumer project.
       const caseFolder: CaseFolder = async (files, onTestFinished, base = '') => {
         const project = join(consumer.directory, base);
         const cases = join(project, 'cases');
@@ -51,7 +57,7 @@ export const describePackage = <ConsumerType extends { directory: string }>(
         const directory = await mkdtemp(join(cases, 'case-'));
         const folder = relative(project, directory);
 
-        await writeFiles(directory, files);
+        await writeFiles(directory, { 'tsconfig.json': caseProject, ...files });
         onTestFinished(() => rm(directory, { recursive: true, force: true }));
 
         return { folder, directory };

@@ -480,6 +480,30 @@ export const behaviorTests: PackageTests = (context) => {
     expect(result.status).toBe(0);
   });
 
+  it('does not load another case folder into its type-aware run', async ({
+    expect,
+    onTestFinished,
+  }) => {
+    const declaration = 'declare const gate: string;\n';
+    const use = 'export const check = (): boolean => gate !== null;\n';
+
+    const together = await context.caseFolder(
+      { 'globals.d.ts': declaration, 'use.ts': use },
+      onTestFinished,
+    );
+
+    const alone = await context.caseFolder({ 'use.ts': use }, onTestFinished);
+
+    const withSibling = await context.consumer.seam([alone.folder]);
+    const withOwn = await context.consumer.seam([together.folder]);
+
+    expect(diagnosticOutput(withSibling.stdout)).toBe('');
+    expect(withSibling.status).toBe(0);
+    // The same declaration in the run's own folder still resolves, so the run was type-aware.
+    expect(withOwn.stdout).toContain('typescript(no-unnecessary-condition)');
+    expect(withOwn.status).toBe(1);
+  });
+
   it('type-checks consumer code against the declarations without skipping libraries', async ({
     expect,
     onTestFinished,
