@@ -342,13 +342,12 @@ fn split_line_ending(line: &str) -> (&str, &str) {
 fn rewrite_workflow_call(line: &str, version: &str, commit: &str) -> Option<String> {
     let trimmed = line.trim_start();
     let indent = &line[..line.len() - trimmed.len()];
-    let (dash, trimmed) = match trimmed.strip_prefix("- ") {
-        Some(rest) => ("- ", rest),
+    let (dash, trimmed) = match trimmed.strip_prefix('-') {
+        Some(rest) => ("- ", rest.trim_start()),
         None => ("", trimmed),
     };
     let rest = trimmed.strip_prefix("uses:")?;
-    let value = unquoted(rest.trim());
-    let called = value.split_once('@').map_or(value, |(called, _)| called);
+    let called = called_workflow(rest.trim());
 
     if !called.to_ascii_lowercase().starts_with(WORKFLOWS_PREFIX) {
         return None;
@@ -358,6 +357,16 @@ fn rewrite_workflow_call(line: &str, version: &str, commit: &str) -> Option<Stri
     let call = format!("{OWNER}/.github/workflows/{workflow}@{commit} # v{version}");
 
     Some(format!("{indent}{dash}uses: {call}"))
+}
+
+fn called_workflow(value: &str) -> &str {
+    let value = unquoted(value);
+    let value = value
+        .split_once(char::is_whitespace)
+        .map_or(value, |(value, _)| value);
+    let value = value.trim_end_matches(['"', '\'']);
+
+    value.split_once('@').map_or(value, |(called, _)| called)
 }
 
 fn unquoted(value: &str) -> &str {

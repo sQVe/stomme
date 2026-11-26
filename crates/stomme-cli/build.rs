@@ -1,5 +1,8 @@
 use std::env;
 
+// rustfmt resolves `mod tests` in the included file against `src/`, so the build script skips
+// following it. The binary target still formats the module.
+#[rustfmt::skip]
 #[path = "src/commit.rs"]
 mod commit;
 

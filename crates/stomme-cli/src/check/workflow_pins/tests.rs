@@ -142,6 +142,49 @@ fn refuses_a_quoted_call_with_a_trailing_comment() {
 }
 
 #[test]
+fn refuses_a_call_after_a_dash_with_more_than_one_space() {
+    let text = "jobs:\n  job:\n    steps:\n      -   uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\n";
+    let root = project_with(&[(".github/workflows/ci.yml", text)]);
+
+    let problems = check(root.path(), "1.2.3").expect("check the workflows");
+
+    assert_eq!(problems.len(), 1);
+    assert!(
+        problems[0].message.contains("by the moving name `v0.2.0`"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn names_the_workflow_without_its_trailing_comment() {
+    let cases = [
+        (
+            "unquoted",
+            "uses: sQVe/stomme/.github/workflows/ocr-review.yml # v0.2.4",
+            "calls `ocr-review.yml` by the moving name ``",
+        ),
+        (
+            "quoted",
+            "uses: \"sQVe/stomme/.github/workflows/ocr-review.yml\" # v0.2.4",
+            "quotes the call to `ocr-review.yml`",
+        ),
+    ];
+
+    for (name, line, expected) in cases {
+        let (path, text) = workflow("ci.yml", line);
+        let root = project_with(&[(&path, &text)]);
+
+        let problems = check(root.path(), "1.2.3").expect("check the workflows");
+
+        assert_eq!(problems.len(), 1, "{name}: {problems:?}");
+        assert!(
+            problems[0].message.contains(expected),
+            "{name}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn reports_the_same_messages_for_unquoted_calls() {
     let cases = [
         (

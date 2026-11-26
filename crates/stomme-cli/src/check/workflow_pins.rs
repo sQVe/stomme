@@ -76,10 +76,15 @@ fn is_workflow_name(name: &str) -> bool {
 
 fn call_problem(line: &str, number: usize, version: &str, path: &str) -> Option<Problem> {
     let trimmed = line.trim_start();
-    let trimmed = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+    let trimmed = trimmed.strip_prefix('-').unwrap_or(trimmed);
+    let trimmed = trimmed.trim_start();
     let rest = trimmed.strip_prefix("uses:")?;
     let (value, quoted) = unquote(rest.trim());
     let (called, after) = value.split_once('@').unwrap_or((value, ""));
+    let called = called
+        .split_once(char::is_whitespace)
+        .map_or(called, |(called, _)| called)
+        .trim_end_matches(['"', '\'']);
 
     if !called.to_ascii_lowercase().starts_with(WORKFLOWS_PREFIX) {
         return None;

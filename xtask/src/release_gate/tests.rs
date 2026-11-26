@@ -200,6 +200,72 @@ fn gate_moves_a_quoted_workflow_call_with_a_comment_to_the_release_commit() {
 }
 
 #[test]
+fn gate_moves_a_call_after_a_dash_with_more_than_one_space() {
+    let folder = project(CONFIG);
+    let sync = "  -   uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.0\n";
+    write_workflow(&folder, "sync.yml", sync);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(
+        workflow_text(&folder, "sync.yml"),
+        format!("  - uses: sQVe/stomme/.github/workflows/sync-update.yml@{COMMIT} # v9.9.9\n")
+    );
+}
+
+#[test]
+fn gate_moves_a_call_with_a_comment_and_no_reference() {
+    let folder = project(CONFIG);
+    let ocr = "    uses: sQVe/stomme/.github/workflows/ocr-review.yml # note\n";
+    write_workflow(&folder, "ocr.yml", ocr);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(
+        workflow_text(&folder, "ocr.yml"),
+        format!("    uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # v9.9.9\n")
+    );
+}
+
+#[test]
+fn gate_moves_a_quoted_call_with_a_comment_and_no_reference() {
+    let folder = project(CONFIG);
+    let ocr = "    uses: \"sQVe/stomme/.github/workflows/ocr-review.yml\" # note\n";
+    write_workflow(&folder, "ocr.yml", ocr);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(
+        workflow_text(&folder, "ocr.yml"),
+        format!("    uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # v9.9.9\n")
+    );
+}
+
+#[test]
 fn gate_leaves_other_workflow_calls_alone() {
     let folder = project(CONFIG);
     let text = "jobs:\n  ocr:\n    steps:\n      - uses: ./.github/workflows/ocr-review.yml\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - run: echo \"uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\"\n";
