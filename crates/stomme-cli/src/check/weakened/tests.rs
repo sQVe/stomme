@@ -409,6 +409,7 @@ fn file_read_failure_does_not_ask_for_a_fetch() {
     let problems = check(root.path(), &target());
 
     assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].path, "src/lib.rs", "{problems:?}");
     assert!(
         problems[0].message.contains("cannot read `src/lib.rs`"),
         "{}",
@@ -667,4 +668,82 @@ fn project_folder_without_its_own_change_reports_nothing() {
     let problems = check(project.as_path(), &target());
 
     assert_eq!(problems, Vec::new(), "{problems:?}");
+}
+
+#[test]
+fn broken_repository_reports_the_git_failure() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    fs::write(root.path().join(".git"), "not a git directory\n").expect("write the .git file");
+
+    let problems = check(root.path(), &target());
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0]
+            .message
+            .contains("`git rev-list --all --count` failed"),
+        "{}",
+        problems[0].message
+    );
+}
+
+#[test]
+fn moved_file_with_an_existing_skip_reports_nothing() {
+    let root = repository(&[(
+        "src/old.rs",
+        "#[ignore]\n#[test]\nfn slow() {}\n\nfn value() -> u32 {\n    1\n}\n",
+    )]);
+
+    remove(root.path(), "src/old.rs");
+    write(
+        root.path(),
+        "src/new.rs",
+        "#[ignore]\n#[test]\nfn slow() {}\n\nfn value() -> u32 {\n    2\n}\n",
+    );
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_eq!(problems, Vec::new(), "{problems:?}");
+}
+
+#[test]
+fn moved_file_with_an_added_skip_reports_the_skip() {
+    let root = repository(&[("src/old.rs", "#[test]\nfn runs() {}\n")]);
+
+    remove(root.path(), "src/old.rs");
+    write(
+        root.path(),
+        "src/new.rs",
+        "#[test]\n#[ignore]\nfn runs() {}\n",
+    );
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/new.rs",
+        "line 2: adds the test skip `#[ignore]`",
+    );
+}
+
+#[test]
+fn multiline_attribute_with_brackets_keeps_the_declaration() {
+    let root = repository(&[(
+        "src/lib.rs",
+        "#[test_case(\n    vec![1, 2],\n    vec![3, 4],\n)]\nfn cases() {}\n",
+    )]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `cases` that `origin/main` declares on line 5",
+    );
 }

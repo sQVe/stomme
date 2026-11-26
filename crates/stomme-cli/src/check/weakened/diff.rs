@@ -6,6 +6,7 @@ use crate::layer::Language;
 
 pub(super) struct ChangedPath {
     pub(super) text: String,
+    pub(super) base: String,
     pub(super) language: Language,
 }
 
@@ -21,30 +22,30 @@ pub(super) fn project_prefix(root: &Path) -> Result<String, String> {
 }
 
 pub(super) fn changed_paths(root: &Path, commit: &str) -> Result<Vec<ChangedPath>, String> {
-    let output = run_git(
-        root,
-        &[
-            "diff",
-            "--name-status",
-            "-z",
-            "--no-renames",
-            "--relative",
-            commit,
-        ],
-    )?;
+    let output = run_git(root, &["diff", "--name-status", "-z", "--relative", commit])?;
     let mut parts = output.split('\0');
     let mut paths = Vec::new();
 
-    while let Some(_status) = parts.next() {
+    while let Some(status) = parts.next() {
         let Some(path) = parts.next() else {
             break;
         };
-        let Some(language) = source_language(path) else {
+        let (base, text) = if status.starts_with('R') || status.starts_with('C') {
+            let Some(new) = parts.next() else {
+                break;
+            };
+
+            (path.to_string(), new.to_string())
+        } else {
+            (path.to_string(), path.to_string())
+        };
+        let Some(language) = source_language(&text) else {
             continue;
         };
 
         paths.push(ChangedPath {
-            text: path.to_string(),
+            text,
+            base,
             language,
         });
     }
@@ -86,20 +87,26 @@ pub(super) fn base_text(
     Ok(Some(String::from_utf8_lossy(&shown.stdout).into_owned()))
 }
 
-pub(super) fn added_lines(root: &Path, commit: &str, path: &str) -> Result<Vec<AddedLine>, String> {
+pub(super) fn added_lines(
+    root: &Path,
+    commit: &str,
+    base: &str,
+    path: &str,
+) -> Result<Vec<AddedLine>, String> {
     let diff = run_git(
         root,
         &[
             "--literal-pathspecs",
             "diff",
+            "-M",
             "--unified=0",
             "--no-color",
             "--no-ext-diff",
             "--text",
-            "--no-renames",
             "--relative",
             commit,
             "--",
+            base,
             path,
         ],
     )?;

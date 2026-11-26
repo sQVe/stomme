@@ -27,11 +27,15 @@ impl TargetBranch {
     }
 
     #[cfg(test)]
-    pub(crate) fn with_reader(reference: String, read: fn(&Path, &str) -> TargetRead) -> Self {
+    pub(crate) fn with_reader(
+        reference: String,
+        read: fn(&Path, &str) -> TargetRead,
+        resolve: fn(&Path, &str) -> Result<String, String>,
+    ) -> Self {
         Self {
             reference,
             read,
-            resolve: resolve_expression,
+            resolve,
         }
     }
 }

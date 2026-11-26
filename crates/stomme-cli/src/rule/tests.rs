@@ -231,22 +231,21 @@ fn weakened_test_fail_fixture_reports_each_form() {
         &crate::config::FileRead::filesystem(),
     )
     .expect("check the fixture");
-    let messages: Vec<&str> = problems
+    let messages: BTreeSet<&str> = problems
         .iter()
+        .filter(|problem| problem.rule == Rule::WeakenedTest)
         .map(|problem| problem.message.as_str())
         .collect();
-    let expected = [
+    let expected: BTreeSet<&str> = [
+        "line 1: adds the test skip `it.skip(`; keep the test running",
         "line 2: adds the test skip `#[ignore]`; keep the test running",
         "line 7: adds the suppression `#[expect(`; fix the finding instead of hiding it",
         "deletes the test case `removed_case` that `origin/main` declares on line 7; keep the case",
-    ];
+    ]
+    .into_iter()
+    .collect();
 
-    for message in expected {
-        assert!(
-            messages.contains(&message),
-            "{message} is missing from {messages:?}"
-        );
-    }
+    assert_eq!(messages, expected);
 }
 
 #[test]

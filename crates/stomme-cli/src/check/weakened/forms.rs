@@ -98,13 +98,13 @@ pub(super) fn declarations(text: &str, language: Language, path: &str) -> Vec<De
 fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
     let mut declarations = Vec::new();
     let mut pending = false;
-    let mut open_attribute = false;
+    let mut attribute_depth = 0;
 
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
 
-        if open_attribute {
-            open_attribute = !trimmed.contains(']');
+        if attribute_depth > 0 {
+            attribute_depth = next_depth(attribute_depth, trimmed);
             continue;
         }
 
@@ -114,7 +114,7 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
             }
 
             if trimmed.starts_with("#[") {
-                open_attribute = !trimmed.contains(']');
+                attribute_depth = next_depth(0, trimmed);
                 continue;
             }
 
@@ -132,11 +132,23 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
 
         if is_test_attribute(trimmed) {
             pending = true;
-            open_attribute = !trimmed.contains(']');
+            attribute_depth = next_depth(0, trimmed);
         }
     }
 
     declarations
+}
+
+fn next_depth(mut depth: usize, line: &str) -> usize {
+    for character in line.chars() {
+        match character {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    depth
 }
 
 fn is_skipped(trimmed: &str) -> bool {

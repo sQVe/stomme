@@ -15,12 +15,15 @@ mod tests;
 
 enum Failure {
     Target(String),
-    Other(String),
+    Other {
+        path: Option<String>,
+        reason: String,
+    },
 }
 
 impl From<String> for Failure {
     fn from(reason: String) -> Self {
-        Self::Other(reason)
+        Self::Other { path: None, reason }
     }
 }
 
@@ -31,7 +34,12 @@ pub(super) fn check(root: &Path, target: &TargetBranch) -> Vec<Problem> {
             &target.reference,
             format!("{reason}; fetch the target branch and try again"),
         )],
-        Err(Failure::Other(reason)) => vec![problem(&target.reference, reason)],
+        Err(Failure::Other { path, reason }) => {
+            vec![problem(
+                path.as_deref().unwrap_or(&target.reference),
+                reason,
+            )]
+        }
     }
 }
 
@@ -47,8 +55,17 @@ fn problem(path: &str, message: String) -> Problem {
 fn scan(root: &Path, target: &TargetBranch) -> Result<Vec<Problem>, Failure> {
     let commit = match (target.resolve)(root, &target.reference) {
         Ok(commit) => commit,
-        Err(_) if has_no_commit(root)? => return Ok(Vec::new()),
-        Err(reason) => return Err(Failure::Target(reason)),
+        Err(reason) => {
+            if !in_repository(root) {
+                return Ok(Vec::new());
+            }
+
+            if has_no_commit(root)? {
+                return Ok(Vec::new());
+            }
+
+            return Err(Failure::Target(reason));
+        }
     };
     let prefix = diff::project_prefix(root)?;
     let mut problems = Vec::new();
@@ -56,8 +73,11 @@ fn scan(root: &Path, target: &TargetBranch) -> Result<Vec<Problem>, Failure> {
     let mut current = Vec::new();
 
     for path in diff::changed_paths(root, &commit)? {
-        if let Some(text) = diff::base_text(root, &commit, &prefix, &path.text)? {
-            base.extend(forms::declarations(&text, path.language, &path.text));
+        let text = diff::base_text(root, &commit, &prefix, &path.base)
+            .map_err(|reason| file_failure(&path.text, reason))?;
+
+        if let Some(text) = text {
+            base.extend(forms::declarations(&text, path.language, &path.base));
         }
 
         let Some(text) = current_text(root, &path.text)? else {
@@ -73,17 +93,40 @@ fn scan(root: &Path, target: &TargetBranch) -> Result<Vec<Problem>, Failure> {
     Ok(problems)
 }
 
+fn in_repository(root: &Path) -> bool {
+    root.ancestors().any(|folder| folder.join(".git").exists())
+}
+
 fn has_no_commit(root: &Path) -> Result<bool, Failure> {
     let output = target_branch::run_git(root, &["rev-list", "--all", "--count"])
-        .map_err(|error| Failure::Other(format!("could not run `git`: {error}")))?;
+        .map_err(|error| repository_failure(format!("could not run `git`: {error}")))?;
 
     if !output.status.success() {
-        return Ok(true);
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let detail = detail.trim();
+        let reason = if detail.is_empty() {
+            "`git rev-list --all --count` failed".to_string()
+        } else {
+            format!("`git rev-list --all --count` failed: {detail}")
+        };
+
+        return Err(repository_failure(reason));
     }
 
     let count = String::from_utf8_lossy(&output.stdout);
 
     Ok(count.trim() == "0")
+}
+
+fn file_failure(path: &str, reason: String) -> Failure {
+    Failure::Other {
+        path: Some(path.to_string()),
+        reason,
+    }
+}
+
+fn repository_failure(reason: String) -> Failure {
+    Failure::Other { path: None, reason }
 }
 
 fn added_problems(
@@ -93,7 +136,10 @@ fn added_problems(
 ) -> Result<Vec<Problem>, Failure> {
     let mut problems = Vec::new();
 
-    for line in diff::added_lines(root, commit, &path.text)? {
+    let lines = diff::added_lines(root, commit, &path.base, &path.text)
+        .map_err(|reason| file_failure(&path.text, reason))?;
+
+    for line in lines {
         let Some((marker, form)) = forms::added_marker(&line.text, path.language) else {
             continue;
         };
@@ -108,7 +154,7 @@ fn current_text(root: &Path, path: &str) -> Result<Option<String>, Failure> {
     match fs::read_to_string(root.join(path)) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(Failure::Other(format!("cannot read `{path}`: {error}"))),
+        Err(error) => Err(file_failure(path, format!("cannot read `{path}`: {error}"))),
     }
 }
 

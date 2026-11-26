@@ -98,6 +98,10 @@ fn unexpected_read(_root: &Path, _reference: &str) -> TargetRead {
     panic!("an empty list must not read the target branch");
 }
 
+fn unexpected_resolve(_root: &Path, _reference: &str) -> Result<String, String> {
+    panic!("growth must not resolve the target");
+}
+
 #[test]
 fn growth_fails_for_each_case() {
     let cases: [(&str, Vec<Violation>, ReadTarget, usize); 7] = [
@@ -111,7 +115,7 @@ fn growth_fails_for_each_case() {
     ];
 
     for (case, recorded, read, expected) in cases {
-        let target = TargetBranch::with_reader("origin/main".to_string(), read);
+        let target = TargetBranch::with_reader("origin/main".to_string(), read, unexpected_resolve);
 
         let problems = growth(Path::new("."), &recorded, &target);
 

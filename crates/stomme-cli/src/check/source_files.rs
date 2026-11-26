@@ -28,7 +28,7 @@ impl SourceFile {
     }
 
     pub(super) fn is_ts(&self) -> bool {
-        self.name.ends_with(".ts") && !self.name.ends_with(".d.ts")
+        is_typescript_module(&self.name)
     }
 }
 
