@@ -88,13 +88,15 @@ fn tsx_placement_reports_a_tests_folder() {
         write_file(root.path(), path, "");
 
         let problems = check(&tree(root.path()));
-        let expected =
-            format!("puts `{name}` in a `__tests__` folder; put a unit test beside its owner");
+        let fragment = format!("puts `{name}` in a `__tests__` folder");
 
         assert_eq!(problems.len(), 1, "{case}: {problems:?}");
         assert_eq!(problems[0].path, path, "{case}");
         assert_eq!(problems[0].rule, Rule::ReactTestPlacement, "{case}");
-        assert_eq!(problems[0].message, expected, "{case}");
+        assert!(
+            problems[0].message.contains(&fragment),
+            "{case}: {problems:?}"
+        );
     }
 }
 

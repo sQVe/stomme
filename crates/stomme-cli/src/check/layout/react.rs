@@ -40,7 +40,7 @@ fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
             file,
             Rule::ReactTestPlacement,
             format!(
-                "puts `{}` in a `__tests__` folder; put a unit test beside its owner",
+                "puts `{}` in a `__tests__` folder; put it beside its owner",
                 file.name
             ),
         ));
