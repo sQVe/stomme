@@ -1,6 +1,6 @@
 {
   "name": "@sqve/stomme-ts-imports",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Oxlint import rules for the module table in stomme.toml.",
   "keywords": [
     "imports",
