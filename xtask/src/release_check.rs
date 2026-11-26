@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+const COMMIT_LENGTH: usize = 40;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Passed,
@@ -36,6 +38,14 @@ pub(crate) fn exit_code(outcome: &Outcome) -> ExitCode {
         Outcome::Passed | Outcome::NotAdopted { .. } => ExitCode::SUCCESS,
         Outcome::Failed { .. } => ExitCode::FAILURE,
     }
+}
+
+pub(crate) fn is_release_commit(value: &str) -> bool {
+    value.len() == COMMIT_LENGTH && value.bytes().all(is_commit_byte)
+}
+
+fn is_commit_byte(byte: u8) -> bool {
+    byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
 }
 
 fn report(folder: &Path, outcome: &Outcome) -> String {

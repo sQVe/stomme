@@ -63,7 +63,8 @@ reusable stomme workflow, and a call that names another version than `stomme.tom
 Every release runs the candidate binary's `stomme init` in an empty folder and requires each written
 workflow, sync and OCR, to equal its common skeleton with `{{commit}}` and `{{version}}` replaced. A
 binary that embeds the wrong commit, or writes any other difference, fails before the release is
-hosted.
+hosted. Before it checks an adopted project, the gate moves the project's reusable stomme workflow
+calls to the tag commit with the candidate version, as the project's update does.
 
 ## Consequences
 

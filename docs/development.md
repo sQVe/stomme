@@ -66,9 +66,9 @@
   that is not made from a release tag needs `STOMME_RELEASE_COMMIT` set to the commit of tag
   `v<version>`.
 - `xtask` holds repository tasks, run as `cargo xtask <task>`.
-- `cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>` runs a
-  candidate `stomme` binary against one project as its update would, and exits 1 only when an
-  adopted project fails.
+- `cargo xtask release-gate --stomme <binary> --version <candidate> --commit <sha> <project-folder>`
+  runs a candidate `stomme` binary against one project as its update would, moves the project's
+  stomme workflow calls to that commit, and exits 1 only when an adopted project fails.
 - `cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>`
   runs the candidate's `stomme init` in an empty folder and exits 1 unless the written sync and OCR
   workflows equal their common skeletons with `{{commit}}` and `{{version}}` replaced.

@@ -23,7 +23,7 @@ Usage:
   cargo xtask mutation changed <base> [--max-mutants N]
   cargo xtask mutation audit <file>... [--max-mutants N]
   cargo xtask ocr-smoke
-  cargo xtask release-gate --stomme <binary> --version <candidate> <project-folder>
+  cargo xtask release-gate --stomme <binary> --version <candidate> --commit <sha> <project-folder>
   cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>";
 
 fn workspace_root() -> PathBuf {

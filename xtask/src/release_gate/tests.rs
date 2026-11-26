@@ -10,6 +10,7 @@ use crate::release_check::exit_code;
 use crate::test_support::{strings, temporary_directory};
 
 const CONFIG: &str = "schema = 1\nversion = \"0.0.0\"\nlanguage = \"rust\"\n";
+const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 #[derive(Clone, Default)]
 struct Response {
@@ -33,6 +34,7 @@ thread_local! {
     static FAKE: RefCell<Fake> = RefCell::new(Fake::default());
     static CALLS: RefCell<Vec<Call>> = const { RefCell::new(Vec::new()) };
     static SYNC_CONFIG: RefCell<Option<String>> = const { RefCell::new(None) };
+    static SYNC_WORKFLOW: RefCell<Option<String>> = const { RefCell::new(None) };
     static READS: RefCell<usize> = const { RefCell::new(0) };
     static CONFIG_READ: RefCell<fn(&Path) -> io::Result<String>> =
         const { RefCell::new(read_entry) };
@@ -42,6 +44,7 @@ fn install(sync: Response, check: Response) {
     FAKE.with(|fake| *fake.borrow_mut() = Fake { sync, check });
     CALLS.with(|calls| calls.borrow_mut().clear());
     SYNC_CONFIG.with(|config| *config.borrow_mut() = None);
+    SYNC_WORKFLOW.with(|workflow| *workflow.borrow_mut() = None);
     READS.with(|reads| *reads.borrow_mut() = 0);
     CONFIG_READ.with(|read| *read.borrow_mut() = read_entry);
 }
@@ -62,6 +65,10 @@ fn calls() -> Vec<Call> {
 
 fn sync_config() -> Option<String> {
     SYNC_CONFIG.with(|config| config.borrow().clone())
+}
+
+fn sync_workflow() -> Option<String> {
+    SYNC_WORKFLOW.with(|workflow| workflow.borrow().clone())
 }
 
 fn output(response: &Response) -> Output {
@@ -91,6 +98,9 @@ fn fake_runner(_binary: &Path, folder: &Path, arguments: &[&str]) -> io::Result<
         let read = CONFIG_READ.with(|read| *read.borrow());
         let config = read(&folder.join("stomme.toml"))?;
         SYNC_CONFIG.with(|recorded| *recorded.borrow_mut() = Some(config));
+
+        let workflow = std::fs::read_to_string(folder.join(".github/workflows/sync.yml")).ok();
+        SYNC_WORKFLOW.with(|recorded| *recorded.borrow_mut() = workflow);
     }
 
     let response = FAKE.with(|fake| {
@@ -126,6 +136,130 @@ fn config_text(folder: &tempfile::TempDir) -> String {
     std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml")
 }
 
+fn write_workflow(folder: &tempfile::TempDir, name: &str, text: &str) {
+    let workflows = folder.path().join(".github/workflows");
+
+    std::fs::create_dir_all(&workflows).expect("create the workflows folder");
+    std::fs::write(workflows.join(name), text).expect("write the workflow");
+}
+
+fn workflow_text(folder: &tempfile::TempDir, name: &str) -> String {
+    let path = folder.path().join(".github/workflows").join(name);
+
+    std::fs::read_to_string(path).expect("read the workflow")
+}
+
+#[test]
+fn gate_moves_stomme_workflow_calls_to_the_release_commit() {
+    let folder = project(CONFIG);
+    let ocr = "    uses: sQVe/stomme/.github/workflows/ocr-review.yml@961e6c74507ea648afb067fbf357ab43eb3f4891 # main at 961e6c7\n";
+    let sync = "  - uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.0\n";
+    write_workflow(&folder, "ocr.yml", ocr);
+    write_workflow(&folder, "sync.yml", sync);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(
+        workflow_text(&folder, "ocr.yml"),
+        format!("    uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # v9.9.9\n")
+    );
+    assert_eq!(
+        workflow_text(&folder, "sync.yml"),
+        format!("  - uses: sQVe/stomme/.github/workflows/sync-update.yml@{COMMIT} # v9.9.9\n")
+    );
+}
+
+#[test]
+fn gate_leaves_other_workflow_calls_alone() {
+    let folder = project(CONFIG);
+    let text = "jobs:\n  ocr:\n    steps:\n      - uses: ./.github/workflows/ocr-review.yml\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n      - run: echo \"uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\"\n";
+    write_workflow(&folder, "ocr.yml", text);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(workflow_text(&folder, "ocr.yml"), text);
+}
+
+#[test]
+fn gate_keeps_crlf_line_endings_when_rewriting_a_workflow_pin() {
+    let folder = project(CONFIG);
+    let workflow =
+        "jobs:\r\n  ocr:\r\n    uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\r\n";
+    write_workflow(&folder, "ocr.yml", workflow);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(
+        workflow_text(&folder, "ocr.yml"),
+        format!(
+            "jobs:\r\n  ocr:\r\n    uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # v9.9.9\r\n"
+        )
+    );
+}
+
+#[test]
+fn gate_passes_a_project_without_a_workflows_folder() {
+    let folder = project(CONFIG);
+    install(Response::default(), Response::default());
+
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(outcome, Outcome::Passed);
+}
+
+#[test]
+fn gate_moves_the_workflow_pins_before_sync() {
+    let folder = project(CONFIG);
+    let call = "  - uses: sQVe/stomme/.github/workflows/sync-update.yml@v0.2.0\n";
+    write_workflow(&folder, "sync.yml", call);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    let expected =
+        format!("  - uses: sQVe/stomme/.github/workflows/sync-update.yml@{COMMIT} # v9.9.9\n");
+
+    assert_eq!(sync_workflow().as_deref(), Some(expected.as_str()));
+}
+
 #[test]
 fn gate_fails_an_adopted_project_whose_check_fails() {
     let folder = project(CONFIG);
@@ -137,8 +271,14 @@ fn gate_fails_an_adopted_project_whose_check_fails() {
         },
     );
 
-    let outcome =
-        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(
         outcome,
@@ -155,8 +295,14 @@ fn gate_passes_an_adopted_project_after_sync_and_check() {
     let folder = project(CONFIG);
     install(Response::default(), Response::default());
 
-    let outcome =
-        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(outcome, Outcome::Passed);
     assert_eq!(exit_code(&outcome), ExitCode::SUCCESS);
@@ -182,7 +328,14 @@ fn gate_rewrites_the_pinned_version_before_sync() {
     );
     install(Response::default(), Response::default());
 
-    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     let config =
         std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml");
@@ -202,8 +355,14 @@ fn gate_stops_after_a_failed_sync() {
         Response::default(),
     );
 
-    let outcome =
-        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(
         outcome,
@@ -228,8 +387,14 @@ fn gate_reports_a_project_without_stomme_toml_without_failing() {
         },
     );
 
-    let outcome =
-        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(
         outcome,
@@ -434,7 +599,13 @@ fn gate_decides_adoption_from_the_stomme_toml_entry() {
         } else {
             runner()
         };
-        let result = gate(&runner, Path::new("/stomme"), "1.2.3", &fixture.folder);
+        let result = gate(
+            &runner,
+            Path::new("/stomme"),
+            "1.2.3",
+            COMMIT,
+            &fixture.folder,
+        );
         let sync_calls = calls()
             .iter()
             .filter(|call| call.arguments.first().map(String::as_str) == Some("sync"))
@@ -482,8 +653,14 @@ fn gate_refuses_a_stomme_toml_that_cannot_be_read() {
         ..runner()
     };
 
-    let error =
-        gate(&runner, Path::new("/stomme"), "1.2.3", folder.path()).expect_err("refuse the entry");
+    let error = gate(
+        &runner,
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect_err("refuse the entry");
 
     let Some(ConfigError::Read { path, source }) = error.downcast_ref::<ConfigError>() else {
         panic!("expected a read failure, got {error:?}");
@@ -505,8 +682,14 @@ fn gate_refuses_a_stomme_toml_that_cannot_be_inspected() {
         ..runner()
     };
 
-    let error =
-        gate(&runner, Path::new("/stomme"), "1.2.3", folder.path()).expect_err("refuse the entry");
+    let error = gate(
+        &runner,
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect_err("refuse the entry");
 
     let Some(ConfigError::Inspect { path, source }) = error.downcast_ref::<ConfigError>() else {
         panic!("expected an inspect failure, got {error:?}");
@@ -523,8 +706,14 @@ fn gate_refuses_a_stomme_toml_without_a_version_line() {
     let folder = project("schema = 1\nlanguage = \"rust\"\n");
     install(Response::default(), Response::default());
 
-    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
-        .expect_err("refuse the config");
+    let error = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect_err("refuse the config");
 
     let message = format!("{error:#}");
     assert_eq!(
@@ -544,8 +733,14 @@ fn gate_rewrites_a_commented_version_pin_and_keeps_the_comment() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    let outcome =
-        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     let rewritten = "schema = 1\nversion = \"1.2.3\" # candidate pin\nlanguage = \"rust\"\n";
     assert_eq!(outcome, Outcome::Passed);
@@ -559,7 +754,14 @@ fn gate_keeps_crlf_line_endings_when_rewriting_the_pin() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(
         config_text(&folder),
@@ -573,7 +775,14 @@ fn gate_keeps_a_missing_final_newline_when_rewriting_the_pin() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(
         config_text(&folder),
@@ -587,7 +796,14 @@ fn gate_keeps_interleaved_dotted_keys_in_place_when_rewriting_the_pin() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(
         config_text(&folder),
@@ -601,8 +817,14 @@ fn gate_rewrites_a_literal_string_version_pin() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    let outcome =
-        gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    let outcome = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     assert_eq!(outcome, Outcome::Passed);
     assert_eq!(
@@ -617,8 +839,14 @@ fn gate_refuses_a_stomme_toml_that_does_not_parse() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
-        .expect_err("refuse the config");
+    let error = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect_err("refuse the config");
 
     let message = format!("{error:#}");
     let prefix = format!(
@@ -643,8 +871,14 @@ fn gate_refuses_a_non_string_version() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
-        .expect_err("refuse the config");
+    let error = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect_err("refuse the config");
 
     let message = format!("{error:#}");
     assert_eq!(
@@ -664,8 +898,14 @@ fn gate_refuses_a_table_valued_version() {
     let folder = project(config);
     install(Response::default(), Response::default());
 
-    let error = gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path())
-        .expect_err("refuse the config");
+    let error = gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect_err("refuse the config");
 
     let message = format!("{error:#}");
     assert_eq!(
@@ -681,20 +921,73 @@ fn gate_refuses_a_table_valued_version() {
 
 #[test]
 fn parse_arguments_reads_the_flags_and_rejects_wrong_ones() {
-    let arguments = strings(&["--stomme", "/bin/stomme", "--version", "1.2.3", "project"]);
+    let arguments = strings(&[
+        "--stomme",
+        "/bin/stomme",
+        "--version",
+        "1.2.3",
+        "--commit",
+        COMMIT,
+        "project",
+    ]);
 
     assert_eq!(
         parse_arguments(&arguments),
         Some(Arguments {
             binary: PathBuf::from("/bin/stomme"),
             version: "1.2.3".to_string(),
+            commit: COMMIT.to_string(),
             folder: PathBuf::from("project"),
         })
     );
 
     for arguments in [
-        strings(&["--other", "/bin/stomme", "--version", "1.2.3", "project"]),
-        strings(&["--stomme", "/bin/stomme", "--other", "1.2.3", "project"]),
+        strings(&[
+            "--other",
+            "/bin/stomme",
+            "--version",
+            "1.2.3",
+            "--commit",
+            COMMIT,
+            "project",
+        ]),
+        strings(&[
+            "--stomme",
+            "/bin/stomme",
+            "--other",
+            "1.2.3",
+            "--commit",
+            COMMIT,
+            "project",
+        ]),
+        strings(&["--stomme", "/bin/stomme", "--version", "1.2.3", "project"]),
+        strings(&[
+            "--stomme",
+            "/bin/stomme",
+            "--version",
+            "1.2.3",
+            "--other",
+            COMMIT,
+            "project",
+        ]),
+        strings(&[
+            "--stomme",
+            "/bin/stomme",
+            "--version",
+            "1.2.3",
+            "--commit",
+            "0123456789abcdef0123456789abcdef0123456",
+            "project",
+        ]),
+        strings(&[
+            "--stomme",
+            "/bin/stomme",
+            "--version",
+            "1.2.3",
+            "--commit",
+            "0123456789ABCDEF0123456789ABCDEF01234567",
+            "project",
+        ]),
     ] {
         assert_eq!(parse_arguments(&arguments), None, "{arguments:?}");
     }
@@ -705,7 +998,14 @@ fn gate_keeps_the_indent_of_an_indented_version_line() {
     let folder = project("schema = 1\n  version = \"0.0.0\"\nlanguage = \"rust\"\n");
     install(Response::default(), Response::default());
 
-    gate(&runner(), Path::new("/stomme"), "1.2.3", folder.path()).expect("run the gate");
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "1.2.3",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
 
     let config =
         std::fs::read_to_string(folder.path().join("stomme.toml")).expect("read stomme.toml");
