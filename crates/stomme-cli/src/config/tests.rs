@@ -702,6 +702,7 @@ fn read_reports_an_absolute_module_path() {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("/src/a.ts"), "{reason}");
+    assert!(reason.contains("that is absolute"), "{reason}");
 }
 
 #[test]
@@ -715,6 +716,7 @@ fn read_reports_a_module_path_with_a_parent_part() {
         panic!("expected a broken installation, got {installation:?}");
     };
     assert!(reason.contains("src/../a.ts"), "{reason}");
+    assert!(reason.contains("with a `..` part"), "{reason}");
 }
 
 #[test]
@@ -809,6 +811,25 @@ fn read_reports_a_rust_module_path_that_is_not_a_file() {
     };
     assert!(reason.contains("src/a.rs"), "{reason}");
     assert!(reason.contains("existing file"), "{reason}");
+}
+
+#[test]
+fn read_reports_two_modules_whose_entries_differ_only_in_spelling() {
+    let root = project_with(&[("src/a.rs", "")]);
+
+    for entry in ["./src/a.rs", "src//a.rs"] {
+        let text = with_version(&format!(
+            "language = \"rust\"\n\n[modules.a]\nentry = \"src/a.rs\"\n\n[modules.b]\nentry = \"{entry}\"\n"
+        ));
+        let installation = installation_in(root.path(), &text);
+
+        let Installation::Broken(Reason::Invalid(reason)) = installation else {
+            panic!("{entry}: expected a broken installation, got {installation:?}");
+        };
+        assert!(reason.contains("two modules"), "{entry}: {reason}");
+        assert!(reason.contains("`a`"), "{entry}: {reason}");
+        assert!(reason.contains("`b`"), "{entry}: {reason}");
+    }
 }
 
 #[test]
