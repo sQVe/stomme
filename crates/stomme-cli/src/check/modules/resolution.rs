@@ -123,10 +123,7 @@ impl<'a> Resolver<'a> {
         let module = walk.module;
 
         if !place.path.starts_with(&module.path) {
-            return match visibility {
-                Visibility::All => ancestor_step(module, place, name),
-                Visibility::Public => BTreeSet::new(),
-            };
+            return ancestor_step(module, place, name);
         }
 
         let memo_key = (place.clone(), name.to_string(), visibility);
@@ -150,9 +147,11 @@ impl<'a> Resolver<'a> {
         }
 
         let open = walk.enter(pair);
-        let (mut meanings, exported) = self.export_meanings(place, scope, name, walk);
+        let (mut meanings, exports_module) = self.export_meanings(place, scope, name, walk);
 
-        if children.is_empty() && !exported {
+        // A value and a module share a name in separate namespaces, so only an export of the
+        // module itself hides the module a glob binds.
+        if children.is_empty() && !exports_module {
             meanings.extend(self.glob_meanings(place, scope, name, walk));
         }
 
@@ -167,6 +166,10 @@ impl<'a> Resolver<'a> {
     }
 
     fn binds_publicly(&self, module: &Module, place: &Place, name: &str) -> bool {
+        if !place.path.starts_with(&module.path) {
+            return is_module(&ancestor_step(module, place, name));
+        }
+
         let Some(scope) = self.scope(module, &place.path) else {
             return false;
         };
@@ -183,14 +186,14 @@ impl<'a> Resolver<'a> {
         walk: &mut Walk,
     ) -> (BTreeSet<Meaning>, bool) {
         let mut meanings = BTreeSet::new();
-        let mut exported = false;
 
         for export in scope.exports.iter().filter(|export| export.name == name) {
-            exported = true;
             meanings.extend(self.resolve_target(place, &export.target, walk));
         }
 
-        (meanings, exported)
+        let exports_module = is_module(&meanings);
+
+        (meanings, exports_module)
     }
 
     fn glob_meanings(
@@ -367,9 +370,10 @@ fn read_scopes(
     let file_path = module_path(&file.path, &module.src_folder);
 
     for mut scope in scopes::scopes(source) {
+        // A glob in a private file still binds names inside it, and the walk needs those names
+        // to reach the module a use names. Only the explicit exports stay out of the surface.
         if !keep_exports {
             scope.exports.clear();
-            scope.globs.clear();
         }
 
         let mut scope_path = file_path.clone();
@@ -416,6 +420,12 @@ fn ancestor_step(module: &Module, place: &Place, name: &str) -> BTreeSet<Meaning
 
 fn is_strict_ancestor(module: &Module, path: &[String]) -> bool {
     path.len() < module.path.len() && module.path.starts_with(path)
+}
+
+fn is_module(meanings: &BTreeSet<Meaning>) -> bool {
+    meanings
+        .iter()
+        .any(|meaning| matches!(meaning, Meaning::Module(_)))
 }
 
 fn visible_children(
