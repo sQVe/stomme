@@ -13,13 +13,13 @@ pub(crate) enum WalkError {
 
 pub(crate) struct Files<'a> {
     root: &'a Path,
-    skip: &'a str,
+    skip: &'a [&'a str],
     pending: Option<PathBuf>,
     folders: Vec<(PathBuf, fs::ReadDir)>,
     done: bool,
 }
 
-pub(crate) fn files<'a>(root: &'a Path, skip: &'a str) -> Files<'a> {
+pub(crate) fn files<'a>(root: &'a Path, skip: &'a [&'a str]) -> Files<'a> {
     Files {
         root,
         skip,
@@ -80,7 +80,7 @@ impl Iterator for Files<'_> {
                 }));
             };
 
-            if relative == self.skip {
+            if self.skip.contains(&relative.as_str()) {
                 continue;
             }
 
@@ -169,15 +169,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn files_returns_relative_paths_and_skips_the_record() {
+    fn files_returns_relative_paths_and_skips_the_record_and_the_lock() {
         let root = tempfile::tempdir().expect("create a temporary directory");
 
         fs::create_dir_all(root.path().join("docs/stomme/layers")).expect("create a folder");
         fs::write(root.path().join("docs/stomme/one.md"), "one\n").expect("write a file");
         fs::write(root.path().join("docs/stomme/layers/two.md"), "two\n").expect("write a file");
         fs::write(root.path().join("docs/stomme/.sync-record.toml"), "").expect("write the record");
+        fs::write(root.path().join("docs/stomme/.sync-lock"), "").expect("write the lock file");
 
-        let mut found = files(root.path(), "docs/stomme/.sync-record.toml")
+        let skip = ["docs/stomme/.sync-record.toml", "docs/stomme/.sync-lock"];
+        let mut found = files(root.path(), &skip)
             .collect::<Result<Vec<_>, _>>()
             .expect("walk the synced tree");
 
@@ -189,7 +191,7 @@ mod tests {
     #[test]
     fn files_reports_a_missing_synced_folder() {
         let root = tempfile::tempdir().expect("create a temporary directory");
-        let mut files = files(root.path(), ".sync-record.toml");
+        let mut files = files(root.path(), &[".sync-record.toml"]);
 
         let error = files
             .next()
@@ -219,7 +221,7 @@ mod tests {
         fs::set_permissions(&folder, fs::Permissions::from_mode(0o000))
             .expect("make the folder unreadable");
 
-        let error = files(root.path(), ".sync-record.toml")
+        let error = files(root.path(), &[".sync-record.toml"])
             .find_map(Result::err)
             .expect("the walk reports the unreadable folder");
 

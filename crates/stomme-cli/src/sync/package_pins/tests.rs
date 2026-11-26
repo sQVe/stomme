@@ -196,7 +196,7 @@ fn sync_writes_pins_and_a_second_sync_changes_nothing() {
 }
 
 #[test]
-fn sync_with_an_invalid_package_json_writes_nothing() {
+fn sync_with_an_invalid_package_json_writes_only_the_lock_file() {
     let root = tempfile::tempdir().expect("create a temporary directory");
     let config = format!(
         "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n",
@@ -217,6 +217,22 @@ fn sync_with_an_invalid_package_json_writes_nothing() {
         matches!(error, SyncError::PackageManifest { .. }),
         "{error:?}"
     );
-    assert!(!root.path().join("docs/stomme").exists());
+
+    let entries = fs::read_dir(root.path().join("docs/stomme")).expect("read the synced folder");
+    let names: Vec<String> = entries
+        .map(|entry| {
+            entry
+                .expect("read an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        [crate::sync::LOCK_NAME],
+        "the run writes no other file"
+    );
     assert!(!root.path().join(crate::sync::RECORD_FILE).exists());
 }

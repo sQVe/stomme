@@ -39,7 +39,10 @@ and `sync` writes it last. `sync` replaces a synced file through a staging file 
 with the reserved prefix `.stomme-staging.`, so a write never changes another name for the same
 content and a crash leaves no half-written synced file. A later run removes files with that prefix
 from the folders it writes to, after its checks pass and before it writes, and never removes a path
-the record names or a name outside that grammar. `stomme guides` does the same in its output folder.
+the record names or a name outside that grammar. Removing another run's staging file is safe only
+because a run holds an exclusive lock on `.sync-lock` in the folder it writes for its whole plan and
+write, and a second run waits for that lock. `stomme guides` locks its output folder the same way,
+and `check` ignores the lock file.
 `AGENTS.md` holds one managed block between `<!-- stomme:start -->` and
 `<!-- stomme:end -->` markers, and the record holds a hash of that block. Text outside the markers
 belongs to the project. `docs/adr/` holds only project ADRs, with independent numbering.
@@ -106,6 +109,9 @@ repository setup.
 - Starter files and language-specific checks need continued maintenance.
 - Adoption requires checking enforcement parity before removing existing checks.
 - Automated sync needs permission to push to update branches.
+- A sync run waits for another run on the same folder, so a run that hangs delays the next one until
+  its process ends. The lock is the platform's advisory file lock, which some network filesystems
+  emulate unreliably, so two runs on such a mount may still share a folder.
 
 ## Alternatives considered
 

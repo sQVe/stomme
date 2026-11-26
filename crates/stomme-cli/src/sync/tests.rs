@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use tempfile::TempDir;
 
@@ -773,6 +776,108 @@ fn sync_keeps_a_stale_staging_file_when_it_refuses() {
 }
 
 #[test]
+fn sync_waits_for_a_run_that_holds_the_lock() {
+    let root = rust_project(&[]);
+
+    sync_project(root.path()).expect("the first sync succeeds");
+    add_project_rule(root.path());
+
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.path().join(LOCK_FILE))
+        .expect("open the lock file");
+
+    held.lock().expect("take the lock");
+
+    let staging = root
+        .path()
+        .join("docs/stomme/shared")
+        .join(format!("{STAGING_PREFIX}4242.0.coding.md"));
+
+    fs::write(&staging, "partial\n").expect("write the live staging file");
+
+    let path = root.path().to_path_buf();
+    let (started, started_rx) = mpsc::channel();
+    let (done, done_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        started.send(()).expect("send the start");
+        done.send(sync_project(&path)).expect("send the result");
+    });
+
+    started_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the second run starts");
+
+    let waited = done_rx.recv_timeout(Duration::from_secs(1));
+
+    assert_eq!(
+        waited.expect_err("the second run finished while another run held the lock"),
+        mpsc::RecvTimeoutError::Timeout
+    );
+    assert!(
+        staging.exists(),
+        "the second run removed a live staging file"
+    );
+
+    drop(held);
+
+    let result = done_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the second run finishes once the lock is free");
+
+    result.expect("the second sync succeeds");
+    worker.join().expect("the sync thread joins");
+
+    assert!(
+        !staging.exists(),
+        "the second run removes the staging file after the wait"
+    );
+}
+
+#[test]
+fn sync_refuses_a_record_naming_the_lock_file() {
+    let root = rust_project(&[]);
+
+    write_record(root.path(), LOCK_FILE);
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(
+            error,
+            SyncError::MalformedRecord { ref path, ref reason }
+                if path == RECORD_FILE && reason.contains(".sync-lock")
+        ),
+        "{error:?}"
+    );
+    assert!(!root.path().join("docs/stomme/shared").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn sync_refuses_a_symlinked_lock_file() {
+    use std::os::unix::fs::symlink;
+
+    let root = rust_project(&[]);
+    let outside = tempfile::tempdir().expect("create an outside directory");
+    let target = outside.path().join("target");
+
+    fs::create_dir_all(root.path().join("docs/stomme")).expect("create docs/stomme");
+    symlink(&target, root.path().join(LOCK_FILE)).expect("create the lock symlink");
+
+    let error = sync_project(root.path()).expect_err("sync refuses");
+
+    assert!(
+        matches!(error, SyncError::NotAFile { ref path } if path == LOCK_FILE),
+        "{error:?}"
+    );
+    assert!(!target.exists(), "the run created the link target");
+}
+
+#[test]
 fn sync_refuses_a_user_file_with_a_staging_prefix() {
     let root = rust_project(&[]);
 
@@ -804,6 +909,7 @@ fn sync_refuses_a_recorded_file_with_a_staging_name() {
     fs::create_dir_all(recorded.parent().expect("the file has a parent"))
         .expect("create docs/stomme");
     fs::write(&recorded, "edited\n").expect("write the recorded file");
+    fs::write(root.path().join(LOCK_FILE), "").expect("write the lock file");
 
     let before = snapshot(root.path());
     let error = sync_project(root.path()).expect_err("sync refuses");

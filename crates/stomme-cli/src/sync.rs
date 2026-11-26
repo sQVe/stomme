@@ -18,9 +18,11 @@ use crate::owned::{self, LinkError, OwnedFile};
 use crate::synced_tree;
 use crate::synced_tree::WalkError;
 
+mod lock;
 mod package_pins;
 mod record_state;
 
+pub(crate) use lock::Lock;
 pub(crate) use record_state::{RecordState, record_state};
 
 pub(crate) const RECORD_FILE: &str = "docs/stomme/.sync-record.toml";
@@ -28,6 +30,8 @@ pub(crate) const RECORD_SCHEMA: i64 = 1;
 
 const STAGING_PREFIX: &str = ".stomme-staging.";
 const STAGING_ATTEMPTS: u32 = 16;
+pub(crate) const LOCK_NAME: &str = ".sync-lock";
+pub(crate) const LOCK_FILE: &str = "docs/stomme/.sync-lock";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -78,6 +82,8 @@ pub(crate) enum SyncError {
     PackageManifest { reason: String },
     #[error("could not read {path}: {source}")]
     Read { path: String, source: io::Error },
+    #[error("could not lock {path}: {source}")]
+    Lock { path: String, source: io::Error },
     #[error("could not write {path}: {source}")]
     Write { path: String, source: io::Error },
     #[error("could not remove {path}: {source}")]
@@ -242,7 +248,7 @@ fn malformed(path: &str, reason: String) -> SyncError {
 }
 
 fn valid_key(key: &str) -> bool {
-    let reserved = key == ".sync-record.toml" || key == agents_block::PATH;
+    let reserved = key == ".sync-record.toml" || key == LOCK_NAME || key == agents_block::PATH;
     let clean = !key.starts_with('/')
         && !key
             .split('/')
@@ -254,14 +260,16 @@ fn valid_key(key: &str) -> bool {
 fn sync(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<(), SyncError> {
     owned::validate_links(owned)?;
 
+    // The lock lives in the folder, so refuse a symlinked folder before creating it.
+    check_parent_folders(root, RECORD_FILE)?;
+
+    let _lock = Lock::acquire(&root.join(owned::DOCS_FOLDER), LOCK_FILE)?;
     let plan = plan(root, selection, owned)?;
 
     execute(root, plan)
 }
 
 fn plan(root: &Path, selection: &Selection, owned: &[OwnedFile]) -> Result<Plan, SyncError> {
-    check_parent_folders(root, RECORD_FILE)?;
-
     let record = Record::read(root)?;
 
     let owned_paths: BTreeSet<&str> = owned.iter().map(|file| file.path.as_str()).collect();
@@ -630,7 +638,7 @@ fn is_staging_name(name: &str) -> bool {
 fn synced_files(root: &Path) -> Result<Vec<String>, SyncError> {
     let mut paths = Vec::new();
 
-    for item in synced_tree::files(root, RECORD_FILE) {
+    for item in synced_tree::files(root, &[RECORD_FILE, LOCK_FILE]) {
         match item {
             Ok(path) => paths.push(path),
             Err(WalkError::MissingRoot { .. }) => return Ok(Vec::new()),

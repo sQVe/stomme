@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use super::*;
 use crate::layer;
@@ -203,6 +206,7 @@ fn guides_refuses_a_non_regular_bundled_target() {
     let path = root.path().join("shared/coding.md");
 
     fs::create_dir_all(&path).expect("create a directory in place of a file");
+    fs::write(root.path().join(sync::LOCK_NAME), "").expect("write the lock file");
 
     let before = snapshot(root.path());
     let error = run(root.path(), layer::catalog()).expect_err("the run refuses");
@@ -314,6 +318,68 @@ fn guides_refuses_another_schema() {
 
     assert!(message.contains("schema 2"), "{message}");
     assert!(message.contains("schema 1"), "{message}");
+}
+
+#[test]
+fn guides_waits_for_a_run_that_holds_the_lock() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    run(root.path(), layer::catalog()).expect("write the bundle");
+
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.path().join(sync::LOCK_NAME))
+        .expect("open the lock file");
+
+    held.lock().expect("take the lock");
+
+    let staging = root
+        .path()
+        .join("shared")
+        .join(".stomme-staging.4242.0.coding.md");
+
+    fs::write(&staging, "partial\n").expect("write the live staging file");
+
+    let path = root.path().to_path_buf();
+    let (started, started_rx) = mpsc::channel();
+    let (done, done_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        started.send(()).expect("send the start");
+        done.send(run(&path, layer::catalog()))
+            .expect("send the result");
+    });
+
+    started_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the second run starts");
+
+    let waited = done_rx.recv_timeout(Duration::from_secs(1));
+
+    assert_eq!(
+        waited.expect_err("the second run finished while another run held the lock"),
+        mpsc::RecvTimeoutError::Timeout
+    );
+    assert!(
+        staging.exists(),
+        "the second run removed a live staging file"
+    );
+
+    drop(held);
+
+    let result = done_rx
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the second run finishes once the lock is free");
+
+    result.expect("the second run succeeds");
+    worker.join().expect("the run thread joins");
+
+    assert!(
+        !staging.exists(),
+        "the second run removes the staging file after the wait"
+    );
 }
 
 #[test]

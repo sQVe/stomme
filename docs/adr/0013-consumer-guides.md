@@ -39,7 +39,9 @@ The bundle holds the full synced set, minus the managed `AGENTS.md` block and th
 `docs/stomme/ocr-rules.json`: every shared file, every language guide, and every layer guide, in
 the `docs/stomme/` layout. A consumer without a project has no language or layer selection, so the
 bundle holds every guide. It omits the OCR rule file, whose text depends on a project's language
-and layer selection. The links inside the text then resolve without a rewrite.
+and layer selection. The links inside the text then resolve without a rewrite. The run also leaves
+the `.sync-lock` file it locks, as [ADR 0002](./0002-purpose-and-design.md) records, so a consumer
+that commits the bundle commits an empty file beside the record.
 
 ### Record
 

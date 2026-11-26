@@ -219,7 +219,7 @@ fn link_targets(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn sync_refuses_a_missing_block_link_target_and_writes_nothing() {
+fn sync_refuses_a_missing_block_link_target_and_writes_only_the_lock_file() {
     let original = "# Project\n";
     let root = project(Some(original));
 
@@ -232,7 +232,23 @@ fn sync_refuses_a_missing_block_link_target_and_writes_nothing() {
         "{error:?}"
     );
     assert_eq!(read_agents(root.path()), original);
-    assert!(!root.path().join("docs/stomme").exists());
+
+    let entries = fs::read_dir(root.path().join("docs/stomme")).expect("read the synced folder");
+    let names: Vec<String> = entries
+        .map(|entry| {
+            entry
+                .expect("read an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        [crate::sync::LOCK_NAME],
+        "the run writes no other file"
+    );
 }
 
 #[test]
