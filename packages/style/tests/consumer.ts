@@ -165,7 +165,7 @@ const consumerFiles = (tarball: string) => ({
   ].join('\n'),
   // A second project in the same install shows how presets compose with the base config. The
   // base config's correctness category would report the Vitest bans without their pins, so this
-  // project turns that category off and keeps the others.
+  // project turns that category off.
   'presets/vite.config.ts': [
     "import { lint, react, vitest } from '@sqve/stomme-ts-style';",
     "import { defineConfig } from 'vite-plus';",
@@ -173,7 +173,7 @@ const consumerFiles = (tarball: string) => ({
     'export default defineConfig({',
     '  lint: {',
     '    extends: [lint, react, vitest],',
-    "    categories: { correctness: 'off', suspicious: 'error', perf: 'warn' },",
+    "    categories: { ...lint.categories, correctness: 'off' },",
     '  },',
     '});',
     '',
