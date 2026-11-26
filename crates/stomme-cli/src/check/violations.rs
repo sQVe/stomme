@@ -2,12 +2,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use super::Problem;
+use super::target_branch::{TargetBranch, TargetRead};
 use crate::config::{CONFIG_FILE, Violation};
 use crate::rule::Rule;
-
-mod target_branch;
-
-pub(crate) use target_branch::{TargetBranch, TargetRead, default_reference};
 
 pub(crate) fn apply(problems: Vec<Problem>, recorded: &[Violation]) -> Vec<Problem> {
     let mut matched = vec![false; recorded.len()];

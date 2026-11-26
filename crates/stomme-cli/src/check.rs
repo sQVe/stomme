@@ -22,11 +22,13 @@ mod rust_lints;
 mod rust_members;
 mod source_files;
 mod synced_files;
+mod target_branch;
 #[cfg(test)]
 mod test_support;
 mod violations;
+mod weakened;
 
-pub(crate) use violations::{TargetBranch, default_reference};
+pub(crate) use target_branch::{TargetBranch, default_reference};
 
 #[cfg(test)]
 pub(crate) use package_pins::write_pinned_fixture;
@@ -114,6 +116,7 @@ pub(crate) fn run(
         problems.extend(layout::check(root, selection, catalog)?);
         problems = violations::apply(problems, &selection.violations);
         problems.extend(violations::growth(root, &selection.violations, target));
+        problems.extend(weakened::check(root, target));
     }
 
     Ok(problems)

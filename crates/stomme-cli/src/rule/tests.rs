@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::test_support::copy_tree;
+use crate::test_support::{commit, copy_tree, git};
 use crate::{check, layer};
 
 const RULES_FILE: &str = "../../foundation/shared/rules.md";
@@ -221,6 +221,34 @@ fn each_enforced_rule_fails_its_fail_fixture_and_passes_its_pass_fixture() {
 }
 
 #[test]
+fn weakened_test_fail_fixture_reports_each_form() {
+    let source = crate_path("tests/fixtures/rules/weakened-test").join("fail");
+    let root = prepare_fixture(&source);
+    let problems = check::run(
+        root.path(),
+        layer::catalog(),
+        &check::TargetBranch::git("origin/main".to_string()),
+        &crate::config::FileRead::filesystem(),
+    )
+    .expect("check the fixture");
+    let messages: BTreeSet<&str> = problems
+        .iter()
+        .filter(|problem| problem.rule == Rule::WeakenedTest)
+        .map(|problem| problem.message.as_str())
+        .collect();
+    let expected: BTreeSet<&str> = [
+        "line 1: adds the test skip `it.skip(`; keep the test running",
+        "line 2: adds the test skip `#[ignore]`; keep the test running",
+        "line 7: adds the suppression `#[expect(`; fix the finding instead of hiding it",
+        "deletes the test case `removed_case` that `origin/main` declares on line 7; keep the case",
+    ]
+    .into_iter()
+    .collect();
+
+    assert_eq!(messages, expected);
+}
+
+#[test]
 fn each_checker_path_names_an_existing_file() {
     for &rule in Rule::ALL {
         let metadata = rule.metadata();
@@ -271,7 +299,28 @@ fn prepare_fixture(source: &Path) -> tempfile::TempDir {
         crate::check::write_pinned_fixture(root.path());
     }
 
+    if root.path().join(".git-base").is_dir() {
+        prepare_git_base(root.path());
+    }
+
     root
+}
+
+fn prepare_git_base(root: &Path) {
+    let marker = root.join(".git-base");
+    let base = tempfile::tempdir().expect("create a temporary directory");
+
+    copy_tree(&marker, base.path());
+    git(base.path(), &["init", "-q"]);
+    commit(base.path(), "base");
+    git(
+        base.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    fs::rename(base.path().join(".git"), root.join(".git"))
+        .expect("move the base repository into the fixture");
+    fs::remove_dir_all(&marker).expect("remove the marker folder");
+    git(root, &["add", "-A"]);
 }
 
 fn rewrite_fixture_version(root: &Path) {

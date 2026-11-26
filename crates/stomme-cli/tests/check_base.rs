@@ -79,12 +79,22 @@ fn assert_unavailable_growth(output: &Output, reference: &str) {
         .lines()
         .map(str::to_string)
         .collect::<Vec<_>>();
+    let growth: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.ends_with("[violation-growth]"))
+        .collect();
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert_eq!(lines.len(), 1, "{lines:?}");
-    assert!(lines[0].ends_with("[violation-growth]"), "{lines:?}");
+    assert_eq!(growth.len(), 1, "{lines:?}");
     assert!(
-        lines[0].contains(&format!("fetch `{reference}` and try again")),
+        growth[0].contains(&format!("fetch `{reference}` and try again")),
+        "{lines:?}"
+    );
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.ends_with("[weakened-test]") && line.contains(reference)),
         "{lines:?}"
     );
 }
