@@ -411,16 +411,7 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut blocks = Vec::new();
 
-    for (index, line) in lines.iter().enumerate() {
-        let Some((marker_role, content)) = marker(line) else {
-            continue;
-        };
-
-        assert!(
-            ROLES.contains(&marker_role),
-            "a block is marked for the unknown role `{marker_role}`"
-        );
-
+    for (index, marker_role, content) in marked_lines(&lines) {
         if marker_role == role {
             blocks.push(block_text(&lines, index, content));
         }
@@ -429,12 +420,40 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     blocks
 }
 
-fn marker(line: &str) -> Option<(&str, &str)> {
-    let start = line.find(ROLE_MARKER_START)?;
-    let rest = &line[start + ROLE_MARKER_START.len()..];
-    let end = rest.find(ROLE_MARKER_END)?;
+fn marked_lines<'a>(lines: &[&'a str]) -> Vec<(usize, &'a str, &'a str)> {
+    let mut markers = Vec::new();
+    let mut fenced = false;
 
-    Some((&rest[..end], &line[..start]))
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim_start().starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+
+        if fenced {
+            continue;
+        }
+
+        if let Some((role, content)) = marker(line) {
+            markers.push((index, role, content));
+        }
+    }
+
+    markers
+}
+
+fn marker(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim_end();
+    let start = line.rfind(ROLE_MARKER_START)?;
+    let rest = &line[start + ROLE_MARKER_START.len()..];
+    let role = rest.strip_suffix(ROLE_MARKER_END)?;
+
+    assert!(
+        ROLES.contains(&role),
+        "a block is marked for the unknown role `{role}`"
+    );
+
+    Some((role, &line[..start]))
 }
 
 fn block_text(lines: &[&str], marker_index: usize, content: &str) -> String {
@@ -463,6 +482,10 @@ fn block_start(lines: &[&str], marker_index: usize) -> usize {
     let mut start = marker_index;
 
     while start > 0 && lines[start].starts_with("  ") {
+        if lines[start].starts_with("  - ") {
+            panic!("a marked block is a list item whose marker ends its last line");
+        }
+
         start -= 1;
     }
 
@@ -477,11 +500,7 @@ pub(crate) fn without_marked_blocks(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut dropped = vec![false; lines.len()];
 
-    for (index, line) in lines.iter().enumerate() {
-        if marker(line).is_none() {
-            continue;
-        }
-
+    for (index, _, _) in marked_lines(&lines) {
         let start = block_start(&lines, index);
 
         for flag in &mut dropped[start..=index] {

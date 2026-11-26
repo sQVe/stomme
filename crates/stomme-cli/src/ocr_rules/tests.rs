@@ -634,14 +634,8 @@ fn role_clause_root_normalizes_and_keeps_one_trailing_slash() {
     let text = document["rules"][0]["rule"]
         .as_str()
         .expect("the rule is text");
-    let roots = clause_roots(text);
 
-    assert_eq!(roots, ["src/ui/", "crates/app/"]);
-
-    let ui = &roots[0];
-
-    assert!("src/ui/view.rs".starts_with(ui));
-    assert!(!"src/uikit".starts_with(ui));
+    assert_eq!(clause_roots(text), ["src/ui/", "crates/app/"]);
 }
 
 #[test]
@@ -753,6 +747,30 @@ fn an_unterminated_marker_adds_no_role_text() {
 
     assert!(marked_blocks(text, "app").is_empty());
     assert_eq!(without_marked_blocks(text), text.trim_end());
+}
+
+#[test]
+fn a_fenced_or_inline_marker_adds_no_role_text() {
+    let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n\n```markdown\n<!-- role:app -->\nSee <!-- role:app --> in prose.\n```\n\nOutside the fence.\n";
+    let expected = "\n```markdown\n<!-- role:app -->\nSee <!-- role:app --> in prose.\n```\n\nOutside the fence.";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: Own the app lifetime."]
+    );
+    assert_eq!(without_marked_blocks(text), expected);
+}
+
+#[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_on_a_nested_list_item_is_refused() {
+    marked_blocks("- parent\n  - child <!-- role:core -->\n", "core");
+}
+
+#[test]
+#[should_panic(expected = "unknown role")]
+fn without_marked_blocks_refuses_an_unknown_role_marker() {
+    without_marked_blocks("- `x`: Text. <!-- role:clii -->\n");
 }
 
 #[test]
