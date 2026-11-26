@@ -132,17 +132,34 @@ fn indentation(whitespace: &str) -> usize {
 fn list_content_column(line: &Line) -> Option<usize> {
     let marker = list_marker(line.content)?;
     let rest = &line.content[marker..];
+    let spacing = list_spacing(rest);
+
+    Some(line.indent + marker + spacing)
+}
+
+// The column a list item's content starts at, relative to its marker.
+fn list_spacing(rest: &str) -> usize {
     let spaces = rest.bytes().take_while(|byte| *byte == b' ').count();
     let has_content = !rest[spaces..].is_empty();
     let is_wide = spaces > MAX_MARKER_SPACING;
     // A first line that holds only the marker and spaces, and a marker followed by five or more
     // spaces, both hold the item's content one space past the marker.
-    let spacing = if has_content && !is_wide { spaces } else { 1 };
-
-    Some(line.indent + marker + spacing)
+    if has_content && !is_wide { spaces } else { 1 }
 }
 
-fn list_marker(content: &str) -> Option<usize> {
+pub(crate) fn list_item_content(line: &str) -> Option<&str> {
+    let content = line.trim_start();
+    let marker = list_marker(content)?;
+    let rest = &content[marker..];
+
+    if rest.is_empty() {
+        return Some(rest);
+    }
+
+    Some(&rest[list_spacing(rest)..])
+}
+
+pub(crate) fn list_marker(content: &str) -> Option<usize> {
     let marker = match content.as_bytes().first()? {
         b'-' | b'*' | b'+' => 1,
         b'0'..=b'9' => ordered_marker(content)?,
@@ -203,3 +220,6 @@ fn closes_fence(content: &str, fence: &Fence) -> bool {
 
     length >= fence.length && rest.trim().is_empty()
 }
+
+#[cfg(test)]
+mod tests;

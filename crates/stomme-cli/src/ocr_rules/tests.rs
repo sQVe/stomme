@@ -795,6 +795,27 @@ fn a_marker_followed_by_prose_adds_no_role_text() {
 }
 
 #[test]
+fn a_marker_on_another_list_form_adds_role_text() {
+    let cases = [
+        ("star", "* `gpui-app-lifetime`: Own the app lifetime."),
+        ("plus", "+ `gpui-app-lifetime`: Own the app lifetime."),
+        ("ordered", "1. `gpui-app-lifetime`: Own the app lifetime."),
+        ("indented", "  - `gpui-app-lifetime`: Own the app lifetime."),
+    ];
+
+    for (case, item) in cases {
+        let text = format!("{item} <!-- role:app -->\n");
+
+        assert_eq!(
+            marked_blocks(&text, "app"),
+            ["`gpui-app-lifetime`: Own the app lifetime."],
+            "{case}"
+        );
+        assert_eq!(without_marked_blocks(&text), "", "{case}");
+    }
+}
+
+#[test]
 #[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
 fn a_marker_on_a_nested_list_item_is_refused() {
     marked_blocks("- parent\n  - child <!-- role:core -->\n", "core");
@@ -831,18 +852,22 @@ fn marked_blocks_refuses_an_unknown_role_marker() {
 }
 
 #[test]
-fn embedded_guides_hold_no_exactly_enforced_rule_text() {
+fn role_text_holds_no_exactly_enforced_rule() {
     let files = crate::owned::bundle_set(crate::layer::catalog());
     let mut offenders = Vec::new();
 
     for file in &files {
-        for id in rule_ids(&file.content) {
-            let Some(rule) = Rule::ALL.iter().find(|rule| rule.id() == id) else {
-                continue;
-            };
+        for role in ROLES {
+            for block in marked_blocks(&file.content, role) {
+                for id in rule_ids(&block) {
+                    let Some(rule) = Rule::ALL.iter().find(|rule| rule.id() == id) else {
+                        continue;
+                    };
 
-            if matches!(rule.metadata().enforcement, Enforcement::Enforced(_)) {
-                offenders.push(format!("{}: {id}", file.path));
+                    if matches!(rule.metadata().enforcement, Enforcement::Enforced(_)) {
+                        offenders.push(format!("{}: {id}", file.path));
+                    }
+                }
             }
         }
     }

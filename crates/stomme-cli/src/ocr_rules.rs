@@ -8,7 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
-use crate::fence::unfenced_lines;
+use crate::fence::{list_item_content, list_marker, unfenced_lines};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
@@ -453,9 +453,7 @@ fn block_text(lines: &[&str], marker_index: usize, content: &str) -> String {
 
     block.push(content.trim_end());
 
-    let first = block[0]
-        .strip_prefix("- ")
-        .expect("a marked block starts with a list item");
+    let first = list_item_content(block[0]).expect("a marked block starts with a list item");
 
     block[0] = first;
 
@@ -473,14 +471,14 @@ fn block_start(lines: &[&str], marker_index: usize) -> usize {
     let mut start = marker_index;
 
     while start > 0 && lines[start].starts_with("  ") {
-        if lines[start].trim_start().starts_with("- ") {
+        if list_marker(lines[start].trim_start()).is_some() {
             panic!("a marked block is a list item whose marker ends its last line");
         }
 
         start -= 1;
     }
 
-    if !lines[start].starts_with("- ") {
+    if list_marker(lines[start].trim_start()).is_none() {
         panic!("a marked block is a list item whose marker ends its last line");
     }
 
