@@ -41,6 +41,23 @@ const MIXED_RESULT: &str = r#"{
     }
   }
 }"#;
+const FAILED_PROVIDER_RESULT: &str = r#"{
+  "status": "failed",
+  "session_id": "session-3",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "failed",
+    "coverage": {
+      "selected": [{"item_id": "a", "path": "src/a.rs"}],
+      "completed": [],
+      "reused": [],
+      "failed": [{"item_id": "a", "path": "src/a.rs", "classification": "provider", "reason": "upstream 500"}],
+      "waived": [],
+      "excluded": []
+    }
+  }
+}"#;
+
 const BUDGET_RESULT: &str = r#"{
   "status": "partial",
   "session_id": "session-1",
@@ -629,13 +646,10 @@ fn workflow_skips_the_install_for_a_no_op_review() {
 }
 
 #[test]
-fn workflow_retries_a_provider_failure() {
+fn workflow_classifies_the_review_of_every_run() {
     let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
 
     assert!(classify.contains("if: steps.ocr.outputs.range_reason != 'same_head_noop'"));
-    assert!(classify.contains("MAX_ATTEMPTS=3"));
-    assert!(classify.contains("while resumable; do"));
-    assert!(classify.contains("session_id=\"$(jq -r '.session_id // empty'"));
     assert!(!classify.contains("build-stomme"));
 }
 
@@ -982,7 +996,6 @@ fn classifier_retries_a_provider_failure() {
 #[test]
 fn classifier_fails_a_provider_failure_that_survives_the_retries() {
     let classifier = Classifier::new();
-    let reason = "the review provider could not review 1 file after 3 attempts: src/b.rs";
     let observation = classifier.run(Run {
         ocr_exit: Some(1),
         first: 2,
@@ -992,23 +1005,117 @@ fn classifier_fails_a_provider_failure_that_survives_the_retries() {
         resume_result: Some(MIXED_RESULT),
         ..Run::default()
     });
+    let reason = observation
+        .reason()
+        .expect("the failed run reports a reason");
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
     assert_eq!(observation.resume_calls(), 2, "the retries are bounded");
-    assert_eq!(observation.reason().as_deref(), Some(reason));
+    assert_eq!(
+        reason,
+        "the review provider could not review 1 file after 3 attempts: src/b.rs"
+    );
     assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
-        reason,
+        reason: &reason,
         ..Report::default()
     });
 
     assert_eq!(exit, 1);
-    assert!(stdout.contains(reason), "{stdout}");
+    assert!(stdout.contains(&reason), "{stdout}");
     assert!(stdout.contains("not reviewed"), "{stdout}");
+}
+
+#[test]
+fn classifier_does_not_retry_a_failed_run() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(TIMEOUT_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a failed run needs a fix to the setup, not a retry"
+    );
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the global deadline elapsed")
+    );
+}
+
+#[test]
+fn classifier_does_not_retry_a_failed_run_with_a_provider_failure() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(FAILED_PROVIDER_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a failed run is not retried, even when every failure is the provider's"
+    );
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the review provider could not review 1 file after 1 attempt: src/a.rs")
+    );
+}
+
+#[test]
+fn classifier_resumes_a_budget_partial_once() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 2,
+        resume_result: Some(BUDGET_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("2"));
+    assert_eq!(
+        observation.resume_calls(),
+        1,
+        "a budget partial is resumed once, because its budget is spent"
+    );
+    assert!(observation.post_resumed());
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
+}
+
+#[test]
+fn classifier_takes_the_reason_from_an_unusable_retry() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_result: Some(TIMEOUT_RESULT),
+        resume_unusable: true,
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the global deadline elapsed"),
+        "the failed retry names its own reason"
+    );
+    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
+    assert!(!observation.post_resumed());
 }
 
 #[test]
