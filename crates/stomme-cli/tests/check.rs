@@ -543,6 +543,8 @@ fn check_base_reads_the_named_ref() {
 
     fs::create_dir_all(root.path().join("src/domain")).expect("create the role folder");
     write_file(root.path(), "stomme.toml", &without_entry);
+    sync_project(root.path());
+
     git(root.path(), &["init", "-q"]);
     commit(root.path(), "without the entry");
     write_file(root.path(), "stomme.toml", &with_entry);

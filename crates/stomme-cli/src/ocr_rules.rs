@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -6,10 +7,19 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::config::{ROLES, normalize};
+use crate::fence::{
+    item_content_column, list_item_content, list_marker, opens_block, split_indent, unfenced_lines,
+};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
 pub(crate) const PROJECT_RULE_FILE: &str = ".opencodereview/rule.json";
+
+const ROLE_ADR: &str =
+    include_str!("../../../foundation/shared/adr/0004-roles-languages-and-layers.md");
+const ROLE_MARKER_START: &str = "<!-- role:";
+const ROLE_MARKER_END: &str = " -->";
 
 const GUIDE_INTRO: &str = "Apply stomme's coding guides below. Each guide starts with its repository path. Resolve its relative links from that path, and read linked files with file_read.";
 const GUIDE_OUTRO: &str = "Also apply the rules in the project's AGENTS.md and the decisions in docs/adr/ that cover the change. Read them with file_read.";
@@ -156,9 +166,11 @@ pub(crate) fn read_project(root: &Path) -> Result<Option<ProjectRules>, OcrRules
 pub(crate) fn render(
     language: Language,
     guides: &Guides,
+    roles: &BTreeMap<String, String>,
     project: Option<&ProjectRules>,
 ) -> String {
-    let selected_text = guide_text(&guides.selected(language));
+    let selected = guides.selected(language);
+    let selected_text = guide_text(&selected, &role_clauses(roles, &selected));
     let mut rules = Vec::new();
     let mut include = Vec::new();
     let mut exclude = Vec::new();
@@ -167,7 +179,7 @@ pub(crate) fn render(
         for rule in &project.rules {
             rules.push(Entry {
                 path: rule.path.clone(),
-                rule: rule_text(rule, guides, &selected_text),
+                rule: rule_text(rule, guides, roles, &selected_text),
                 merge_system_rule: true,
             });
         }
@@ -350,23 +362,201 @@ impl Guides {
     }
 }
 
-fn rule_text(rule: &ProjectRule, guides: &Guides, selected_text: &str) -> String {
+fn rule_text(
+    rule: &ProjectRule,
+    guides: &Guides,
+    roles: &BTreeMap<String, String>,
+    selected_text: &str,
+) -> String {
     let Some(language) = rule.language else {
         return format!("{}\n\n{selected_text}", rule.rule);
     };
-    let language_text = guide_text(&guides.general_and_language(language));
+    let language_guides = guides.general_and_language(language);
+    let language_text = guide_text(&language_guides, &role_clauses(roles, &language_guides));
 
     format!("{}\n\n{language_text}", rule.rule)
 }
 
-fn guide_text(guides: &[(&str, &str)]) -> String {
+fn role_clauses(roles: &BTreeMap<String, String>, guides: &[(&str, &str)]) -> Vec<String> {
+    let mut clauses = Vec::new();
+
+    for role in ROLES {
+        let Some(path) = roles.get(*role) else {
+            continue;
+        };
+        let root = normalize(path);
+
+        if root.is_empty() {
+            continue;
+        }
+
+        let mut blocks = marked_blocks(ROLE_ADR, role);
+
+        assert!(
+            !blocks.is_empty(),
+            "ADR 0004 marks no block for the declared role `{role}`"
+        );
+
+        for (_, text) in guides {
+            blocks.extend(marked_blocks(text, role));
+        }
+
+        clauses.push(format!(
+            "If the file path starts with {root}/, apply: {}",
+            blocks.join("\n\n")
+        ));
+    }
+
+    clauses
+}
+
+fn marked_blocks(text: &str, role: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut blocks = Vec::new();
+
+    for marker in marked_lines(&lines) {
+        if marker.role == role {
+            blocks.push(block_text(&lines, &marker));
+        }
+    }
+
+    blocks
+}
+
+struct Marker<'a> {
+    index: usize,
+    start: usize,
+    role: &'a str,
+    content: &'a str,
+}
+
+fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
+    let mut markers = Vec::new();
+
+    for line in unfenced_lines(lines.iter().copied()) {
+        let Some((role, content)) = marker(lines[line.index]) else {
+            continue;
+        };
+        let opens_a_nested_item =
+            line.item_start != line.index && list_marker(lines[line.index].trim_start()).is_some();
+        let continues_a_nested_item = line.view.depth > 1;
+
+        assert!(
+            !(opens_a_nested_item || continues_a_nested_item),
+            "a marked block is a top-level list item, not a nested one"
+        );
+        assert!(
+            list_marker(lines[line.item_start].trim_start()).is_some(),
+            "a marked block is a list item whose marker ends its last line"
+        );
+        assert!(
+            !item_continues(lines, line.index, line.item_start),
+            "a marked block is a list item whose marker ends its last line"
+        );
+
+        markers.push(Marker {
+            index: line.index,
+            start: line.item_start,
+            role,
+            content,
+        });
+    }
+
+    markers
+}
+
+// A later line belongs to the item when it reaches the item's content column, even inside a code
+// block that `unfenced_lines` hides, or when it is paragraph text right below the marker line. A
+// blank line keeps the item open.
+fn item_continues(lines: &[&str], marker_index: usize, start: usize) -> bool {
+    let Some(column) = item_content_column(lines[start]) else {
+        return false;
+    };
+    let following = &lines[marker_index + 1..];
+    let Some(next) = following.iter().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let (indent, content) = split_indent(next);
+    let is_adjacent = following
+        .first()
+        .is_some_and(|line| !line.trim().is_empty());
+    let is_lazy = is_adjacent && !opens_block(content);
+
+    indent >= column || is_lazy
+}
+
+fn marker(line: &str) -> Option<(&str, &str)> {
+    let line = line.trim_end();
+    let start = line.rfind(ROLE_MARKER_START)?;
+    let rest = &line[start + ROLE_MARKER_START.len()..];
+    let role = rest.strip_suffix(ROLE_MARKER_END)?;
+
+    assert!(
+        ROLES.contains(&role),
+        "a block is marked for the unknown role `{role}`"
+    );
+
+    Some((role, &line[..start]))
+}
+
+// Removes `column` columns of indentation, the part the item's content column added, and writes
+// the rest as spaces so a tab never survives into the text.
+fn dedent(line: &str, column: usize) -> String {
+    let (indent, content) = split_indent(line);
+
+    if content.is_empty() {
+        return String::new();
+    }
+
+    format!("{}{content}", " ".repeat(indent.saturating_sub(column)))
+}
+
+fn block_text(lines: &[&str], marker: &Marker<'_>) -> String {
+    let mut block: Vec<&str> = lines[marker.start..marker.index].to_vec();
+
+    block.push(marker.content.trim_end());
+
+    let column = item_content_column(block[0]).expect("a marked block starts with a list item");
+    let first = list_item_content(block[0]).expect("a marked block starts with a list item");
+    let mut body = vec![first.to_string()];
+
+    body.extend(block[1..].iter().map(|line| dedent(line, column)));
+
+    body.join("\n")
+}
+
+pub(crate) fn without_marked_blocks(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut dropped = vec![false; lines.len()];
+
+    for marker in marked_lines(&lines) {
+        for flag in &mut dropped[marker.start..=marker.index] {
+            *flag = true;
+        }
+    }
+
+    lines
+        .iter()
+        .zip(dropped)
+        .filter(|(_, drop)| !drop)
+        .map(|(line, _)| *line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn guide_text(guides: &[(&str, &str)], clauses: &[String]) -> String {
     let mut text = String::from(GUIDE_INTRO);
 
     for (path, content) in guides {
         text.push_str("\n\nFile: ");
         text.push_str(path);
         text.push_str("\n\n");
-        text.push_str(content.trim_end());
+        text.push_str(without_marked_blocks(content).trim_end());
+    }
+
+    if !clauses.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&clauses.join("\n\n"));
     }
 
     text.push_str("\n\n");

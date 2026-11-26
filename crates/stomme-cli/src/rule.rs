@@ -632,10 +632,13 @@ rules! {
         owner: Owner::Language(Language::TypeScript),
         applies: "always",
         fields: &[],
-        enforcement: Enforcement::Enforced(Check {
-            checker: "src/check/layout/typescript.rs",
-            fixtures: "tests/fixtures/rules/test-file-name",
-        }),
+        enforcement: Enforcement::Partial {
+            check: Check {
+                checker: "src/check/layout/typescript.rs",
+                fixtures: "tests/fixtures/rules/test-file-name",
+            },
+            unenforced: "a test path without a `src` part and a `.spec.` test",
+        },
     },
     FixtureImport => Metadata {
         id: "fixture-import",
@@ -675,10 +678,13 @@ rules! {
         owner: Owner::Layer("gpui"),
         applies: "the project has a `core` or `cli` role",
         fields: &["roles"],
-        enforcement: Enforcement::Enforced(Check {
-            checker: "src/check/package_boundaries.rs",
-            fixtures: "tests/fixtures/rules/gpui-plain-core",
-        }),
+        enforcement: Enforcement::Partial {
+            check: Check {
+                checker: "src/check/package_boundaries.rs",
+                fixtures: "tests/fixtures/rules/gpui-plain-core",
+            },
+            unenforced: "the plain project data that the `core` and `cli` roles pass at their boundaries",
+        },
     },
     GpuiAppLifetime => Metadata {
         id: "gpui-app-lifetime",
@@ -820,10 +826,13 @@ rules! {
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],
-        enforcement: Enforcement::Enforced(Check {
-            checker: "src/check/layout/react.rs",
-            fixtures: "tests/fixtures/rules/react-component-file",
-        }),
+        enforcement: Enforcement::Partial {
+            check: Check {
+                checker: "src/check/layout/react.rs",
+                fixtures: "tests/fixtures/rules/react-component-file",
+            },
+            unenforced: "a PascalCase file that is not named after the component it exports",
+        },
     },
     ReactTestPlacement => Metadata {
         id: "react-test-placement",

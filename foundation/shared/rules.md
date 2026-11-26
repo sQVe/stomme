@@ -55,12 +55,12 @@ paths are relative to the stomme crate.
 | `no-index-file` | Source folders hold no index files. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/no-index-file | enforced |
 | `one-file-folder` | A module with one production source file is a flat file, not a folder. | typescript | always | none | none | none | project-local |
 | `folder-module-entry` | A folder module has an entry file named after its folder. | typescript | always | none | none | none | project-local |
-| `test-file-name` | A source test file is named after a module beside it. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/test-file-name | enforced |
+| `test-file-name` | A source test file is named after a module beside it. | typescript | always | none | src/check/layout/typescript.rs | tests/fixtures/rules/test-file-name | partial; not enforced: a test path without a `src` part and a `.spec.` test |
 | `fixture-import` | Production code does not load fixtures. | typescript | always | none | none | none | project-local |
 | `versioned-record` | A versioned record format has a version literal and current, newer, and malformed fixtures. | typescript | the project writes versioned records | none | none | none | project-local |
 | `test-project` | Every test file belongs to exactly one test project. | typescript | the project splits tests into projects | none | none | none | project-local |
 | `test-environment` | The cached test tasks declare every environment variable that test code reads. | typescript | the project caches test tasks | none | none | none | project-local |
-| `gpui-plain-core` | The `core` and `cli` role packages depend on no GPUI package and no `ui`, `kit`, or `app` role package, directly or through other packages. | layer `gpui` | the project has a `core` or `cli` role | `roles` | src/check/package_boundaries.rs | tests/fixtures/rules/gpui-plain-core | enforced |
+| `gpui-plain-core` | The `core` and `cli` role packages depend on no GPUI package and no `ui`, `kit`, or `app` role package, directly or through other packages. | layer `gpui` | the project has a `core` or `cli` role | `roles` | src/check/package_boundaries.rs | tests/fixtures/rules/gpui-plain-core | partial; not enforced: the plain project data that the `core` and `cli` roles pass at their boundaries |
 | `gpui-app-lifetime` | One module of the `app` role owns the GPUI application, windows, tasks, and one shutdown path. | layer `gpui` | the project has an `app` role | `roles` | none | none | guidance only |
 | `gpui-context-names` | Name a GPUI context `cx` and a window `window`, with `window` before `cx`. | layer `gpui` | always | none | none | none | guidance only |
 | `gpui-builder-chain` | Write an element builder as one fluent chain, with `.when_some(...)` for an optional child. | layer `gpui` | always | none | none | none | guidance only |
@@ -77,7 +77,7 @@ paths are relative to the stomme crate.
 | `gpui-stale-result` | Drop a background result when the state it started from is no longer current. | layer `gpui` | always | none | none | none | guidance only |
 | `gpui-component-kit` | Only the `kit` role imports gpui-component; other code uses the project's own widget types. | layer `gpui-component` | always | `roles` | src/check/package_boundaries.rs | tests/fixtures/rules/gpui-component-kit | partial; not enforced: components that a package other than `kit` uses through a bundle crate that re-exports them |
 | `react-jsx-extension` | Only a file that contains JSX uses `.tsx`. | layer `react` | always | none | none | none | guidance only |
-| `react-component-file` | A file that mainly exports one component is named after it in PascalCase. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-component-file | enforced |
+| `react-component-file` | A file that mainly exports one component is named after it in PascalCase. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-component-file | partial; not enforced: a PascalCase file that is not named after the component it exports |
 | `react-test-placement` | A `.tsx` unit test sits beside its owner as `<owner>.test.tsx`. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-test-placement | enforced |
 | `pi-discovered-path` | `package.json` declares every path Pi discovers, and renaming code keeps those paths. | layer `pi` | always | none | none | none | guidance only |
 | `pi-registered-name` | Renaming code keeps every name registered with Pi. | layer `pi` | always | none | none | none | guidance only |

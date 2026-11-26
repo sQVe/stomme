@@ -8,6 +8,7 @@ use anyhow::Context as _;
 mod agents_block;
 mod check;
 mod config;
+mod fence;
 mod full_check;
 mod guides;
 mod init;

@@ -3,11 +3,8 @@ use std::fs;
 use std::path::Path;
 
 use super::Problem;
-use crate::config::CONFIG_FILE;
+use crate::config::{CONFIG_FILE, ROLES, normalize};
 use crate::rule::Rule;
-
-const ROLES: &[&str] = &["core", "ui", "kit", "app", "cli"];
-const ROLE_NAMES: &str = "`core`, `ui`, `kit`, `app`, and `cli`";
 
 pub(super) fn check(root: &Path, roles: &BTreeMap<String, String>) -> Vec<Problem> {
     roles
@@ -21,7 +18,10 @@ fn role_problem(root: &Path, name: &str, path: &str) -> Option<Problem> {
         return Some(Problem {
             path: CONFIG_FILE.to_string(),
             rule: Rule::RoleName,
-            message: format!("names the unknown role `{name}`; the roles are {ROLE_NAMES}"),
+            message: format!(
+                "names the unknown role `{name}`; the roles are {}",
+                role_names()
+            ),
             key: None,
         });
     }
@@ -31,6 +31,13 @@ fn role_problem(root: &Path, name: &str, path: &str) -> Option<Problem> {
     }
 
     folder_problem(name, path)
+}
+
+fn role_names() -> String {
+    let mut names: Vec<String> = ROLES.iter().map(|role| format!("`{role}`")).collect();
+    let last = names.pop().expect("the role list is not empty");
+
+    format!("{}, and {last}", names.join(", "))
 }
 
 fn path_problem(root: &Path, name: &str, path: &str) -> Option<Problem> {
@@ -89,13 +96,6 @@ fn folder_problem(name: &str, path: &str) -> Option<Problem> {
         ),
         key: Some(format!("{name}:{folder}")),
     })
-}
-
-fn normalize(path: &str) -> String {
-    path.split('/')
-        .filter(|part| !part.is_empty() && *part != ".")
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 #[cfg(test)]

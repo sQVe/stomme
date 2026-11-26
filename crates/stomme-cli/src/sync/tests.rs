@@ -94,7 +94,9 @@ fn bundled_content(path: &str) -> String {
 }
 
 fn guide_block(guide: &str) -> String {
-    format!("File: {guide}\n\n{}", bundled_content(guide).trim_end())
+    let content = crate::ocr_rules::without_marked_blocks(&bundled_content(guide));
+
+    format!("File: {guide}\n\n{}", content.trim_end())
 }
 
 fn expected_guide_text(guides: &[&str]) -> String {
