@@ -381,6 +381,11 @@ fn role_clauses(roles: &BTreeMap<String, String>, guides: &[(&str, &str)]) -> Ve
         let Some(path) = roles.get(*role) else {
             continue;
         };
+        let root = normalize(path);
+
+        if root.is_empty() {
+            continue;
+        }
 
         let mut blocks = marked_blocks(ROLE_ADR, role);
 
@@ -393,7 +398,6 @@ fn role_clauses(roles: &BTreeMap<String, String>, guides: &[(&str, &str)]) -> Ve
             blocks.extend(marked_blocks(text, role));
         }
 
-        let root = normalize(path);
         clauses.push(format!(
             "If the file path starts with {root}/, apply: {}",
             blocks.join("\n\n")
@@ -449,10 +453,24 @@ fn block_text(lines: &[&str], marker_index: usize, content: &str) -> String {
 }
 
 fn block_start(lines: &[&str], marker_index: usize) -> usize {
-    lines[..=marker_index]
-        .iter()
-        .rposition(|line| line.starts_with("- "))
-        .expect("a marked block starts with a list item")
+    if lines
+        .get(marker_index + 1)
+        .is_some_and(|line| line.starts_with("  "))
+    {
+        panic!("a marked block is a list item whose marker ends its last line");
+    }
+
+    let mut start = marker_index;
+
+    while start > 0 && lines[start].starts_with("  ") {
+        start -= 1;
+    }
+
+    if !lines[start].starts_with("- ") {
+        panic!("a marked block is a list item whose marker ends its last line");
+    }
+
+    start
 }
 
 pub(crate) fn without_marked_blocks(text: &str) -> String {

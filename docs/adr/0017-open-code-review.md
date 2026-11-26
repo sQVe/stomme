@@ -61,7 +61,8 @@ required check whose findings are advice.
   `If the file path starts with <root>/, apply: <role text>`. `<root>` is the role path without
   empty parts or `.`, with exactly one trailing slash. The slash keeps `src/ui/` from matching
   `src/uikit`. OCR puts `<file path="...">` above each diff, so the model sees the path the clause
-  names. An undeclared role gets no clause.
+  names. An undeclared role gets no clause. A role path that normalizes to nothing gets no clause,
+  because `stomme check` owns role path validity.
 - Role text has one owner. The blocks marked with an inline `<!-- role:<role> -->` comment in
   ADR 0004 and in the role-scoped layer rules are extracted when the rule file renders. No Rust
   copy holds the prose and no scope table restates it. A layer the project did not select

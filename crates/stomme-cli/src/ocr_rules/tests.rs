@@ -645,6 +645,19 @@ fn role_clause_root_normalizes_and_keeps_one_trailing_slash() {
 }
 
 #[test]
+fn a_role_with_no_normalized_root_gets_no_clause() {
+    let declared = roles(&[("cli", "."), ("ui", "src/ui")]);
+    let rendered = render(Language::Rust, &embedded_guides(), &declared, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert_eq!(clause_roots(text), ["src/ui/"]);
+    assert!(!text.contains("If the file path starts with /,"));
+}
+
+#[test]
 fn role_clause_text_comes_from_the_marked_adr_and_selected_layers() {
     let roles = roles(&[("app", "crates/app"), ("kit", "crates/kit")]);
     let mut guides = embedded_guides();
@@ -740,6 +753,18 @@ fn an_unterminated_marker_adds_no_role_text() {
 
     assert!(marked_blocks(text, "app").is_empty());
     assert_eq!(without_marked_blocks(text), text.trim_end());
+}
+
+#[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_on_its_own_line_is_refused() {
+    marked_blocks("Text.\n\n<!-- role:core -->\n", "core");
+}
+
+#[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_before_a_continuation_line_is_refused() {
+    marked_blocks("- `core`: Text. <!-- role:core -->\n  More.\n", "core");
 }
 
 #[test]
