@@ -194,7 +194,9 @@ fn every_short_line_sequence_keeps_the_scanner_invariants() {
             assert_eq!(indices, sorted, "{text:?}: indices rise");
 
             let hides_a_line = sequence.iter().any(|line| {
-                line.starts_with("```") || line.starts_with("~~~") || line.starts_with("    ")
+                let (indent, content) = split_indent(line);
+
+                opening_fence(content).is_some() || indent >= INDENTED_CODE
             });
 
             if !hides_a_line {
