@@ -201,6 +201,16 @@ export const loadingTests: PackageTests = (context) => {
     expect(withPresets.stdout).toContain('(no-focused-tests)');
     expect(withPresets.stdout).toContain('(no-disabled-tests)');
     expect(withPresets.stdout).toContain('(prefer-import-in-mock)');
+
+    // A pin set to 'warn' still prints its rule, so each ban must report as an error.
+    expect(linesWith(withPresets.stdout, 'vitest(no-focused-tests)')).toEqual([
+      expect.stringContaining(': error vitest(no-focused-tests)'),
+    ]);
+
+    expect(linesWith(withPresets.stdout, 'vitest(no-disabled-tests)')).toEqual([
+      expect.stringContaining(': error vitest(no-disabled-tests)'),
+    ]);
+
     expect(withoutPresets.stdout).not.toContain('rules-of-hooks');
     expect(withoutPresets.stdout).not.toContain('no-focused-tests');
     expect(withoutPresets.stdout).not.toContain('no-disabled-tests');
