@@ -614,3 +614,57 @@ fn kept_same_name_in_another_changed_file_does_not_credit_a_deletion() {
         "deletes the test case `smoke` that `origin/main` declares on line 2",
     );
 }
+
+#[test]
+fn project_folder_inside_a_repository_reports_only_its_own_change() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    git(root.path(), &["init", "-q"]);
+    write(root.path(), "outside.rs", "#[test]\nfn outside() {}\n");
+    write(root.path(), "project/src/lib.rs", "#[test]\nfn kept() {}\n");
+    commit(root.path(), "base");
+    git(
+        root.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+
+    write(root.path(), "outside.rs", "fn outside_changed() {}\n");
+    write(root.path(), "project/src/lib.rs", "fn other() {}\n");
+    stage(root.path());
+
+    let project = root.path().join("project");
+    let problems = check(project.as_path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `kept` that `origin/main` declares on line 2",
+    );
+}
+
+#[test]
+fn project_folder_without_its_own_change_reports_nothing() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    git(root.path(), &["init", "-q"]);
+    write(root.path(), ".gitignore", "target/\n");
+    write(root.path(), "outside.rs", "#[test]\nfn outside() {}\n");
+    commit(root.path(), "base");
+    git(
+        root.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+
+    write(root.path(), "outside.rs", "fn outside_changed() {}\n");
+    write(
+        root.path(),
+        "target/project/src/lib.rs",
+        "#[test]\nfn kept() {}\n",
+    );
+    stage(root.path());
+
+    let project = root.path().join("target/project");
+    let problems = check(project.as_path(), &target());
+
+    assert_eq!(problems, Vec::new(), "{problems:?}");
+}

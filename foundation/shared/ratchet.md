@@ -17,7 +17,8 @@ the line. Text that merely contains a marker is not reported.
 
 The check reads Rust and TypeScript source files: `.rs`, `.ts`, and `.tsx`, but not `.d.ts`. It
 skips any path with a hidden folder or a `target`, `node_modules`, `vendor`, `dist`, or `fixtures`
-folder.
+folder. It compares the project folder, with paths relative to it, so a project inside a larger
+repository compares only its own files.
 
 | Form | Rust markers | TypeScript markers |
 | --- | --- | --- |

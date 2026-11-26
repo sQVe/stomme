@@ -50,12 +50,13 @@ fn scan(root: &Path, target: &TargetBranch) -> Result<Vec<Problem>, Failure> {
         Err(_) if has_no_commit(root)? => return Ok(Vec::new()),
         Err(reason) => return Err(Failure::Target(reason)),
     };
+    let prefix = diff::project_prefix(root)?;
     let mut problems = Vec::new();
     let mut base = Vec::new();
     let mut current = Vec::new();
 
     for path in diff::changed_paths(root, &commit)? {
-        if let Some(text) = diff::base_text(root, &commit, &path.text)? {
+        if let Some(text) = diff::base_text(root, &commit, &prefix, &path.text)? {
             base.extend(forms::declarations(&text, path.language, &path.text));
         }
 

@@ -14,10 +14,23 @@ pub(super) struct AddedLine {
     pub(super) text: String,
 }
 
+pub(super) fn project_prefix(root: &Path) -> Result<String, String> {
+    let output = run_git(root, &["rev-parse", "--show-prefix"])?;
+
+    Ok(output.trim_end_matches('\n').to_string())
+}
+
 pub(super) fn changed_paths(root: &Path, commit: &str) -> Result<Vec<ChangedPath>, String> {
     let output = run_git(
         root,
-        &["diff", "--name-status", "-z", "--no-renames", commit],
+        &[
+            "diff",
+            "--name-status",
+            "-z",
+            "--no-renames",
+            "--relative",
+            commit,
+        ],
     )?;
     let mut parts = output.split('\0');
     let mut paths = Vec::new();
@@ -49,8 +62,13 @@ fn source_language(path: &str) -> Option<Language> {
     source_files::language_of(name)
 }
 
-pub(super) fn base_text(root: &Path, commit: &str, path: &str) -> Result<Option<String>, String> {
-    let object = format!("{commit}:{path}");
+pub(super) fn base_text(
+    root: &Path,
+    commit: &str,
+    prefix: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    let object = format!("{commit}:{prefix}{path}");
     let present = target_branch::run_git(root, &["cat-file", "-e", &object])
         .map_err(|error| format!("could not run `git`: {error}"))?;
 
@@ -79,6 +97,7 @@ pub(super) fn added_lines(root: &Path, commit: &str, path: &str) -> Result<Vec<A
             "--no-ext-diff",
             "--text",
             "--no-renames",
+            "--relative",
             commit,
             "--",
             path,
