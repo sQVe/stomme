@@ -1276,7 +1276,7 @@ fn classifier_captures_the_retry_error() {
 #[test]
 fn classifier_clears_the_retry_error_between_runs() {
     let classifier = Classifier::new();
-    classifier.run(Run {
+    let first = classifier.run(Run {
         first: 2,
         result: Some(SESSION_RESULT),
         resume_stderr: Some("ocr: the first run failed"),
@@ -1288,6 +1288,11 @@ fn classifier_clears_the_retry_error_between_runs() {
         ..Run::default()
     });
 
+    assert_eq!(
+        first.resume_errors(),
+        Some("ocr: the first run failed\n"),
+        "the first run wrote the error the second run must not read"
+    );
     assert_eq!(
         observation.resume_errors(),
         None,
