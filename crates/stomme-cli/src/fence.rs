@@ -1,4 +1,4 @@
-pub(crate) const MAX_BLOCK_INDENT: usize = 3;
+const MAX_BLOCK_INDENT: usize = 3;
 pub(crate) const INDENTED_CODE: usize = 4;
 
 const MAX_MARKER_SPACING: usize = 4;
@@ -166,9 +166,33 @@ fn list_content_column(indent: usize, content: &str) -> Option<usize> {
 
 // Whether a line starts a block of its own, so it cannot continue the paragraph above it.
 pub(crate) fn opens_block(content: &str) -> bool {
-    let is_marked = content.starts_with(['#', '>']);
+    let is_quote_or_html = content.starts_with(['>', '<']);
 
-    is_marked || opening_fence(content).is_some() || list_marker(content).is_some()
+    is_quote_or_html
+        || is_heading(content)
+        || is_thematic_break(content)
+        || opening_fence(content).is_some()
+        || list_marker(content).is_some()
+}
+
+fn is_heading(content: &str) -> bool {
+    let hashes = content.bytes().take_while(|byte| *byte == b'#').count();
+    let rest = &content[hashes..];
+
+    (1..=6).contains(&hashes) && (rest.is_empty() || rest.starts_with([' ', '\t']))
+}
+
+fn is_thematic_break(content: &str) -> bool {
+    let Some(marker) = content.bytes().find(|byte| !byte.is_ascii_whitespace()) else {
+        return false;
+    };
+    let is_break_marker = matches!(marker, b'-' | b'*' | b'_');
+    let marks = content.bytes().filter(|byte| *byte == marker).count();
+    let only_marks = content
+        .bytes()
+        .all(|byte| byte == marker || byte == b' ' || byte == b'\t');
+
+    is_break_marker && marks >= 3 && only_marks
 }
 
 // The column a list item's content starts at, relative to its marker.

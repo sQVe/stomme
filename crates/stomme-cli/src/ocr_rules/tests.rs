@@ -849,6 +849,29 @@ fn a_marker_before_a_tab_indented_continuation_is_refused() {
 }
 
 #[test]
+fn a_marker_before_a_thematic_break_or_heading_adds_role_text() {
+    for next in ["---", "* * *", "# Heading", "> quote"] {
+        let text = format!("- `gpui-app-lifetime`: Own it. <!-- role:app -->\n{next}\n");
+
+        assert_eq!(
+            marked_blocks(&text, "app"),
+            ["`gpui-app-lifetime`: Own it."],
+            "{next}"
+        );
+    }
+}
+
+#[test]
+fn a_multi_paragraph_block_keeps_its_relative_indentation() {
+    let text = "  - `gpui-app-lifetime`: First.\n\n    Second. <!-- role:app -->\n";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: First.\n\nSecond."]
+    );
+}
+
+#[test]
 #[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
 fn a_marker_before_a_lazy_paragraph_line_is_refused() {
     marked_blocks("- `core`: Text. <!-- role:core -->\n More.\n", "core");
@@ -935,7 +958,10 @@ fn role_text_holds_no_exactly_enforced_rule() {
                         continue;
                     };
 
-                    if matches!(rule.metadata().enforcement, Enforcement::Enforced(_)) {
+                    if matches!(
+                        rule.metadata().enforcement,
+                        Enforcement::Enforced(_) | Enforcement::RustAndTypeScript { .. }
+                    ) {
                         offenders.push(format!("{}: {id}", file.path));
                     }
                 }
@@ -1023,8 +1049,7 @@ fn clause<'a>(text: &'a str, root: &str) -> &'a str {
 
 fn rule_ids(text: &str) -> Vec<&str> {
     text.lines()
-        .map(|line| line.trim_start())
-        .map(|line| line.strip_prefix("- ").unwrap_or(line))
+        .map(|line| crate::fence::list_item_content(line).unwrap_or(line))
         .filter_map(|line| line.strip_prefix('`'))
         .filter_map(|rest| rest.split_once("`: "))
         .map(|(id, _)| id)

@@ -499,16 +499,24 @@ fn marker(line: &str) -> Option<(&str, &str)> {
     Some((role, &line[..start]))
 }
 
+// Removes up to `column` leading spaces, the indentation the item's content column added.
+fn dedent(line: &str, column: usize) -> &str {
+    let spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+
+    &line[spaces.min(column)..]
+}
+
 fn block_text(lines: &[&str], marker: &Marker<'_>) -> String {
     let mut block: Vec<&str> = lines[marker.start..marker.index].to_vec();
 
     block.push(marker.content.trim_end());
 
+    let column = item_content_column(block[0]).expect("a marked block starts with a list item");
     let first = list_item_content(block[0]).expect("a marked block starts with a list item");
+    let rest = block[1..].iter().map(|line| dedent(line, column));
+    let body: Vec<&str> = std::iter::once(first).chain(rest).collect();
 
-    block[0] = first;
-
-    block.join("\n")
+    body.join("\n")
 }
 
 pub(crate) fn without_marked_blocks(text: &str) -> String {

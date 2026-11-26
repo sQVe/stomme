@@ -134,3 +134,74 @@ fn item_content_column_counts_the_marker_its_spacing_and_tabs() {
         assert_eq!(item_content_column(line), expected, "{case}");
     }
 }
+
+#[test]
+fn opens_block_names_each_block_that_interrupts_a_paragraph() {
+    let cases = [
+        ("heading", "# Title", true),
+        ("heading without text", "##", true),
+        ("hashtag", "#tag", false),
+        ("seven hashes", "####### x", false),
+        ("quote", "> quote", true),
+        ("html", "<div>", true),
+        ("fence", "```rust", true),
+        ("bullet", "- item", true),
+        ("ordered", "1. item", true),
+        ("dash break", "---", true),
+        ("spaced star break", "* * *", true),
+        ("underscore break", "___", true),
+        ("two dashes", "--", false),
+        ("mixed marks", "-*-", false),
+        ("plain text", "More text.", false),
+    ];
+
+    for (case, line, expected) in cases {
+        assert_eq!(opens_block(line), expected, "{case}");
+    }
+}
+
+// Every short sequence of lines drawn from a small alphabet, so the container and fence state
+// that earlier lines leave behind meets each later line.
+#[test]
+fn every_short_line_sequence_keeps_the_scanner_invariants() {
+    let alphabet = [
+        "- item", "  text", "    code", "```", "~~~", "", "# head", "1. one",
+    ];
+    let mut sequences: Vec<Vec<&str>> = vec![Vec::new()];
+
+    for _ in 0..5 {
+        let longer: Vec<Vec<&str>> = sequences
+            .iter()
+            .flat_map(|sequence| {
+                alphabet.iter().map(move |line| {
+                    let mut next = sequence.clone();
+
+                    next.push(line);
+                    next
+                })
+            })
+            .collect();
+
+        for sequence in &longer {
+            let text = sequence.join("\n");
+            let lines: Vec<_> = unfenced_lines(text.lines()).collect();
+            let indices: Vec<usize> = lines.iter().map(|line| line.index).collect();
+            let mut sorted = indices.clone();
+
+            sorted.sort_unstable();
+            sorted.dedup();
+
+            assert_eq!(indices, sorted, "{text:?}: indices rise");
+
+            for line in &lines {
+                assert!(line.item_start <= line.index, "{text:?}: item starts first");
+                assert!(
+                    !line.view.content.starts_with("```") && !line.view.content.starts_with("~~~"),
+                    "{text:?}: a fence line is never returned"
+                );
+            }
+        }
+
+        sequences = longer;
+    }
+}
