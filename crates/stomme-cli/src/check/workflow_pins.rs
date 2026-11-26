@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
+use crate::commit::is_40_character_lowercase_hex_commit;
 use crate::rule::Rule;
 
 const WORKFLOWS_FOLDER: &str = ".github/workflows";
@@ -109,7 +110,7 @@ fn call_problem(line: &str, number: usize, version: &str, path: &str) -> Option<
         ));
     }
 
-    if !is_commit(reference) {
+    if !is_40_character_lowercase_hex_commit(reference) {
         return Some(problem(
             path,
             format!(
@@ -160,12 +161,6 @@ fn unquote(value: &str) -> (&str, bool) {
     }
 
     (value, false)
-}
-
-fn is_commit(reference: &str) -> bool {
-    let is_lowercase_hex = |byte: u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte);
-
-    reference.len() == 40 && reference.bytes().all(is_lowercase_hex)
 }
 
 fn comment_version(comment: &str) -> Option<&str> {

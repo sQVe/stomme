@@ -7,6 +7,7 @@ use anyhow::Context as _;
 
 mod agents_block;
 mod check;
+mod commit;
 mod config;
 mod fence;
 mod full_check;
