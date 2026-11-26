@@ -618,16 +618,10 @@ fn kept_same_name_in_another_changed_file_does_not_credit_a_deletion() {
 
 #[test]
 fn project_folder_inside_a_repository_reports_only_its_own_change() {
-    let root = tempfile::tempdir().expect("create a temporary directory");
-
-    git(root.path(), &["init", "-q"]);
-    write(root.path(), "outside.rs", "#[test]\nfn outside() {}\n");
-    write(root.path(), "project/src/lib.rs", "#[test]\nfn kept() {}\n");
-    commit(root.path(), "base");
-    git(
-        root.path(),
-        &["update-ref", "refs/remotes/origin/main", "HEAD"],
-    );
+    let root = repository(&[
+        ("outside.rs", "#[test]\nfn outside() {}\n"),
+        ("project/src/lib.rs", "#[test]\nfn kept() {}\n"),
+    ]);
 
     write(root.path(), "outside.rs", "fn outside_changed() {}\n");
     write(root.path(), "project/src/lib.rs", "fn other() {}\n");
@@ -645,26 +639,15 @@ fn project_folder_inside_a_repository_reports_only_its_own_change() {
 
 #[test]
 fn project_folder_without_its_own_change_reports_nothing() {
-    let root = tempfile::tempdir().expect("create a temporary directory");
-
-    git(root.path(), &["init", "-q"]);
-    write(root.path(), ".gitignore", "target/\n");
-    write(root.path(), "outside.rs", "#[test]\nfn outside() {}\n");
-    commit(root.path(), "base");
-    git(
-        root.path(),
-        &["update-ref", "refs/remotes/origin/main", "HEAD"],
-    );
+    let root = repository(&[
+        ("outside.rs", "#[test]\nfn outside() {}\n"),
+        ("project/src/lib.rs", "#[test]\nfn kept() {}\n"),
+    ]);
 
     write(root.path(), "outside.rs", "fn outside_changed() {}\n");
-    write(
-        root.path(),
-        "target/project/src/lib.rs",
-        "#[test]\nfn kept() {}\n",
-    );
     stage(root.path());
 
-    let project = root.path().join("target/project");
+    let project = root.path().join("project");
     let problems = check(project.as_path(), &target());
 
     assert_eq!(problems, Vec::new(), "{problems:?}");
@@ -745,5 +728,73 @@ fn multiline_attribute_with_brackets_keeps_the_declaration() {
         &problems,
         "src/lib.rs",
         "deletes the test case `cases` that `origin/main` declares on line 5",
+    );
+}
+
+#[test]
+fn rename_to_a_non_source_name_reports_the_deleted_case() {
+    let root = repository(&[("src/lib.rs", "#[test]\nfn kept() {}\n")]);
+
+    remove(root.path(), "src/lib.rs");
+    write(root.path(), "src/lib.rs.bak", "#[test]\nfn kept() {}\n");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `kept` that `origin/main` declares on line 2",
+    );
+}
+
+#[test]
+fn string_bracket_in_an_attribute_keeps_the_declaration() {
+    let root = repository(&[("src/lib.rs", "#[test_case(\"[\", 1)]\nfn cases() {}\n")]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `cases` that `origin/main` declares on line 2",
+    );
+}
+
+#[test]
+fn comment_bracket_in_an_attribute_keeps_the_declaration() {
+    let root = repository(&[("src/lib.rs", "#[test] // [WIP\nfn runs() {}\n")]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `runs` that `origin/main` declares on line 2",
+    );
+}
+
+#[test]
+fn multiline_block_comment_in_an_attribute_keeps_the_declaration() {
+    let root = repository(&[(
+        "src/lib.rs",
+        "#[test_case(/* open\n    [ */\n    1)]\nfn cases() {}\n",
+    )]);
+
+    write(root.path(), "src/lib.rs", "");
+    stage(root.path());
+
+    let problems = check(root.path(), &target());
+
+    assert_problem(
+        &problems,
+        "src/lib.rs",
+        "deletes the test case `cases` that `origin/main` declares on line 4",
     );
 }

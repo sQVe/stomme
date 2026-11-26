@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -94,7 +95,16 @@ fn scan(root: &Path, target: &TargetBranch) -> Result<Vec<Problem>, Failure> {
 }
 
 fn in_repository(root: &Path) -> bool {
-    root.ancestors().any(|folder| folder.join(".git").exists())
+    if env::var_os("GIT_DIR").is_some() {
+        return true;
+    }
+
+    if root.ancestors().any(|folder| folder.join(".git").exists()) {
+        return true;
+    }
+
+    target_branch::run_git(root, &["rev-parse", "--git-dir"])
+        .is_ok_and(|output| output.status.success())
 }
 
 fn has_no_commit(root: &Path) -> Result<bool, Failure> {

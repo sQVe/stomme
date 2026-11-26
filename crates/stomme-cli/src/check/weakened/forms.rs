@@ -1,3 +1,6 @@
+use std::iter::Peekable;
+use std::str::Chars;
+
 use crate::layer::Language;
 
 const RUST_SKIPS: &[&str] = &["#[ignore]", "#[ignore ="];
@@ -99,12 +102,13 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
     let mut declarations = Vec::new();
     let mut pending = false;
     let mut attribute_depth = 0;
+    let mut in_block_comment = false;
 
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
 
         if attribute_depth > 0 {
-            attribute_depth = next_depth(attribute_depth, trimmed);
+            attribute_depth = next_depth(attribute_depth, trimmed, &mut in_block_comment);
             continue;
         }
 
@@ -114,7 +118,7 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
             }
 
             if trimmed.starts_with("#[") {
-                attribute_depth = next_depth(0, trimmed);
+                attribute_depth = next_depth(0, trimmed, &mut in_block_comment);
                 continue;
             }
 
@@ -132,23 +136,53 @@ fn rust_declarations(text: &str, path: &str) -> Vec<Declaration> {
 
         if is_test_attribute(trimmed) {
             pending = true;
-            attribute_depth = next_depth(0, trimmed);
+            attribute_depth = next_depth(0, trimmed, &mut in_block_comment);
         }
     }
 
     declarations
 }
 
-fn next_depth(mut depth: usize, line: &str) -> usize {
-    for character in line.chars() {
+fn next_depth(mut depth: usize, line: &str, in_block_comment: &mut bool) -> usize {
+    let mut characters = line.chars().peekable();
+
+    while let Some(character) = characters.next() {
+        if *in_block_comment {
+            if character == '*' && characters.peek() == Some(&'/') {
+                characters.next();
+                *in_block_comment = false;
+            }
+
+            continue;
+        }
+
         match character {
             '[' => depth += 1,
             ']' => depth = depth.saturating_sub(1),
+            '"' => skip_quoted(&mut characters, '"'),
+            '\'' => skip_quoted(&mut characters, '\''),
+            '/' if characters.peek() == Some(&'/') => break,
+            '/' if characters.peek() == Some(&'*') => {
+                characters.next();
+                *in_block_comment = true;
+            }
             _ => {}
         }
     }
 
     depth
+}
+
+fn skip_quoted(characters: &mut Peekable<Chars<'_>>, quote: char) {
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => {
+                characters.next();
+            }
+            other if other == quote => return,
+            _ => {}
+        }
+    }
 }
 
 fn is_skipped(trimmed: &str) -> bool {

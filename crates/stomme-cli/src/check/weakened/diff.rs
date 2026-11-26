@@ -22,7 +22,10 @@ pub(super) fn project_prefix(root: &Path) -> Result<String, String> {
 }
 
 pub(super) fn changed_paths(root: &Path, commit: &str) -> Result<Vec<ChangedPath>, String> {
-    let output = run_git(root, &["diff", "--name-status", "-z", "--relative", commit])?;
+    let output = run_git(
+        root,
+        &["diff", "-M", "--name-status", "-z", "--relative", commit],
+    )?;
     let mut parts = output.split('\0');
     let mut paths = Vec::new();
 
@@ -30,7 +33,8 @@ pub(super) fn changed_paths(root: &Path, commit: &str) -> Result<Vec<ChangedPath
         let Some(path) = parts.next() else {
             break;
         };
-        let (base, text) = if status.starts_with('R') || status.starts_with('C') {
+        let is_rename = status.starts_with('R');
+        let (base, text) = if is_rename {
             let Some(new) = parts.next() else {
                 break;
             };
@@ -39,15 +43,24 @@ pub(super) fn changed_paths(root: &Path, commit: &str) -> Result<Vec<ChangedPath
         } else {
             (path.to_string(), path.to_string())
         };
-        let Some(language) = source_language(&text) else {
-            continue;
-        };
 
-        paths.push(ChangedPath {
-            text,
-            base,
-            language,
-        });
+        match source_language(&text) {
+            Some(language) => paths.push(ChangedPath {
+                text,
+                base,
+                language,
+            }),
+            None if is_rename => {
+                if let Some(language) = source_language(&base) {
+                    paths.push(ChangedPath {
+                        text: base.clone(),
+                        base,
+                        language,
+                    });
+                }
+            }
+            None => {}
+        }
     }
 
     Ok(paths)

@@ -57,6 +57,25 @@ fn check_passes_a_complete_project() {
 }
 
 #[test]
+fn check_reports_a_git_failure_when_git_dir_is_set() {
+    let root = complete_project();
+    let output = Command::new(env!("CARGO_BIN_EXE_stomme"))
+        .arg("check")
+        .current_dir(root.path())
+        .env_remove("GITHUB_BASE_REF")
+        .env("GIT_DIR", root.path().join("missing-git-dir"))
+        .output()
+        .expect("run stomme");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        stderr.contains("`git rev-list --all --count` failed"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn check_reports_a_project_without_stomme_toml() {
     let root = complete_project();
 
