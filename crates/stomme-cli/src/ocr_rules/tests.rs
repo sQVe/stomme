@@ -849,6 +849,12 @@ fn a_marker_before_a_tab_indented_continuation_is_refused() {
 }
 
 #[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_before_a_lazy_paragraph_line_is_refused() {
+    marked_blocks("- `core`: Text. <!-- role:core -->\n More.\n", "core");
+}
+
+#[test]
 fn a_marker_before_a_line_short_of_the_content_column_adds_role_text() {
     let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n ```\n";
 

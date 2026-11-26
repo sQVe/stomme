@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
 use crate::fence::{
-    indentation, item_content_column, list_item_content, list_marker, unfenced_lines,
+    item_content_column, list_item_content, list_marker, opens_block, split_indent, unfenced_lines,
 };
 use crate::layer::Language;
 
@@ -465,21 +465,24 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
     markers
 }
 
-// Any later line that reaches the item's content column belongs to its item, including a fenced
-// or indented code block that `unfenced_lines` hides. A blank line keeps the item open.
+// A later line belongs to the item when it reaches the item's content column, even inside a code
+// block that `unfenced_lines` hides, or when it is paragraph text right below the marker line. A
+// blank line keeps the item open.
 fn item_continues(lines: &[&str], marker_index: usize, start: usize) -> bool {
     let Some(column) = item_content_column(lines[start]) else {
         return false;
     };
+    let following = &lines[marker_index + 1..];
+    let Some(next) = following.iter().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    let (indent, content) = split_indent(next);
+    let is_adjacent = following
+        .first()
+        .is_some_and(|line| !line.trim().is_empty());
+    let is_lazy = is_adjacent && !opens_block(content);
 
-    lines[marker_index + 1..]
-        .iter()
-        .find(|line| !line.trim().is_empty())
-        .is_some_and(|line| {
-            let content = line.trim_start_matches([' ', '\t']);
-
-            indentation(&line[..line.len() - content.len()]) >= column
-        })
+    indent >= column || is_lazy
 }
 
 fn marker(line: &str) -> Option<(&str, &str)> {

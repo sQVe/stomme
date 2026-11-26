@@ -92,9 +92,7 @@ impl Containers {
     pub(crate) fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
         self.viewed += 1;
 
-        let leading = raw.len() - raw.trim_start_matches([' ', '\t']).len();
-        let indent = indentation(&raw[..leading]);
-        let content = &raw[leading..];
+        let (indent, content) = split_indent(raw);
 
         if content.is_empty() {
             return Line {
@@ -127,9 +125,11 @@ impl Containers {
 
     // Opens an item at the line `view` read last. The line index counts the lines read so far.
     pub(crate) fn open_list_item(&mut self, line: &Line) {
-        let index = self.viewed - 1;
+        let Some(index) = self.viewed.checked_sub(1) else {
+            return;
+        };
 
-        if let Some(column) = list_content_column(line) {
+        if let Some(column) = list_content_column(line.indent, line.content) {
             self.items.push(Item { column, index });
         }
     }
@@ -140,7 +140,7 @@ struct OpenFence {
     depth: usize,
 }
 
-pub(crate) fn indentation(whitespace: &str) -> usize {
+fn indentation(whitespace: &str) -> usize {
     whitespace.chars().fold(0, |column, character| {
         if character == '\t' {
             column + TAB_WIDTH - column % TAB_WIDTH
@@ -150,12 +150,25 @@ pub(crate) fn indentation(whitespace: &str) -> usize {
     })
 }
 
-fn list_content_column(line: &Line) -> Option<usize> {
-    let marker = list_marker(line.content)?;
-    let rest = &line.content[marker..];
-    let spacing = list_spacing(rest);
+pub(crate) fn split_indent(line: &str) -> (usize, &str) {
+    let content = line.trim_start_matches([' ', '\t']);
+    let indent = indentation(&line[..line.len() - content.len()]);
 
-    Some(line.indent + marker + spacing)
+    (indent, content)
+}
+
+fn list_content_column(indent: usize, content: &str) -> Option<usize> {
+    let marker = list_marker(content)?;
+    let rest = &content[marker..];
+
+    Some(indent + marker + list_spacing(rest))
+}
+
+// Whether a line starts a block of its own, so it cannot continue the paragraph above it.
+pub(crate) fn opens_block(content: &str) -> bool {
+    let is_marked = content.starts_with(['#', '>']);
+
+    is_marked || opening_fence(content).is_some() || list_marker(content).is_some()
 }
 
 // The column a list item's content starts at, relative to its marker.
@@ -170,15 +183,9 @@ fn list_spacing(rest: &str) -> usize {
 
 // The column where the content of a list item on `line` starts, or None when it opens no item.
 pub(crate) fn item_content_column(line: &str) -> Option<usize> {
-    let content = line.trim_start_matches([' ', '\t']);
-    let indent = indentation(&line[..line.len() - content.len()]);
+    let (indent, content) = split_indent(line);
 
-    list_content_column(&Line {
-        indent,
-        relative: 0,
-        depth: 0,
-        content,
-    })
+    list_content_column(indent, content)
 }
 
 pub(crate) fn list_item_content(line: &str) -> Option<&str> {
