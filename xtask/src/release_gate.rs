@@ -343,8 +343,8 @@ fn rewrite_workflow_call(line: &str, version: &str, commit: &str) -> Option<Stri
     let trimmed = line.trim_start();
     let indent = &line[..line.len() - trimmed.len()];
     let (dash, trimmed) = match trimmed.strip_prefix('-') {
-        Some(rest) => ("- ", rest.trim_start()),
-        None => ("", trimmed),
+        Some(rest) if rest.starts_with(char::is_whitespace) => ("- ", rest.trim_start()),
+        _ => ("", trimmed),
     };
     let rest = trimmed.strip_prefix("uses:")?;
     let called = called_workflow(rest.trim());

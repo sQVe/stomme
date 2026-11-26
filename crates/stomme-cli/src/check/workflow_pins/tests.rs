@@ -156,6 +156,17 @@ fn refuses_a_call_after_a_dash_with_more_than_one_space() {
 }
 
 #[test]
+fn ignores_a_key_whose_dash_is_not_followed_by_whitespace() {
+    let text = "jobs:\n  job:\n    steps:\n      -uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\n";
+    let root = project_with(&[(".github/workflows/ci.yml", text)]);
+
+    assert_eq!(
+        check(root.path(), "1.2.3").expect("check the workflows"),
+        []
+    );
+}
+
+#[test]
 fn names_the_workflow_without_its_trailing_comment() {
     let cases = [
         (

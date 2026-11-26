@@ -222,6 +222,25 @@ fn gate_moves_a_call_after_a_dash_with_more_than_one_space() {
 }
 
 #[test]
+fn gate_leaves_a_key_whose_dash_is_not_followed_by_whitespace_alone() {
+    let folder = project(CONFIG);
+    let text = "jobs:\n  ocr:\n    steps:\n      -uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\n";
+    write_workflow(&folder, "ocr.yml", text);
+    install(Response::default(), Response::default());
+
+    gate(
+        &runner(),
+        Path::new("/stomme"),
+        "9.9.9",
+        COMMIT,
+        folder.path(),
+    )
+    .expect("run the gate");
+
+    assert_eq!(workflow_text(&folder, "ocr.yml"), text);
+}
+
+#[test]
 fn gate_moves_a_call_with_a_comment_and_no_reference() {
     let folder = project(CONFIG);
     let ocr = "    uses: sQVe/stomme/.github/workflows/ocr-review.yml # note\n";
