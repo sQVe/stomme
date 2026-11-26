@@ -122,7 +122,7 @@ fn test_name(file: &SourceFile, tree: &Tree, skip_tsx: bool) -> Option<Problem> 
         return None;
     }
 
-    if !file.path.split('/').any(|part| part == "src") {
+    if !is_in_source(file) {
         return None;
     }
 
@@ -153,7 +153,7 @@ fn test_name(file: &SourceFile, tree: &Tree, skip_tsx: bool) -> Option<Problem> 
     ))
 }
 
-fn test_base(file: &SourceFile) -> Option<&str> {
+pub(super) fn test_base(file: &SourceFile) -> Option<&str> {
     if file.name.ends_with(".test.ts") {
         file.name.strip_suffix(".test.ts")
     } else if file.name.ends_with(".test.tsx") {
@@ -177,6 +177,10 @@ pub(super) fn is_test_file(file: &SourceFile) -> bool {
 
 pub(super) fn is_in_tests_folder(file: &SourceFile) -> bool {
     file.path.split('/').any(|part| part == "__tests__")
+}
+
+pub(super) fn is_in_source(file: &SourceFile) -> bool {
+    file.path.split('/').any(|part| part == "src")
 }
 
 fn owner_folder(tree: &Tree) -> Vec<Problem> {

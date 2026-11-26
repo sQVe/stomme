@@ -35,7 +35,7 @@ fn component_file(file: &SourceFile) -> Option<Problem> {
 
 // Placement follows the TypeScript layer's owner rule, so both layers give one answer for a tree.
 fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
-    if !file.path.split('/').any(|part| part == "src") {
+    if !typescript::is_in_source(file) {
         return None;
     }
 
@@ -43,7 +43,7 @@ fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
         return Some(tests_folder_problem(file));
     }
 
-    let base = file.name.strip_suffix(".test.tsx")?;
+    let base = typescript::test_base(file)?;
 
     if typescript::has_owner(tree, file, base) {
         return None;
@@ -60,7 +60,7 @@ fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
 }
 
 fn tests_folder_problem(file: &SourceFile) -> Problem {
-    let advice = if file.name.ends_with(".test.tsx") {
+    let advice = if typescript::test_base(file).is_some() {
         "put it beside its owner"
     } else {
         "move it out of the tests folder"
