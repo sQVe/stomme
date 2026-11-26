@@ -41,6 +41,86 @@ const MIXED_RESULT: &str = r#"{
     }
   }
 }"#;
+const MIXED_CAUSE_RESULT: &str = r#"{
+  "status": "partial",
+  "session_id": "session-4",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "partial",
+    "coverage": {
+      "selected": [
+        {"item_id": "a", "path": "src/a.rs"},
+        {"item_id": "b", "path": "src/b.rs"}
+      ],
+      "completed": [],
+      "reused": [],
+      "failed": [
+        {"item_id": "a", "path": "src/a.rs", "classification": "provider", "reason": "upstream 500"},
+        {"item_id": "b", "path": "src/b.rs", "classification": "timeout", "reason": "the item deadline elapsed"}
+      ],
+      "waived": [],
+      "excluded": []
+    }
+  }
+}"#;
+
+const WAIVED_RESULT: &str = r#"{
+  "status": "partial",
+  "session_id": "session-5",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "partial",
+    "coverage": {
+      "selected": [
+        {"item_id": "a", "path": "src/a.rs"},
+        {"item_id": "b", "path": "src/b.rs"},
+        {"item_id": "c", "path": "src/c.rs"}
+      ],
+      "completed": [{"item_id": "a", "path": "src/a.rs"}],
+      "reused": [],
+      "failed": [
+        {"item_id": "b", "path": "src/b.rs", "classification": "provider", "reason": "upstream 500"}
+      ],
+      "waived": [{"item_id": "c", "path": "src/c.rs", "reason": "the file is too large"}],
+      "excluded": []
+    }
+  }
+}"#;
+
+const FAILED_PROVIDER_RESULT: &str = r#"{
+  "status": "failed",
+  "session_id": "session-3",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "failed",
+    "coverage": {
+      "selected": [{"item_id": "a", "path": "src/a.rs"}],
+      "completed": [],
+      "reused": [],
+      "failed": [{"item_id": "a", "path": "src/a.rs", "classification": "provider", "reason": "upstream 500"}],
+      "waived": [],
+      "excluded": []
+    }
+  }
+}"#;
+
+const BUDGET_RESULT: &str = r#"{
+  "status": "partial",
+  "session_id": "session-1",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "terminal_state": "partial",
+    "coverage": {
+      "selected": [{"item_id": "a", "path": "src/a.rs"}],
+      "completed": [],
+      "reused": [],
+      "failed": [{"item_id": "a", "path": "src/a.rs", "classification": "budget", "reason": "the token budget ran out"}],
+      "waived": [],
+      "excluded": []
+    }
+  }
+}"#;
+
 const TIMEOUT_RESULT: &str = r#"{
   "status": "failed",
   "session_id": "session-2",
@@ -79,6 +159,12 @@ case "$2" in
       exit 1
     fi
     ;;
+  *ocr-result.json)
+    if [ "${STOMME_FIRST_UNUSABLE:-}" = "1" ]; then
+      echo "stomme: $2 is not a usable OCR result" >&2
+      exit 1
+    fi
+    ;;
 esac
 echo "coverage from $2"
 if [ -n "${STOMME_STDERR_LINE:-}" ]; then
@@ -94,7 +180,14 @@ exit 0
 "#;
 
 const OCR_FAKE: &str = r#"#!/bin/bash
-printf '%s\n' "$*" > "$OCR_ARGUMENTS"
+printf '%s\n' "$*" >> "$OCR_ARGUMENTS"
+if [ -n "${OCR_STDERR:-}" ]; then
+  echo "$OCR_STDERR" >&2
+fi
+if [ "${OCR_SILENT:-}" = "1" ]; then
+  echo "ocr: the provider request failed" >&2
+  exit "${OCR_RESUME_CODE:-1}"
+fi
 body="${OCR_RESUME_BODY-}"
 if [ -z "$body" ]; then
   body='{"session_id":"session-1"}'
@@ -394,6 +487,9 @@ struct Run<'a> {
     resumed: i32,
     resume_result: Option<&'a str>,
     resume_unusable: bool,
+    resume_silent: bool,
+    resume_stderr: Option<&'a str>,
+    first_unusable: bool,
     stderr_line: Option<&'a str>,
 }
 
@@ -407,6 +503,9 @@ impl Default for Run<'_> {
             resumed: 0,
             resume_result: None,
             resume_unusable: false,
+            resume_silent: false,
+            resume_stderr: None,
+            first_unusable: false,
             stderr_line: None,
         }
     }
@@ -421,6 +520,7 @@ struct Observation {
     stdout: String,
     output: String,
     coverage: Option<String>,
+    resume_errors: Option<String>,
     ocr_arguments: Option<String>,
 }
 
@@ -439,6 +539,16 @@ impl Observation {
 
     fn post_resumed(&self) -> bool {
         self.output.lines().any(|line| line == "post_resumed=true")
+    }
+
+    fn resume_errors(&self) -> Option<&str> {
+        self.resume_errors.as_deref()
+    }
+
+    fn resume_calls(&self) -> usize {
+        self.ocr_arguments
+            .as_deref()
+            .map_or(0, |arguments| arguments.lines().count())
     }
 
     fn coverage_source(&self) -> Option<String> {
@@ -488,6 +598,7 @@ impl Classifier {
             .expect("remove the stale resume coverage");
         remove_stale(&results.join("ocr-resume-coverage.err"))
             .expect("remove the stale resume errors");
+        remove_stale(&results.join("ocr-resume.err")).expect("remove the stale retry errors");
         remove_stale(&root.join("ocr-arguments")).expect("remove the stale arguments");
 
         if let Some(result) = run.result {
@@ -524,6 +635,18 @@ impl Classifier {
             command.env("STOMME_RESUME_UNUSABLE", "1");
         }
 
+        if run.first_unusable {
+            command.env("STOMME_FIRST_UNUSABLE", "1");
+        }
+
+        if run.resume_silent {
+            command.env("OCR_SILENT", "1");
+        }
+
+        if let Some(line) = run.resume_stderr {
+            command.env("OCR_STDERR", line);
+        }
+
         if let Some(line) = run.stderr_line {
             command.env("STOMME_STDERR_LINE", line);
         }
@@ -540,6 +663,7 @@ impl Classifier {
             stdout: String::from_utf8_lossy(&completed.stdout).into_owned(),
             output: read(&output_file).unwrap_or_default(),
             coverage: read(&results.join("ocr-coverage.md")),
+            resume_errors: read(&results.join("ocr-resume.err")),
             ocr_arguments: read(&root.join("ocr-arguments")),
         }
     }
@@ -606,13 +730,10 @@ fn workflow_skips_the_install_for_a_no_op_review() {
 }
 
 #[test]
-fn workflow_resumes_only_a_budget_partial() {
+fn workflow_classifies_the_review_of_every_run() {
     let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
 
     assert!(classify.contains("if: steps.ocr.outputs.range_reason != 'same_head_noop'"));
-    assert!(classify.contains("if [ \"${OCR_EXIT_CODE:-}\" != \"0\" ]; then"));
-    assert!(classify.contains("if [ \"$final\" != \"2\" ]; then"));
-    assert!(classify.contains("session_id=\"$(jq -r '.session_id // empty'"));
     assert!(!classify.contains("build-stomme"));
 }
 
@@ -931,44 +1052,292 @@ fn classifier_warns_and_fails_a_partial_without_a_session() {
 }
 
 #[test]
-fn classifier_does_not_resume_a_provider_failure() {
+fn classifier_retries_a_provider_failure() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
         ocr_exit: Some(1),
         first: 2,
         result: Some(MIXED_RESULT),
+        resume_result: Some(SESSION_RESULT),
         ..Run::default()
     });
 
     assert_eq!(observation.exit, 0);
-    assert_eq!(observation.final_status().as_deref(), Some("1"));
-    assert!(!observation.resumed());
-    assert_eq!(
-        observation.ocr_arguments, None,
-        "a provider failure is never resumed"
-    );
-    assert_eq!(observation.reason().as_deref(), Some("provider"));
-    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
-    assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
+    assert_eq!(observation.final_status().as_deref(), Some("0"));
+    assert_eq!(observation.resume_calls(), 1);
+    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("complete"));
+    assert!(observation.post_resumed());
+    assert_eq!(observation.reason(), None);
     assert!(
         observation
             .coverage
-            .expect("the mixed result writes coverage")
-            .contains("ocr-result.json")
+            .expect("the resumed result writes coverage")
+            .contains("ocr-resume.json")
     );
+}
+
+#[test]
+fn classifier_fails_a_provider_failure_that_survives_the_retries() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 2,
+        result: Some(MIXED_RESULT),
+        resume: 1,
+        resumed: 2,
+        resume_result: Some(MIXED_RESULT),
+        ..Run::default()
+    });
+    let reason = observation
+        .reason()
+        .expect("the failed run reports a reason");
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(observation.resume_calls(), 2, "the retries are bounded");
+    assert_eq!(
+        reason,
+        "the review provider could not review 1 file after 3 attempts: src/b.rs"
+    );
+    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
-        reason: "provider",
+        reason: &reason,
         ..Report::default()
     });
 
     assert_eq!(exit, 1);
-    assert!(
-        stdout.contains("::error::the OCR review failed: provider"),
-        "{stdout}"
-    );
+    assert!(stdout.contains(&reason), "{stdout}");
     assert!(stdout.contains("not reviewed"), "{stdout}");
+}
+
+#[test]
+fn classifier_does_not_retry_a_mixed_cause() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 2,
+        result: Some(MIXED_CAUSE_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a file that failed for another reason is not retried"
+    );
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("provider, timeout"),
+        "the reason names every failed classification"
+    );
+}
+
+#[test]
+fn classifier_does_not_retry_a_waived_file() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 2,
+        result: Some(WAIVED_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a waived file needs no retry"
+    );
+}
+
+#[test]
+fn classifier_takes_the_reason_of_a_retry_that_wrote_no_result() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_silent: true,
+        resume_unusable: true,
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the OCR run wrote no usable result: ocr: the provider request failed")
+    );
+    assert!(!observation.post_resumed());
+}
+
+#[test]
+fn classifier_retries_a_failed_run_whose_files_all_failed_on_the_provider() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(FAILED_PROVIDER_RESULT),
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("0"));
+    assert_eq!(observation.resume_calls(), 1);
+    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
+    assert!(observation.post_resumed());
+}
+
+#[test]
+fn classifier_reports_the_coverage_error_of_a_rejected_first_result() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some("not json"),
+        first_unusable: true,
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(observation.resume_calls(), 0);
+    assert!(
+        observation
+            .reason()
+            .as_deref()
+            .expect("the rejected result reports a reason")
+            .contains("is not a usable OCR result"),
+        "{:?}",
+        observation.reason()
+    );
+}
+
+#[test]
+fn classifier_does_not_retry_a_result_the_coverage_command_rejects() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        ocr_exit: Some(1),
+        first: 1,
+        result: Some(FAILED_PROVIDER_RESULT),
+        first_unusable: true,
+        resume_result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "an unclassified result is not retried"
+    );
+}
+
+#[test]
+fn classifier_resumes_a_budget_partial_once() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 2,
+        resume_result: Some(BUDGET_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("2"));
+    assert_eq!(
+        observation.resume_calls(),
+        1,
+        "a budget partial is resumed once, because its budget is spent"
+    );
+    assert!(observation.post_resumed());
+    assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
+}
+
+#[test]
+fn classifier_captures_the_retry_error() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 1,
+        resume_stderr: Some("ocr: retrying a provider request"),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_errors(),
+        Some("ocr: retrying a provider request\n")
+    );
+}
+
+#[test]
+fn classifier_clears_the_retry_error_between_runs() {
+    let classifier = Classifier::new();
+    let first = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_stderr: Some("ocr: the first run failed"),
+        ..Run::default()
+    });
+    let observation = classifier.run(Run {
+        first: 1,
+        result: Some(TIMEOUT_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        first.resume_errors(),
+        Some("ocr: the first run failed\n"),
+        "the first run wrote the error the second run must not read"
+    );
+    assert_eq!(
+        observation.resume_errors(),
+        None,
+        "a run that does not retry reads no error from an earlier run"
+    );
+}
+
+#[test]
+fn classifier_keeps_a_parsed_result_over_the_cli_error() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 1,
+        resume_stderr: Some("ocr: retrying a provider request"),
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the OCR run recorded no failure reason"),
+        "a result that parsed keeps its own reason"
+    );
+}
+
+#[test]
+fn classifier_takes_the_reason_from_an_unusable_retry() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_result: Some(TIMEOUT_RESULT),
+        resume_unusable: true,
+        ..Run::default()
+    });
+
+    assert_eq!(observation.final_status().as_deref(), Some("1"));
+    assert_eq!(
+        observation.reason().as_deref(),
+        Some("the global deadline elapsed"),
+        "the failed retry names its own reason"
+    );
+    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
+    assert!(!observation.post_resumed());
 }
 
 #[test]
@@ -993,6 +1362,7 @@ fn classifier_takes_the_run_failure_reason_first() {
         ocr_exit: Some(1),
         first: 1,
         result: Some(TIMEOUT_RESULT),
+        resume_result: Some(SESSION_RESULT),
         ..Run::default()
     });
 
@@ -1001,7 +1371,11 @@ fn classifier_takes_the_run_failure_reason_first() {
         observation.reason().as_deref(),
         Some("the global deadline elapsed")
     );
-    assert_eq!(observation.ocr_arguments, None);
+    assert_eq!(
+        observation.resume_calls(),
+        0,
+        "a run failure needs a fix to the setup, not a retry"
+    );
 }
 
 #[test]
@@ -1110,14 +1484,19 @@ fn classifier_posts_a_partial_resume_that_exits_nonzero() {
         result: Some(SESSION_RESULT),
         resume: 1,
         resumed: 2,
-        resume_result: Some(MIXED_RESULT),
+        resume_result: Some(BUDGET_RESULT),
         ..Run::default()
     });
 
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
-    assert_eq!(observation.reason().as_deref(), Some("provider"));
+    assert_eq!(observation.reason().as_deref(), Some("budget"));
     assert!(observation.resumed());
+    assert_eq!(
+        observation.resume_calls(),
+        1,
+        "a budget partial resumes once"
+    );
     assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert!(
         observation.post_resumed(),
@@ -1133,7 +1512,7 @@ fn classifier_posts_a_partial_resume_that_exits_nonzero() {
 
     let (exit, stdout) = classifier.report(Report {
         status: "1",
-        reason: "provider",
+        reason: "budget",
         ..Report::default()
     });
 
@@ -1174,9 +1553,13 @@ fn classifier_keeps_the_first_coverage_when_the_resume_is_unusable() {
             .expect("the resume ran")
             .contains("--resume session-1")
     );
-    assert_eq!(
-        observation.reason().as_deref(),
-        Some("the OCR run recorded no failure reason")
+    assert!(
+        observation
+            .reason()
+            .as_deref()
+            .expect("the unusable resume reports a reason")
+            .contains("is not a usable OCR result"),
+        "the coverage command's own error explains the rejection"
     );
 }
 

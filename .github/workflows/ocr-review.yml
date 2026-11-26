@@ -67,28 +67,41 @@ jobs:
           token="$MODEL_TOKEN"
           trap 'echo "final=1" >> "$GITHUB_OUTPUT"' ERR
 
+          # The first review and its retries. A provider error says nothing
+          # about the change, so the review is retried before the check fails.
+          MAX_ATTEMPTS=3
+
           failure_reason() {
-            local result="$1"
-            if [ ! -f "$result" ]; then
-              echo "the OCR run wrote no result"
-              return
+            local result="$1" errors="${2:-}" reason="" parsed=0 hint=""
+            if [ -f "$result" ] && jq -e 'true' "$result" > /dev/null 2>&1; then
+              parsed=1
+              reason="$(jq -r '
+                if .manifest.run_failure != null then
+                  (if ((.manifest.run_failure.reason // "") | length) > 0
+                   then .manifest.run_failure.reason
+                   else .manifest.run_failure.classification end)
+                else
+                  ([.manifest.coverage.failed[]? | .classification // empty] | unique
+                    | if length > 0 then join(", ") else empty end)
+                end
+              ' "$result" 2>/dev/null || true)"
             fi
-            local reason
-            reason="$(jq -r '
-              if .manifest.run_failure != null then
-                (if ((.manifest.run_failure.reason // "") | length) > 0
-                 then .manifest.run_failure.reason
-                 else .manifest.run_failure.classification end)
-              else
-                ([.manifest.coverage.failed[]? | .classification // empty] | unique
-                  | if length > 0 then join(", ") else empty end)
-              end
-            ' "$result" 2>/dev/null || true)"
             if [ -n "$reason" ]; then
               echo "$reason"
-            else
-              echo "the OCR run recorded no failure reason"
+              return
             fi
+            if [ -n "$errors" ] && [ -s "$errors" ]; then
+              hint="$(grep -v '^[[:space:]]*$' "$errors" | tail -n 1)"
+            fi
+            if [ -n "$hint" ]; then
+              echo "the OCR run wrote no usable result: $hint"
+              return
+            fi
+            if [ "$parsed" = "1" ]; then
+              echo "the OCR run recorded no failure reason"
+              return
+            fi
+            echo "the OCR run wrote no result"
           }
 
           verdict() {
@@ -99,10 +112,76 @@ jobs:
             esac
           }
 
+          # The files a result leaves unreviewed. The retry decision and the
+          # message it reports must agree on them.
+          UNREVIEWED='def unreviewed_ids:
+            [.coverage.selected[]? | .item_id]
+            - ([.coverage.completed[]? | .item_id] + [.coverage.reused[]? | .item_id]);'
+
+          # A provider error is a service failure, not a finding about the
+          # change. It is retried only when every unreviewed file failed that
+          # way, so a run failure or another classification is reported at once.
+          provider_failure() {
+            [ -f "$1" ] || return 1
+            jq -e "$UNREVIEWED"'
+              def provider_ids:
+                [.coverage.failed[]? | select(.classification == "provider") | .item_id];
+              .manifest as $manifest
+              | ($manifest.run_failure == null)
+                and (($manifest | unreviewed_ids) as $unreviewed
+                  | ($unreviewed | length) > 0
+                    and (($unreviewed - ($manifest | provider_ids)) | length) == 0)
+            ' "$1" > /dev/null 2>&1
+          }
+
+          # A reader must be able to tell an outage from a problem with the
+          # change.
+          provider_reason() {
+            local result="$1" attempts="$2" reason
+            reason="$(jq -r --argjson attempts "$attempts" "$UNREVIEWED"'
+              .manifest as $manifest
+              | ($manifest | unreviewed_ids) as $unreviewed
+              | [$manifest.coverage.selected[]?
+                  | select(.item_id as $id | $unreviewed | index($id))
+                  | (.path | gsub("[[:cntrl:]]"; " "))] as $paths
+              | ($paths | length) as $count
+              | if $count == 0 then empty
+                else
+                  "the review provider could not review "
+                  + (if $count == 1 then "1 file" else "\($count) files" end)
+                  + " after \($attempts) "
+                  + (if $attempts == 1 then "attempt" else "attempts" end)
+                  + ": "
+                  + (if $count > 5
+                     then ($paths[:5] | join(", ")) + ", and \($count - 5) more"
+                     else $paths | join(", ") end)
+                end
+            ' "$result" 2>/dev/null || true)"
+            if [ -z "$reason" ]; then
+              echo "the review provider failed and left files unreviewed"
+              return
+            fi
+            echo "$reason"
+          }
+
+          result=/tmp/ocr-result.json
+          reason_file=/tmp/ocr-result.json
+          reason_errors=""
+          attempts=1
+          budget_resumes=0
+          classified=0
           final=0
-          if [ -f /tmp/ocr-result.json ]; then
-            "$STOMME" ocr-coverage /tmp/ocr-result.json \
+          posted=0
+          ocr_exit="${OCR_EXIT_CODE:-}"
+
+          if [ -f "$result" ]; then
+            "$STOMME" ocr-coverage "$result" \
               > /tmp/ocr-coverage.md 2> /tmp/ocr-coverage.err || final=$?
+            if [ -s /tmp/ocr-coverage.md ]; then
+              classified=1
+            else
+              reason_errors=/tmp/ocr-coverage.err
+            fi
           else
             final=1
           fi
@@ -115,34 +194,9 @@ jobs:
           # insert step puts into the summary comment, not the job result.
           echo "coverage_verdict=$(verdict "$final")" >> "$GITHUB_OUTPUT"
 
-          # OCR exits 0 only for a complete review or a budget-only partial. A
-          # nonzero or missing code is an operational failure, so it is never
-          # resumed.
-          if [ "${OCR_EXIT_CODE:-}" != "0" ]; then
-            echo "final=1" >> "$GITHUB_OUTPUT"
-            {
-              echo 'reason<<OCR_REASON'
-              failure_reason /tmp/ocr-result.json
-              echo 'OCR_REASON'
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          session_id="$(jq -r '.session_id // empty' "$result" 2>/dev/null || true)"
 
-          if [ "$final" = "1" ]; then
-            {
-              echo 'reason<<OCR_REASON'
-              failure_reason /tmp/ocr-result.json
-              echo 'OCR_REASON'
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$final" != "2" ]; then
-            exit 0
-          fi
-
-          session_id="$(jq -r '.session_id // empty' /tmp/ocr-result.json)"
-          if [ -z "$session_id" ]; then
+          if [ "$final" = "2" ] && [ "$ocr_exit" = "0" ] && [ -z "$session_id" ]; then
             echo "::warning::The partial review recorded no session to resume."
             echo "final=1" >> "$GITHUB_OUTPUT"
             {
@@ -153,65 +207,114 @@ jobs:
             exit 0
           fi
 
-          args=(
-            --from "${RANGE_FROM:-$MERGE_BASE}"
-            --to "$HEAD_SHA"
-            --resume "$session_id"
-            --rule docs/stomme/ocr-rules.json
-            --format json
-            --audience agent
-          )
-          if [ -n "${EFFORT:-}" ]; then
-            args+=(--effort "$EFFORT")
-          fi
+          # A budget partial is resumed once, because its budget is spent. A
+          # provider failure is retried. A result that the coverage command
+          # rejects is never resumed.
+          resumable() {
+            if [ -z "$session_id" ]; then
+              return 1
+            fi
+            if [ "$classified" != "1" ]; then
+              return 1
+            fi
+            if [ "$attempts" -ge "$MAX_ATTEMPTS" ]; then
+              return 1
+            fi
+            if provider_failure "$result"; then
+              return 0
+            fi
+            if [ "$final" != "2" ] || [ "$ocr_exit" != "0" ] || [ "$budget_resumes" != "0" ]; then
+              return 1
+            fi
+            return 0
+          }
 
-          status=0
-          OCR_LLM_TOKEN="$token" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
-            ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || status=$?
+          while resumable; do
+            attempts=$((attempts + 1))
+            if ! provider_failure "$result"; then
+              budget_resumes=$((budget_resumes + 1))
+            fi
+            args=(
+              --from "${RANGE_FROM:-$MERGE_BASE}"
+              --to "$HEAD_SHA"
+              --resume "$session_id"
+              --rule docs/stomme/ocr-rules.json
+              --format json
+              --audience agent
+            )
+            if [ -n "${EFFORT:-}" ]; then
+              args+=(--effort "$EFFORT")
+            fi
 
-          # The resumed JSON is classified whenever it holds usable JSON,
-          # whatever the resume exit code. An unusable or missing result keeps
-          # the first coverage file.
-          resumed=0
-          if [ -f /tmp/ocr-resume.json ]; then
-            "$STOMME" ocr-coverage /tmp/ocr-resume.json \
-              > /tmp/ocr-resume-coverage.md 2> /tmp/ocr-resume-coverage.err || resumed=$?
-          else
-            resumed=1
-          fi
+            ocr_exit=0
+            rm -f /tmp/ocr-resume.json /tmp/ocr-resume.err
+            OCR_LLM_TOKEN="$token" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
+              ocr review "${args[@]}" > /tmp/ocr-resume.json 2> /tmp/ocr-resume.err || ocr_exit=$?
+            reason_file=/tmp/ocr-resume.json
 
-          if [ ! -s /tmp/ocr-resume-coverage.md ]; then
-            cp /tmp/ocr-first-coverage.md /tmp/ocr-coverage.md 2>/dev/null || true
-            echo "final=1" >> "$GITHUB_OUTPUT"
+            # The resumed JSON is classified whenever it holds usable JSON,
+            # whatever the resume exit code. An unusable or missing result keeps
+            # the coverage of the previous attempt.
+            resumed=0
+            rm -f /tmp/ocr-resume-coverage.md /tmp/ocr-resume-coverage.err
+            if [ -f /tmp/ocr-resume.json ]; then
+              "$STOMME" ocr-coverage /tmp/ocr-resume.json \
+                > /tmp/ocr-resume-coverage.md 2> /tmp/ocr-resume-coverage.err || resumed=$?
+            else
+              resumed=1
+            fi
+            if [ ! -s /tmp/ocr-resume-coverage.md ]; then
+              posted=0
+              final=1
+              reason_errors=/tmp/ocr-resume-coverage.err
+              if [ -s /tmp/ocr-resume.err ]; then
+                reason_errors=/tmp/ocr-resume.err
+              fi
+              break
+            fi
+
+            result=/tmp/ocr-resume.json
+            final="$resumed"
+            classified=1
+            posted=1
+            mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
+            mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
             {
-              echo 'reason<<OCR_REASON'
-              failure_reason /tmp/ocr-resume.json
-              echo 'OCR_REASON'
+              echo "coverage_source=resumed"
+              echo "resumed=true"
             } >> "$GITHUB_OUTPUT"
+            echo "coverage_verdict=$(verdict "$resumed")" >> "$GITHUB_OUTPUT"
+            session_id="$(jq -r '.session_id // empty' "$result" 2>/dev/null || true)"
+          done
+
+          # Only a result this run can post reaches the posting helper.
+          if [ "$posted" = "1" ]; then
+            if [ "$final" = "0" ] || [ "$final" = "2" ]; then
+              echo "post_resumed=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          if [ "$final" = "0" ] && [ "$ocr_exit" = "0" ]; then
+            echo "final=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
-          mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
-          {
-            echo "coverage_source=resumed"
-            echo "resumed=true"
-          } >> "$GITHUB_OUTPUT"
-          echo "coverage_verdict=$(verdict "$resumed")" >> "$GITHUB_OUTPUT"
-          if [ "$resumed" = "0" ] || [ "$resumed" = "2" ]; then
-            echo "post_resumed=true" >> "$GITHUB_OUTPUT"
+          if [ "$final" = "2" ] && [ "$ocr_exit" = "0" ]; then
+            echo "final=2" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          if [ "$status" != "0" ] || [ "$resumed" = "1" ]; then
-            echo "final=1" >> "$GITHUB_OUTPUT"
-            {
-              echo 'reason<<OCR_REASON'
-              failure_reason /tmp/ocr-resume.json
-              echo 'OCR_REASON'
-            } >> "$GITHUB_OUTPUT"
+          if [ "$classified" = "1" ] && provider_failure "$result"; then
+            reason="$(provider_reason "$result" "$attempts")"
           else
-            echo "final=$resumed" >> "$GITHUB_OUTPUT"
+            reason="$(failure_reason "$reason_file" "$reason_errors")"
           fi
+          echo "final=1" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reason<<OCR_REASON'
+            echo "$reason"
+            echo 'OCR_REASON'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check out the OCR posting helper
         if: always() && (steps.outcome.outputs.final != '' || steps.ocr.outputs.range_reason == 'same_head_noop')
