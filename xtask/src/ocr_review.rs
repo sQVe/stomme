@@ -598,6 +598,7 @@ impl Classifier {
             .expect("remove the stale resume coverage");
         remove_stale(&results.join("ocr-resume-coverage.err"))
             .expect("remove the stale resume errors");
+        remove_stale(&results.join("ocr-resume.err")).expect("remove the stale retry errors");
         remove_stale(&root.join("ocr-arguments")).expect("remove the stale arguments");
 
         if let Some(result) = run.result {
@@ -1256,6 +1257,45 @@ fn classifier_resumes_a_budget_partial_once() {
 }
 
 #[test]
+fn classifier_captures_the_retry_error() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 1,
+        resume_stderr: Some("ocr: retrying a provider request"),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_errors(),
+        Some("ocr: retrying a provider request\n")
+    );
+}
+
+#[test]
+fn classifier_clears_the_retry_error_between_runs() {
+    let classifier = Classifier::new();
+    classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_stderr: Some("ocr: the first run failed"),
+        ..Run::default()
+    });
+    let observation = classifier.run(Run {
+        first: 1,
+        result: Some(TIMEOUT_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        observation.resume_errors(),
+        None,
+        "a run that does not retry reads no error from an earlier run"
+    );
+}
+
+#[test]
 fn classifier_keeps_a_parsed_result_over_the_cli_error() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
@@ -1267,13 +1307,6 @@ fn classifier_keeps_a_parsed_result_over_the_cli_error() {
     });
 
     assert_eq!(observation.final_status().as_deref(), Some("1"));
-    assert!(
-        observation
-            .resume_errors()
-            .expect("the retry wrote its error")
-            .contains("ocr: retrying a provider request"),
-        "the CLI error was captured"
-    );
     assert_eq!(
         observation.reason().as_deref(),
         Some("the OCR run recorded no failure reason"),
