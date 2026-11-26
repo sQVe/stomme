@@ -92,6 +92,16 @@ fn a_nested_item_is_measured_from_its_own_content_column() {
 }
 
 #[test]
+fn a_line_names_the_item_that_holds_it() {
+    let text = "- Topic\n  continued\n\n    - child\n- Next\n";
+    let starts: Vec<usize> = unfenced_lines(text.lines())
+        .map(|line| line.item_start)
+        .collect();
+
+    assert_eq!(starts, [0, 0, 0, 0, 4]);
+}
+
+#[test]
 fn list_item_content_drops_the_marker_and_its_spacing() {
     let cases = [
         ("dash", "- Topic", Some("Topic")),

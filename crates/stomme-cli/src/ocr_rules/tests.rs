@@ -816,13 +816,13 @@ fn a_marker_on_another_list_form_adds_role_text() {
 }
 
 #[test]
-#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+#[should_panic(expected = "a marked block is a top-level list item, not a nested one")]
 fn a_marker_on_a_nested_list_item_is_refused() {
     marked_blocks("- parent\n  - child <!-- role:core -->\n", "core");
 }
 
 #[test]
-#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+#[should_panic(expected = "a marked block is a top-level list item, not a nested one")]
 fn a_marker_on_a_four_space_nested_list_item_is_refused() {
     marked_blocks("- parent\n    - child <!-- role:core -->\n", "core");
 }
@@ -846,6 +846,32 @@ fn a_marker_before_a_continuation_line_is_refused() {
 }
 
 #[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_before_a_blank_line_and_a_continuation_is_refused() {
+    marked_blocks("- `core`: Text. <!-- role:core -->\n\n  More.\n", "core");
+}
+
+#[test]
+fn a_marker_before_a_blank_line_and_a_new_item_adds_role_text() {
+    let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n\n- Next.\n";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: Own the app lifetime."]
+    );
+}
+
+#[test]
+fn a_marker_on_an_indented_item_after_a_heading_adds_role_text() {
+    let text = "# Group\n\n  - `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: Own the app lifetime."]
+    );
+}
+
+#[test]
 #[should_panic(expected = "unknown role")]
 fn marked_blocks_refuses_an_unknown_role_marker() {
     marked_blocks("- `x`: Text. <!-- role:server -->\n", "core");
@@ -855,6 +881,14 @@ fn marked_blocks_refuses_an_unknown_role_marker() {
 fn role_text_holds_no_exactly_enforced_rule() {
     let files = crate::owned::bundle_set(crate::layer::catalog());
     let mut offenders = Vec::new();
+
+    let gpui = include_str!("../../../../foundation/layers/gpui/guide.md");
+    let app_text = marked_blocks(gpui, "app").join("\n");
+
+    assert!(
+        rule_ids(&app_text).contains(&"gpui-app-lifetime"),
+        "{app_text}"
+    );
 
     for file in &files {
         for role in ROLES {
@@ -952,7 +986,9 @@ fn clause<'a>(text: &'a str, root: &str) -> &'a str {
 
 fn rule_ids(text: &str) -> Vec<&str> {
     text.lines()
-        .filter_map(|line| line.strip_prefix("- `"))
+        .map(|line| line.trim_start())
+        .map(|line| line.strip_prefix("- ").unwrap_or(line))
+        .filter_map(|line| line.strip_prefix('`'))
         .filter_map(|rest| rest.split_once("`: "))
         .map(|(id, _)| id)
         .collect()

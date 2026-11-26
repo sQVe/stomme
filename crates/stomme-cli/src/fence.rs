@@ -14,6 +14,7 @@ pub(crate) struct Line<'a> {
 
 pub(crate) struct UnfencedLine<'a> {
     pub(crate) index: usize,
+    pub(crate) item_start: usize,
     pub(crate) view: Line<'a>,
 }
 
@@ -54,23 +55,32 @@ pub(crate) fn unfenced_lines<'a>(
             return None;
         }
 
-        containers.open_list_item(&view);
+        let item_start = containers.item_start().unwrap_or(index);
 
-        Some(UnfencedLine { index, view })
+        containers.open_list_item(&view, index);
+
+        Some(UnfencedLine {
+            index,
+            item_start,
+            view,
+        })
     })
 }
 
 // A list item holds its content at a fixed column. Reading a line against the open items tells
 // indented code and fenced code apart from content, which a count of leading spaces cannot do.
 pub(crate) struct Containers {
-    content_columns: Vec<usize>,
+    items: Vec<Item>,
+}
+
+struct Item {
+    column: usize,
+    line: usize,
 }
 
 impl Containers {
     pub(crate) fn new() -> Self {
-        Self {
-            content_columns: Vec::new(),
-        }
+        Self { items: Vec::new() }
     }
 
     // Reads the line against the open items. A blank line continues every open item, so it closes
@@ -84,32 +94,37 @@ impl Containers {
             return Line {
                 indent,
                 relative: 0,
-                depth: self.content_columns.len(),
+                depth: self.items.len(),
                 content,
             };
         }
 
-        while self
-            .content_columns
-            .last()
-            .is_some_and(|column| *column > indent)
-        {
-            self.content_columns.pop();
+        while self.items.last().is_some_and(|item| item.column > indent) {
+            self.items.pop();
         }
 
-        let base = self.content_columns.last().copied().unwrap_or(0);
+        let base = self.items.last().map(|item| item.column).unwrap_or(0);
 
         Line {
             indent,
             relative: indent - base,
-            depth: self.content_columns.len(),
+            depth: self.items.len(),
             content,
         }
     }
 
-    pub(crate) fn open_list_item(&mut self, line: &Line) {
+    // The line that opened the innermost open item, which is the first line of the item a
+    // continuation line belongs to.
+    pub(crate) fn item_start(&self) -> Option<usize> {
+        self.items.last().map(|item| item.line)
+    }
+
+    pub(crate) fn open_list_item(&mut self, line: &Line, index: usize) {
         if let Some(column) = list_content_column(line) {
-            self.content_columns.push(column);
+            self.items.push(Item {
+                column,
+                line: index,
+            });
         }
     }
 }

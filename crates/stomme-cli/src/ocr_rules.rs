@@ -8,7 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
-use crate::fence::{list_item_content, list_marker, unfenced_lines};
+use crate::fence::{UnfencedLine, list_item_content, list_marker, unfenced_lines};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
@@ -412,25 +412,69 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut blocks = Vec::new();
 
-    for (index, marker_role, content) in marked_lines(&lines) {
-        if marker_role == role {
-            blocks.push(block_text(&lines, index, content));
+    for marker in marked_lines(&lines) {
+        if marker.role == role {
+            blocks.push(block_text(&lines, &marker));
         }
     }
 
     blocks
 }
 
-fn marked_lines<'a>(lines: &[&'a str]) -> Vec<(usize, &'a str, &'a str)> {
-    let mut markers = Vec::new();
+struct Marker<'a> {
+    index: usize,
+    start: usize,
+    role: &'a str,
+    content: &'a str,
+}
 
-    for line in unfenced_lines(lines.iter().copied()) {
-        if let Some((role, content)) = marker(lines[line.index]) {
-            markers.push((line.index, role, content));
-        }
+fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
+    let mut markers = Vec::new();
+    let mut scanned = unfenced_lines(lines.iter().copied()).peekable();
+
+    while let Some(line) = scanned.next() {
+        let Some((role, content)) = marker(lines[line.index]) else {
+            continue;
+        };
+
+        assert!(
+            line.item_start == line.index || list_marker(lines[line.index].trim_start()).is_none(),
+            "a marked block is a top-level list item, not a nested one"
+        );
+        assert!(
+            list_marker(lines[line.item_start].trim_start()).is_some(),
+            "a marked block is a list item whose marker ends its last line"
+        );
+        assert!(
+            !item_continues(&mut scanned, line.item_start),
+            "a marked block is a list item whose marker ends its last line"
+        );
+
+        markers.push(Marker {
+            index: line.index,
+            start: line.item_start,
+            role,
+            content,
+        });
     }
 
     markers
+}
+
+// A blank line keeps every open item, so it neither ends the item nor names a marker.
+fn item_continues<'a>(
+    scanned: &mut std::iter::Peekable<impl Iterator<Item = UnfencedLine<'a>>>,
+    start: usize,
+) -> bool {
+    while let Some(line) = scanned.peek() {
+        if !line.view.content.is_empty() {
+            return line.item_start == start;
+        }
+
+        scanned.next();
+    }
+
+    false
 }
 
 fn marker(line: &str) -> Option<(&str, &str)> {
@@ -447,11 +491,10 @@ fn marker(line: &str) -> Option<(&str, &str)> {
     Some((role, &line[..start]))
 }
 
-fn block_text(lines: &[&str], marker_index: usize, content: &str) -> String {
-    let start = block_start(lines, marker_index);
-    let mut block: Vec<&str> = lines[start..marker_index].to_vec();
+fn block_text(lines: &[&str], marker: &Marker<'_>) -> String {
+    let mut block: Vec<&str> = lines[marker.start..marker.index].to_vec();
 
-    block.push(content.trim_end());
+    block.push(marker.content.trim_end());
 
     let first = list_item_content(block[0]).expect("a marked block starts with a list item");
 
@@ -460,39 +503,12 @@ fn block_text(lines: &[&str], marker_index: usize, content: &str) -> String {
     block.join("\n")
 }
 
-fn block_start(lines: &[&str], marker_index: usize) -> usize {
-    if lines
-        .get(marker_index + 1)
-        .is_some_and(|line| line.starts_with("  "))
-    {
-        panic!("a marked block is a list item whose marker ends its last line");
-    }
-
-    let mut start = marker_index;
-
-    while start > 0 && lines[start].starts_with("  ") {
-        if list_marker(lines[start].trim_start()).is_some() {
-            panic!("a marked block is a list item whose marker ends its last line");
-        }
-
-        start -= 1;
-    }
-
-    if list_marker(lines[start].trim_start()).is_none() {
-        panic!("a marked block is a list item whose marker ends its last line");
-    }
-
-    start
-}
-
 pub(crate) fn without_marked_blocks(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut dropped = vec![false; lines.len()];
 
-    for (index, _, _) in marked_lines(&lines) {
-        let start = block_start(&lines, index);
-
-        for flag in &mut dropped[start..=index] {
+    for marker in marked_lines(&lines) {
+        for flag in &mut dropped[marker.start..=marker.index] {
             *flag = true;
         }
     }
