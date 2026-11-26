@@ -183,7 +183,7 @@ fn every_short_line_sequence_keeps_the_scanner_invariants() {
             .collect();
 
         for sequence in &longer {
-            let text = sequence.join("\n");
+            let text = format!("{}\n", sequence.join("\n"));
             let lines: Vec<_> = unfenced_lines(text.lines()).collect();
             let indices: Vec<usize> = lines.iter().map(|line| line.index).collect();
             let mut sorted = indices.clone();
@@ -192,6 +192,16 @@ fn every_short_line_sequence_keeps_the_scanner_invariants() {
             sorted.dedup();
 
             assert_eq!(indices, sorted, "{text:?}: indices rise");
+
+            let hides_a_line = sequence.iter().any(|line| {
+                line.starts_with("```") || line.starts_with("~~~") || line.starts_with("    ")
+            });
+
+            if !hides_a_line {
+                let all: Vec<usize> = (0..sequence.len()).collect();
+
+                assert_eq!(indices, all, "{text:?}: every line is returned");
+            }
 
             for line in &lines {
                 assert!(line.item_start <= line.index, "{text:?}: item starts first");

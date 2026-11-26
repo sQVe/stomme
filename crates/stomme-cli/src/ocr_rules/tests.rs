@@ -863,11 +863,21 @@ fn a_marker_before_a_thematic_break_or_heading_adds_role_text() {
 
 #[test]
 fn a_multi_paragraph_block_keeps_its_relative_indentation() {
-    let text = "  - `gpui-app-lifetime`: First.\n\n    Second. <!-- role:app -->\n";
+    let text = "  - `gpui-app-lifetime`: First.\n\n    Second.\n\n      Third. <!-- role:app -->\n";
 
     assert_eq!(
         marked_blocks(text, "app"),
-        ["`gpui-app-lifetime`: First.\n\nSecond."]
+        ["`gpui-app-lifetime`: First.\n\nSecond.\n\n  Third."]
+    );
+}
+
+#[test]
+fn a_tab_indented_body_line_is_written_as_spaces() {
+    let text = "- `gpui-app-lifetime`: First.\n\tSecond. <!-- role:app -->\n";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: First.\n  Second."]
     );
 }
 

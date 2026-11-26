@@ -499,11 +499,16 @@ fn marker(line: &str) -> Option<(&str, &str)> {
     Some((role, &line[..start]))
 }
 
-// Removes up to `column` leading spaces, the indentation the item's content column added.
-fn dedent(line: &str, column: usize) -> &str {
-    let spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+// Removes `column` columns of indentation, the part the item's content column added, and writes
+// the rest as spaces so a tab never survives into the text.
+fn dedent(line: &str, column: usize) -> String {
+    let (indent, content) = split_indent(line);
 
-    &line[spaces.min(column)..]
+    if content.is_empty() {
+        return String::new();
+    }
+
+    format!("{}{content}", " ".repeat(indent.saturating_sub(column)))
 }
 
 fn block_text(lines: &[&str], marker: &Marker<'_>) -> String {
@@ -513,8 +518,9 @@ fn block_text(lines: &[&str], marker: &Marker<'_>) -> String {
 
     let column = item_content_column(block[0]).expect("a marked block starts with a list item");
     let first = list_item_content(block[0]).expect("a marked block starts with a list item");
-    let rest = block[1..].iter().map(|line| dedent(line, column));
-    let body: Vec<&str> = std::iter::once(first).chain(rest).collect();
+    let mut body = vec![first.to_string()];
+
+    body.extend(block[1..].iter().map(|line| dedent(line, column)));
 
     body.join("\n")
 }

@@ -167,19 +167,20 @@ fn list_content_column(indent: usize, content: &str) -> Option<usize> {
 // Whether a line starts a block of its own, so it cannot continue the paragraph above it.
 pub(crate) fn opens_block(content: &str) -> bool {
     let is_quote_or_html = content.starts_with(['>', '<']);
+    let is_markup = is_quote_or_html || is_heading(content) || is_thematic_break(content);
+    let is_marker = opening_fence(content).is_some() || list_marker(content).is_some();
 
-    is_quote_or_html
-        || is_heading(content)
-        || is_thematic_break(content)
-        || opening_fence(content).is_some()
-        || list_marker(content).is_some()
+    is_markup || is_marker
 }
 
 fn is_heading(content: &str) -> bool {
     let hashes = content.bytes().take_while(|byte| *byte == b'#').count();
     let rest = &content[hashes..];
 
-    (1..=6).contains(&hashes) && (rest.is_empty() || rest.starts_with([' ', '\t']))
+    let has_heading_level = (1..=6).contains(&hashes);
+    let rest_is_spaced = rest.is_empty() || rest.starts_with([' ', '\t']);
+
+    has_heading_level && rest_is_spaced
 }
 
 fn is_thematic_break(content: &str) -> bool {
