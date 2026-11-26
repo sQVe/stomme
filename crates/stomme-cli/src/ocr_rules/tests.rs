@@ -750,9 +750,9 @@ fn an_unterminated_marker_adds_no_role_text() {
 }
 
 #[test]
-fn a_fenced_or_inline_marker_adds_no_role_text() {
-    let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n\n```markdown\n<!-- role:app -->\nSee <!-- role:app --> in prose.\n```\n\nOutside the fence.\n";
-    let expected = "\n```markdown\n<!-- role:app -->\nSee <!-- role:app --> in prose.\n```\n\nOutside the fence.";
+fn a_tilde_fenced_marker_adds_no_role_text() {
+    let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n\n~~~markdown\n<!-- role:app -->\n~~~\n\nOutside the fence.\n";
+    let expected = "\n~~~markdown\n<!-- role:app -->\n~~~\n\nOutside the fence.";
 
     assert_eq!(
         marked_blocks(text, "app"),
@@ -762,9 +762,38 @@ fn a_fenced_or_inline_marker_adds_no_role_text() {
 }
 
 #[test]
+fn a_backtick_fenced_marker_adds_no_role_text() {
+    let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app -->\n\n```markdown\n<!-- role:app -->\n```\n\nOutside the fence.\n";
+    let expected = "\n```markdown\n<!-- role:app -->\n```\n\nOutside the fence.";
+
+    assert_eq!(
+        marked_blocks(text, "app"),
+        ["`gpui-app-lifetime`: Own the app lifetime."]
+    );
+    assert_eq!(without_marked_blocks(text), expected);
+}
+
+#[test]
+fn a_marker_followed_by_prose_adds_no_role_text() {
+    let text = "- Use <!-- role:app --> in prose.\n";
+
+    assert!(marked_blocks(text, "app").is_empty());
+    assert_eq!(
+        without_marked_blocks(text),
+        "- Use <!-- role:app --> in prose."
+    );
+}
+
+#[test]
 #[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
 fn a_marker_on_a_nested_list_item_is_refused() {
     marked_blocks("- parent\n  - child <!-- role:core -->\n", "core");
+}
+
+#[test]
+#[should_panic(expected = "a marked block is a list item whose marker ends its last line")]
+fn a_marker_on_a_four_space_nested_list_item_is_refused() {
+    marked_blocks("- parent\n    - child <!-- role:core -->\n", "core");
 }
 
 #[test]

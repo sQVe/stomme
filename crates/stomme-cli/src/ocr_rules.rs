@@ -8,6 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::config::{ROLES, normalize};
+use crate::fence::{Fence, MAX_BLOCK_INDENT, closes_fence, opening_fence};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
@@ -422,15 +423,24 @@ fn marked_blocks(text: &str, role: &str) -> Vec<String> {
 
 fn marked_lines<'a>(lines: &[&'a str]) -> Vec<(usize, &'a str, &'a str)> {
     let mut markers = Vec::new();
-    let mut fenced = false;
+    let mut fence: Option<Fence> = None;
 
     for (index, line) in lines.iter().enumerate() {
-        if line.trim_start().starts_with("```") {
-            fenced = !fenced;
+        let indent = line.len() - line.trim_start_matches(' ').len();
+        let content = &line[indent..];
+
+        if let Some(open) = &fence {
+            if indent <= MAX_BLOCK_INDENT && closes_fence(content, open) {
+                fence = None;
+            }
+
             continue;
         }
 
-        if fenced {
+        if indent <= MAX_BLOCK_INDENT
+            && let Some(open) = opening_fence(content)
+        {
+            fence = Some(open);
             continue;
         }
 
@@ -482,7 +492,7 @@ fn block_start(lines: &[&str], marker_index: usize) -> usize {
     let mut start = marker_index;
 
     while start > 0 && lines[start].starts_with("  ") {
-        if lines[start].starts_with("  - ") {
+        if lines[start].trim_start().starts_with("- ") {
             panic!("a marked block is a list item whose marker ends its last line");
         }
 

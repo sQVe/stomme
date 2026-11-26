@@ -5,11 +5,11 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
+use crate::fence::{Fence, MAX_BLOCK_INDENT, closes_fence, opening_fence};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
 const NUMBER_LENGTH: usize = 4;
-const MAX_BLOCK_INDENT: usize = 3;
 const INDENTED_CODE: usize = 4;
 const MAX_MARKER_SPACING: usize = 4;
 const TAB_WIDTH: usize = 4;
@@ -268,14 +268,15 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 // from the content column of the enclosing list item, not from the start of the line.
 fn heading_line(text: &str) -> Option<&str> {
     let mut containers = Containers::new();
-    let mut fence: Option<Fence> = None;
+    let mut fence: Option<OpenFence> = None;
 
     for line in text.lines() {
         let view = containers.view(line);
 
         if let Some(open) = &fence {
             let container_ended = view.depth < open.depth;
-            let closes = view.relative <= MAX_BLOCK_INDENT && closes_fence(view.content, open);
+            let closes =
+                view.relative <= MAX_BLOCK_INDENT && closes_fence(view.content, &open.fence);
 
             if container_ended || closes {
                 fence = None;
@@ -290,8 +291,11 @@ fn heading_line(text: &str) -> Option<&str> {
             continue;
         }
 
-        if let Some(open) = opening_fence(view.content, view.depth) {
-            fence = Some(open);
+        if let Some(open) = opening_fence(view.content) {
+            fence = Some(OpenFence {
+                fence: open,
+                depth: view.depth,
+            });
             continue;
         }
 
@@ -303,6 +307,11 @@ fn heading_line(text: &str) -> Option<&str> {
     }
 
     None
+}
+
+struct OpenFence {
+    fence: Fence,
+    depth: usize,
 }
 
 // A list item holds its content at a fixed column. Reading a line against the open items tells
@@ -415,45 +424,6 @@ fn ordered_marker(content: &str) -> Option<usize> {
         Some(b'.' | b')') => Some(digits + 1),
         _ => None,
     }
-}
-
-struct Fence {
-    marker: u8,
-    length: usize,
-    depth: usize,
-}
-
-fn opening_fence(content: &str, depth: usize) -> Option<Fence> {
-    let marker = *content.as_bytes().first()?;
-    let is_fence = marker == b'`' || marker == b'~';
-
-    if !is_fence {
-        return None;
-    }
-
-    let length = content.bytes().take_while(|byte| *byte == marker).count();
-    let info = &content[length..];
-    let has_backtick = marker == b'`' && info.contains('`');
-
-    if length < 3 || has_backtick {
-        return None;
-    }
-
-    Some(Fence {
-        marker,
-        length,
-        depth,
-    })
-}
-
-fn closes_fence(content: &str, fence: &Fence) -> bool {
-    let length = content
-        .bytes()
-        .take_while(|byte| *byte == fence.marker)
-        .count();
-    let rest = &content[length..];
-
-    length >= fence.length && rest.trim().is_empty()
 }
 
 fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
