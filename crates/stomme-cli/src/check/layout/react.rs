@@ -1,3 +1,4 @@
+use super::typescript;
 use super::{Problem, is_pascal_case, problem};
 use crate::check::source_files::{SourceFile, Tree};
 use crate::rule::Rule;
@@ -10,7 +11,7 @@ pub(super) fn check(tree: &Tree) -> Vec<Problem> {
             continue;
         }
 
-        if is_test_file(file) {
+        if typescript::is_test_file(file) {
             problems.extend(test_placement(file, tree));
         } else {
             problems.extend(component_file(file));
@@ -32,10 +33,19 @@ fn component_file(file: &SourceFile) -> Option<Problem> {
     ))
 }
 
+// Placement follows the TypeScript layer's owner rule, so both layers give one answer for a tree.
 fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
-    let base = file.name.strip_suffix(".test.tsx")?;
+    if !typescript::is_in_source(file) {
+        return None;
+    }
 
-    if has_component(tree, file, base) {
+    if typescript::is_in_tests_folder(file) {
+        return Some(tests_folder_problem(file));
+    }
+
+    let base = typescript::test_base(file)?;
+
+    if typescript::has_owner(tree, file, base) {
         return None;
     }
 
@@ -43,39 +53,24 @@ fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
         file,
         Rule::ReactTestPlacement,
         format!(
-            "puts the test `{}` beside no component; name it `<Component>.test.tsx` beside `<Component>.tsx`",
+            "puts the test `{}` beside no owner; name it `<owner>.test.tsx` beside `<owner>.ts` or `<owner>.tsx`",
             file.name
         ),
     ))
 }
 
-fn has_component(tree: &Tree, file: &SourceFile, base: &str) -> bool {
-    tree.files.iter().any(|sibling| {
-        sibling.folder == file.folder
-            && sibling.is_tsx()
-            && !is_test_file(sibling)
-            && is_component_stem(&sibling.stem, base)
-    })
-}
-
-fn is_component_stem(stem: &str, base: &str) -> bool {
-    if stem == base {
-        return true;
-    }
-
-    let Some(rest) = base.strip_prefix(stem) else {
-        return false;
-    };
-    let mut characters = rest.chars();
-    let Some(first) = characters.next() else {
-        return false;
+fn tests_folder_problem(file: &SourceFile) -> Problem {
+    let advice = if typescript::test_base(file).is_some() {
+        "put it beside its owner"
+    } else {
+        "move it out of the tests folder"
     };
 
-    first.is_ascii_uppercase()
-}
-
-fn is_test_file(file: &SourceFile) -> bool {
-    file.name.ends_with(".test.tsx")
+    problem(
+        file,
+        Rule::ReactTestPlacement,
+        format!("puts `{}` in a `__tests__` folder; {advice}", file.name),
+    )
 }
 
 #[cfg(test)]

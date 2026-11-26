@@ -39,7 +39,7 @@ fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<O
     }
 
     if let Some(base) = test_base(file)
-        && has_class_owner(tree, file, base)?
+        && has_pascal_case_owner(tree, file, base)?
     {
         return Ok(None);
     }
@@ -54,22 +54,27 @@ fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<O
     )))
 }
 
-fn is_production_sibling(file: &SourceFile, sibling: &SourceFile, extension: &str) -> bool {
-    sibling.folder == file.folder && !is_test_file(sibling) && sibling.name.ends_with(extension)
+// A test matches an owner of either TypeScript extension: its own extension says whether it
+// renders JSX, not which extension its owner has. Every file in the tree is a TypeScript source.
+fn owners<'a>(
+    tree: &'a Tree,
+    file: &SourceFile,
+    base: &str,
+) -> impl Iterator<Item = &'a SourceFile> {
+    tree.files.iter().filter(move |sibling| {
+        sibling.folder == file.folder
+            && !is_test_file(sibling)
+            && is_owner_stem(&sibling.stem, base)
+    })
 }
 
-fn has_class_owner(tree: &Tree, file: &SourceFile, base: &str) -> anyhow::Result<bool> {
+fn has_pascal_case_owner(tree: &Tree, file: &SourceFile, base: &str) -> anyhow::Result<bool> {
     if !is_pascal_case(base) {
         return Ok(false);
     }
 
-    let extension = if file.is_tsx() { ".tsx" } else { ".ts" };
-    let owners = tree.files.iter().filter(|sibling| {
-        is_production_sibling(file, sibling, extension) && is_owner_stem(base, &sibling.stem)
-    });
-
-    for owner in owners {
-        if exports_class(&tree.read(owner)?, &owner.stem) {
+    for owner in owners(tree, file, base) {
+        if owner.is_tsx() || exports_class(&tree.read(owner)?, &owner.stem) {
             return Ok(true);
         }
     }
@@ -117,11 +122,11 @@ fn test_name(file: &SourceFile, tree: &Tree, skip_tsx: bool) -> Option<Problem> 
         return None;
     }
 
-    if !file.path.split('/').any(|part| part == "src") {
+    if !is_in_source(file) {
         return None;
     }
 
-    if file.path.split('/').any(|part| part == "__tests__") {
+    if is_in_tests_folder(file) {
         return Some(problem(
             file,
             Rule::TestFileName,
@@ -148,7 +153,7 @@ fn test_name(file: &SourceFile, tree: &Tree, skip_tsx: bool) -> Option<Problem> 
     ))
 }
 
-fn test_base(file: &SourceFile) -> Option<&str> {
+pub(super) fn test_base(file: &SourceFile) -> Option<&str> {
     if file.name.ends_with(".test.ts") {
         file.name.strip_suffix(".test.ts")
     } else if file.name.ends_with(".test.tsx") {
@@ -158,37 +163,24 @@ fn test_base(file: &SourceFile) -> Option<&str> {
     }
 }
 
-fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
-    let extension = if file.is_tsx() { ".tsx" } else { ".ts" };
-
-    tree.files.iter().any(|sibling| {
-        sibling.folder == file.folder
-            && !is_test_file(sibling)
-            && sibling.name.ends_with(extension)
-            && is_owner_stem(base, &sibling.stem)
-    })
+pub(super) fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
+    owners(tree, file, base).next().is_some()
 }
 
-fn is_owner_stem(stem: &str, base: &str) -> bool {
-    if stem == base {
-        return true;
-    }
-
-    let Some(rest) = stem.strip_prefix(base) else {
-        return false;
-    };
-    let mut characters = rest.chars();
-    let Some(first) = characters.next() else {
-        return false;
-    };
-
-    first.is_ascii_uppercase() && characters.next().is_some()
+fn is_owner_stem(owner: &str, test_base: &str) -> bool {
+    owner == test_base || is_family_stem(test_base, owner)
 }
 
-fn is_test_file(file: &SourceFile) -> bool {
-    file.name.ends_with(".test.ts")
-        || file.name.ends_with(".test.tsx")
-        || file.path.split('/').any(|part| part == "__tests__")
+pub(super) fn is_test_file(file: &SourceFile) -> bool {
+    test_base(file).is_some() || is_in_tests_folder(file)
+}
+
+pub(super) fn is_in_tests_folder(file: &SourceFile) -> bool {
+    file.path.split('/').any(|part| part == "__tests__")
+}
+
+pub(super) fn is_in_source(file: &SourceFile) -> bool {
+    file.path.split('/').any(|part| part == "src")
 }
 
 fn owner_folder(tree: &Tree) -> Vec<Problem> {

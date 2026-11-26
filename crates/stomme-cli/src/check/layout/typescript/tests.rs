@@ -12,6 +12,13 @@ fn tree(root: &Path) -> Tree {
     source_files::walk(root, Language::TypeScript).expect("walk the project")
 }
 
+fn problems_for<'a>(problems: &'a [Problem], path: &str) -> Vec<&'a Problem> {
+    problems
+        .iter()
+        .filter(|problem| problem.path == path)
+        .collect()
+}
+
 fn assert_problem(problems: &[Problem], path: &str, rule: Rule, key: &str, case: &str) {
     assert_eq!(problems.len(), 1, "{case}: {problems:?}");
     assert_eq!(problems[0].path, path, "{case}");
@@ -124,6 +131,62 @@ fn check_reports_a_pascal_case_file_it_cannot_read() {
         error.to_string().contains("Could not read src/Report.ts"),
         "{error}"
     );
+}
+
+#[test]
+fn check_passes_a_test_beside_an_owner_of_either_extension() {
+    let cases = [
+        (
+            "camel case owner, test in .ts",
+            "src/report.ts",
+            "src/report.test.ts",
+        ),
+        (
+            "camel case owner, test in .tsx",
+            "src/report.ts",
+            "src/report.test.tsx",
+        ),
+        (
+            "component owner, test in .ts",
+            "src/TicketList.tsx",
+            "src/TicketList.test.ts",
+        ),
+        (
+            "component owner, test in .tsx",
+            "src/TicketList.tsx",
+            "src/TicketList.test.tsx",
+        ),
+    ];
+
+    for (case, owner, test) in cases {
+        let root = tempfile::tempdir().expect("create a temporary directory");
+
+        write_file(root.path(), owner, "");
+        write_file(root.path(), test, "");
+
+        let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
+        let test_problems = problems_for(&problems, test);
+
+        assert!(test_problems.is_empty(), "{case}: {test_problems:?}");
+    }
+}
+
+#[test]
+fn check_reports_a_test_beside_no_owner_for_either_extension() {
+    let cases = [
+        ("test in .ts", "src/missing.test.ts", "missing.test.ts"),
+        ("test in .tsx", "src/missing.test.tsx", "missing.test.tsx"),
+    ];
+
+    for (case, test, key) in cases {
+        let root = tempfile::tempdir().expect("create a temporary directory");
+
+        write_file(root.path(), test, "");
+
+        let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
+
+        assert_problem(&problems, test, Rule::TestFileName, key, case);
+    }
 }
 
 #[test]
