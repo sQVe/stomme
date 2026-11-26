@@ -1,11 +1,13 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use super::*;
+use crate::rule::{Enforcement, Rule};
 
 #[test]
 fn render_without_project_rules_writes_one_language_entry() {
-    let rendered = render(Language::Rust, &guides(), None);
+    let rendered = render(Language::Rust, &guides(), &BTreeMap::new(), None);
     let document = parse(&rendered);
     let rules = document["rules"].as_array().expect("the rules are a list");
 
@@ -48,7 +50,12 @@ fn render_puts_project_rules_first_with_guide_text() {
     );
     let rules = read_rules(root.path());
 
-    let rendered = render(Language::TypeScript, &guides(), Some(&rules));
+    let rendered = render(
+        Language::TypeScript,
+        &guides(),
+        &BTreeMap::new(),
+        Some(&rules),
+    );
     let document = parse(&rendered);
     let entries = document["rules"].as_array().expect("the rules are a list");
 
@@ -376,7 +383,7 @@ fn read_project_refuses_an_unknown_language() {
 
 #[test]
 fn render_ends_with_a_newline_and_keeps_key_order() {
-    let rendered = render(Language::Rust, &guides(), None);
+    let rendered = render(Language::Rust, &guides(), &BTreeMap::new(), None);
 
     assert!(rendered.ends_with('\n'));
 
@@ -395,7 +402,7 @@ fn render_keeps_a_project_include_once_before_the_language_patterns() {
     let root = project(r#"{"include":["src/**","**/tests.rs","src/**"],"rules":[]}"#);
     let rules = read_rules(root.path());
 
-    let rendered = render(Language::Rust, &guides(), Some(&rules));
+    let rendered = render(Language::Rust, &guides(), &BTreeMap::new(), Some(&rules));
     let document = parse(&rendered);
 
     assert_eq!(
@@ -414,7 +421,7 @@ fn render_keeps_a_project_include_once_before_the_language_patterns() {
 
 #[test]
 fn render_lists_the_typescript_test_patterns() {
-    let rendered = render(Language::TypeScript, &guides(), None);
+    let rendered = render(Language::TypeScript, &guides(), &BTreeMap::new(), None);
     let document = parse(&rendered);
 
     assert_eq!(
@@ -475,7 +482,7 @@ fn render_appends_the_guide_text_to_a_project_rule() {
 "#
     );
 
-    let rendered = render(Language::Rust, &guides(), Some(&rules));
+    let rendered = render(Language::Rust, &guides(), &BTreeMap::new(), Some(&rules));
 
     assert_eq!(rendered, expected);
 }
@@ -511,7 +518,7 @@ fn render_inlines_the_named_language_guide_without_layer_guides() {
         text: "Layer rules.\n",
     });
 
-    let rendered = render(Language::Rust, &guides, Some(&rules));
+    let rendered = render(Language::Rust, &guides, &BTreeMap::new(), Some(&rules));
     let document = parse(&rendered);
     let untagged = document["rules"][0]["rule"]
         .as_str()
@@ -553,7 +560,7 @@ fn render_lists_a_named_language_test_patterns_once_after_the_project_language()
     );
     let rules = read_rules(root.path());
 
-    let rendered = render(Language::Rust, &guides(), Some(&rules));
+    let rendered = render(Language::Rust, &guides(), &BTreeMap::new(), Some(&rules));
     let document = parse(&rendered);
 
     assert_eq!(
@@ -593,6 +600,287 @@ fn language_returns_the_guide_for_that_language() {
 
         assert_eq!(guide.path, path, "{language}");
         assert_eq!(guide.text, text, "{language}");
+    }
+}
+
+#[test]
+fn render_scopes_role_clauses_to_declared_roles_in_order() {
+    let roles = roles(&[
+        ("ui", "src/ui"),
+        ("app", "crates/app"),
+        ("core", "crates/core"),
+    ]);
+
+    let rendered = render(Language::Rust, &embedded_guides(), &roles, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert_eq!(
+        clause_roots(text),
+        ["crates/core/", "src/ui/", "crates/app/"]
+    );
+    assert!(!text.contains("starts with crates/kit/"));
+    assert!(!text.contains("starts with crates/cli/"));
+}
+
+#[test]
+fn role_clause_root_normalizes_and_keeps_one_trailing_slash() {
+    let roles = roles(&[("ui", "src/ui"), ("app", "./crates/app/")]);
+
+    let rendered = render(Language::Rust, &embedded_guides(), &roles, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+    let roots = clause_roots(text);
+
+    assert_eq!(roots, ["src/ui/", "crates/app/"]);
+
+    let ui = &roots[0];
+
+    assert!("src/ui/view.rs".starts_with(ui));
+    assert!(!"src/uikit".starts_with(ui));
+}
+
+#[test]
+fn role_clause_text_comes_from_the_marked_adr_and_selected_layers() {
+    let roles = roles(&[("app", "crates/app"), ("kit", "crates/kit")]);
+    let mut guides = embedded_guides();
+
+    guides
+        .layers
+        .retain(|guide| guide.path.ends_with("/gpui/guide.md"));
+
+    let rendered = render(Language::Rust, &guides, &roles, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+    let app = clause(text, "crates/app/");
+    let kit = clause(text, "crates/kit/");
+
+    assert!(app.contains("`app` is the graphical entry point"));
+    assert!(app.contains("`gpui-app-lifetime`"));
+    assert!(app.contains("owns the GPUI application"));
+
+    assert!(kit.contains("`kit` holds reusable UI building blocks"));
+    assert!(!kit.contains("`gpui-component-kit`"));
+
+    let full = embedded_guides();
+    let rendered = render(Language::Rust, &full, &roles, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+    let kit = clause(text, "crates/kit/");
+
+    assert!(kit.contains("`kit` holds reusable UI building blocks"));
+    assert!(!kit.contains("`gpui-component-kit`"));
+    assert_eq!(text.matches("`gpui-component-kit`").count(), 1);
+    assert!(text.contains("`gpui-component-kit`"));
+}
+
+#[test]
+fn rendered_rule_text_keeps_partially_checked_rules() {
+    let declared = roles(&[("core", "crates/core"), ("kit", "crates/kit")]);
+    let rendered = render(Language::Rust, &embedded_guides(), &declared, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    for kept in [
+        "react-component-file",
+        "react-test-placement",
+        "gpui-plain-core",
+        "gpui-component-kit",
+    ] {
+        assert!(text.contains(kept), "{kept}");
+    }
+
+    let rendered = render(Language::TypeScript, &embedded_guides(), &declared, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert!(text.contains("A unit test sits beside its owner as"));
+}
+
+#[test]
+fn marked_role_blocks_leave_the_global_guide_text() {
+    let declared = roles(&[("app", "crates/app"), ("kit", "crates/kit")]);
+    let rendered = render(Language::Rust, &embedded_guides(), &declared, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert_eq!(text.matches("`gpui-app-lifetime`").count(), 1);
+    assert!(clause(text, "crates/app/").contains("`gpui-app-lifetime`"));
+    assert_eq!(text.matches("`gpui-component-kit`").count(), 1);
+    assert!(text.contains("`gpui-component-kit`"));
+    assert!(!clause(text, "crates/kit/").contains("`gpui-component-kit`"));
+
+    let without_app = roles(&[("kit", "crates/kit")]);
+    let rendered = render(Language::Rust, &embedded_guides(), &without_app, None);
+    let document = parse(&rendered);
+    let text = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+
+    assert!(!text.contains("`gpui-app-lifetime`"));
+}
+
+#[test]
+fn an_unterminated_marker_adds_no_role_text() {
+    let text = "- `gpui-app-lifetime`: Own the app lifetime. <!-- role:app\n";
+
+    assert!(marked_blocks(text, "app").is_empty());
+    assert_eq!(without_marked_blocks(text), text.trim_end());
+}
+
+#[test]
+#[should_panic(expected = "unknown role")]
+fn marked_blocks_refuses_an_unknown_role_marker() {
+    marked_blocks("- `x`: Text. <!-- role:server -->\n", "core");
+}
+
+#[test]
+fn embedded_guides_hold_no_exactly_enforced_rule_text() {
+    let files = crate::owned::bundle_set(crate::layer::catalog());
+    let mut offenders = Vec::new();
+
+    for file in &files {
+        for id in rule_ids(&file.content) {
+            let Some(rule) = Rule::ALL.iter().find(|rule| rule.id() == id) else {
+                continue;
+            };
+
+            if matches!(rule.metadata().enforcement, Enforcement::Enforced(_)) {
+                offenders.push(format!("{}: {id}", file.path));
+            }
+        }
+    }
+
+    assert!(offenders.is_empty(), "{offenders:?}");
+}
+
+#[test]
+fn every_closed_role_has_a_marked_adr_block() {
+    for role in ROLES {
+        assert!(
+            !marked_blocks(ROLE_ADR, role).is_empty(),
+            "the role `{role}` has no marked block in ADR 0004"
+        );
+    }
+}
+
+#[test]
+fn project_entry_puts_its_own_text_before_the_clauses() {
+    let root = project(r#"{"rules":[{"path":"crates/**","rule":"Keep crates small."}]}"#);
+    let rules = read_rules(root.path());
+    let roles = roles(&[("cli", "crates/stomme-cli")]);
+
+    let rendered = render(Language::Rust, &embedded_guides(), &roles, Some(&rules));
+    let document = parse(&rendered);
+    let entry = document["rules"][0]["rule"]
+        .as_str()
+        .expect("the rule is text");
+    let own = entry
+        .find("Keep crates small.")
+        .expect("the own text comes first");
+    let guides = entry
+        .find("File: docs/stomme/shared/coding.md")
+        .expect("the shared guide is inlined");
+    let clause = entry
+        .find("If the file path starts with crates/stomme-cli/, apply:")
+        .expect("the clause is inlined");
+    let outro = entry
+        .find("Also apply the rules in the project's AGENTS.md")
+        .expect("the outro is inlined");
+
+    assert!(own < guides);
+    assert!(guides < clause);
+    assert!(clause < outro);
+}
+
+fn roles(entries: &[(&str, &str)]) -> BTreeMap<String, String> {
+    entries
+        .iter()
+        .map(|(role, path)| (role.to_string(), path.to_string()))
+        .collect()
+}
+
+fn clause_roots(text: &str) -> Vec<String> {
+    let prefix = "If the file path starts with ";
+
+    text.match_indices(prefix)
+        .map(|(index, _)| {
+            let rest = &text[index + prefix.len()..];
+            let end = rest.find(", apply:").expect("a clause names its root");
+
+            rest[..end].to_string()
+        })
+        .collect()
+}
+
+fn clause<'a>(text: &'a str, root: &str) -> &'a str {
+    let start = text
+        .find(&format!("If the file path starts with {root}, apply: "))
+        .expect("the role has a clause");
+    let rest = &text[start..];
+    let next_clause = rest.find("\n\nIf the file path starts with ");
+    let outro = rest.find("\n\nAlso apply the rules");
+    let end = match (next_clause, outro) {
+        (Some(next), Some(outro)) => Some(next.min(outro)),
+        (next, outro) => next.or(outro),
+    }
+    .map_or(text.len(), |offset| start + offset);
+
+    &text[start..end]
+}
+
+fn rule_ids(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("- `"))
+        .filter_map(|rest| rest.split_once("`: "))
+        .map(|(id, _)| id)
+        .collect()
+}
+
+fn embedded_guides() -> Guides {
+    Guides {
+        general: Guide {
+            path: "docs/stomme/shared/coding.md".to_string(),
+            text: include_str!("../../../../foundation/shared/coding.md"),
+        },
+        languages: LanguageGuides {
+            rust: Guide {
+                path: "docs/stomme/languages/rust/guide.md".to_string(),
+                text: include_str!("../../../../foundation/languages/rust/guide.md"),
+            },
+            typescript: Guide {
+                path: "docs/stomme/languages/typescript/guide.md".to_string(),
+                text: include_str!("../../../../foundation/languages/typescript/guide.md"),
+            },
+        },
+        layers: vec![
+            Guide {
+                path: "docs/stomme/layers/gpui/guide.md".to_string(),
+                text: include_str!("../../../../foundation/layers/gpui/guide.md"),
+            },
+            Guide {
+                path: "docs/stomme/layers/gpui-component/guide.md".to_string(),
+                text: include_str!("../../../../foundation/layers/gpui-component/guide.md"),
+            },
+            Guide {
+                path: "docs/stomme/layers/react/guide.md".to_string(),
+                text: include_str!("../../../../foundation/layers/react/guide.md"),
+            },
+        ],
     }
 }
 

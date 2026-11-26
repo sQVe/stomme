@@ -51,6 +51,35 @@ required check whose findings are advice.
 - The rule text inlines the general guide, the language guide, and the selected layer guides.
   Inlined text reaches the model in the request, while a pointer to a guide depends on a read that
   the model may skip.
+- The rule file holds one entry per language, not one entry per role. OCR groups files across
+  roles, and each distinct rule text is sent as its own block, so per-role entries repeat the
+  shared guides. For a project with language `rust`, layers `gpui` and `gpui-component`, and all
+  five roles under `crates/plugga-<role>`, `stomme sync` produced 14,546 rule bytes with one entry
+  and clauses. Five single-role renders, one per role with the full guide text, sum to 68,578
+  bytes.
+- Each declared role adds one clause, in the closed role order `core`, `ui`, `kit`, `app`, `cli`:
+  `If the file path starts with <root>/, apply: <role text>`. `<root>` is the role path without
+  empty parts or `.`, with exactly one trailing slash. The slash keeps `src/ui/` from matching
+  `src/uikit`. OCR puts `<file path="...">` above each diff, so the model sees the path the clause
+  names. An undeclared role gets no clause.
+- Role text has one owner. The blocks marked with an inline `<!-- role:<role> -->` comment in
+  ADR 0004 and in the role-scoped layer rules are extracted when the rule file renders. No Rust
+  copy holds the prose and no scope table restates it. A layer the project did not select
+  contributes no role text.
+- A role-scoped layer rule leaves the global guide text and is read once in its role's clause only
+  when every file the rule governs is under that role's root. A rule that restricts other roles,
+  such as `gpui-component-kit`, stays in the global guide text once.
+- The review text keeps a rule that `stomme check` covers only in part, and the rules table marks
+  each such rule partial with the part it cannot check. A rule the check enforces exactly, such as
+  the role folder names, stays out of the clause text.
+- A project entry keeps its composition: its own text first, then the same guide text with the
+  clauses. An entry with `language` inlines the general and that language's guides and no layer
+  guides, so it gets only the clauses those guides produce.
+- Rules that change findings stay inline. A file-valued rule saves no prompt space, because OCR
+  loads it into the prompt, and a prose pointer depends on a read that the model may skip.
+- The rule text for this repository measured 16,696 bytes before this change and 16,968 after,
+  summing the `rule` strings of `docs/stomme/ocr-rules.json` with
+  `jq '[.rules[].rule|length]|add'`.
 
 ### Project rules
 
@@ -170,6 +199,9 @@ the token comes from the `MORPH_API_KEY` repository secret.
 - A model that stops early while OCR records the file as completed passes the check, because the
   check trusts OCR's coverage record.
 - Findings depend on a model, so the review does not replace a person's review.
+- A file under two role roots matches two clauses, and a role root that is a symlink matches no
+  clause for the real Git path, because the clause is a lexical prefix of the configured path.
+  `stomme check` accepts both shapes today.
 
 ## Alternatives considered
 
@@ -177,6 +209,14 @@ the token comes from the `MORPH_API_KEY` repository secret.
 
 Each project keeps its own OCR workflow and rule file. Rejected because the copies drift from the
 guides, and each fix must be repeated in every project.
+
+### One rule entry per role
+
+Give each role its own entry, each with the role's clause. Rejected because OCR sends each distinct
+rule text as its own block, so every entry repeats the shared guides: the plugga-like project above
+measured 68,578 rule bytes with per-role entries against 14,546 with one entry and clauses. Revisit
+this choice when OCR can share one base rule across entries, when it stops sending each distinct
+rule text as its own block, or when the closed role list in ADR 0004 grows.
 
 ### A stomme rule file next to a project rule file
 

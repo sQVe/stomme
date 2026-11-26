@@ -132,7 +132,7 @@ pub(crate) fn owned_set(
         files.push(guide_file(layer));
     }
 
-    let rules = ocr_rules::render(selection.language, &guides, project);
+    let rules = ocr_rules::render(selection.language, &guides, &selection.roles, project);
     let key = record_key(ocr_rules::RULE_FILE).expect("the rule file lies under docs/stomme");
 
     files.push(owned(key, rules));

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -6,10 +7,16 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::config::{ROLES, normalize};
 use crate::layer::Language;
 
 pub(crate) const RULE_FILE: &str = "docs/stomme/ocr-rules.json";
 pub(crate) const PROJECT_RULE_FILE: &str = ".opencodereview/rule.json";
+
+const ROLE_ADR: &str =
+    include_str!("../../../foundation/shared/adr/0004-roles-languages-and-layers.md");
+const ROLE_MARKER_START: &str = "<!-- role:";
+const ROLE_MARKER_END: &str = " -->";
 
 const GUIDE_INTRO: &str = "Apply stomme's coding guides below. Each guide starts with its repository path. Resolve its relative links from that path, and read linked files with file_read.";
 const GUIDE_OUTRO: &str = "Also apply the rules in the project's AGENTS.md and the decisions in docs/adr/ that cover the change. Read them with file_read.";
@@ -156,9 +163,11 @@ pub(crate) fn read_project(root: &Path) -> Result<Option<ProjectRules>, OcrRules
 pub(crate) fn render(
     language: Language,
     guides: &Guides,
+    roles: &BTreeMap<String, String>,
     project: Option<&ProjectRules>,
 ) -> String {
-    let selected_text = guide_text(&guides.selected(language));
+    let selected = guides.selected(language);
+    let selected_text = guide_text(&selected, &role_clauses(roles, &selected));
     let mut rules = Vec::new();
     let mut include = Vec::new();
     let mut exclude = Vec::new();
@@ -167,7 +176,7 @@ pub(crate) fn render(
         for rule in &project.rules {
             rules.push(Entry {
                 path: rule.path.clone(),
-                rule: rule_text(rule, guides, &selected_text),
+                rule: rule_text(rule, guides, roles, &selected_text),
                 merge_system_rule: true,
             });
         }
@@ -350,23 +359,140 @@ impl Guides {
     }
 }
 
-fn rule_text(rule: &ProjectRule, guides: &Guides, selected_text: &str) -> String {
+fn rule_text(
+    rule: &ProjectRule,
+    guides: &Guides,
+    roles: &BTreeMap<String, String>,
+    selected_text: &str,
+) -> String {
     let Some(language) = rule.language else {
         return format!("{}\n\n{selected_text}", rule.rule);
     };
-    let language_text = guide_text(&guides.general_and_language(language));
+    let language_guides = guides.general_and_language(language);
+    let language_text = guide_text(&language_guides, &role_clauses(roles, &language_guides));
 
     format!("{}\n\n{language_text}", rule.rule)
 }
 
-fn guide_text(guides: &[(&str, &str)]) -> String {
+fn role_clauses(roles: &BTreeMap<String, String>, guides: &[(&str, &str)]) -> Vec<String> {
+    let mut clauses = Vec::new();
+
+    for role in ROLES {
+        let Some(path) = roles.get(*role) else {
+            continue;
+        };
+
+        let mut blocks = marked_blocks(ROLE_ADR, role);
+
+        assert!(
+            !blocks.is_empty(),
+            "ADR 0004 marks no block for the declared role `{role}`"
+        );
+
+        for (_, text) in guides {
+            blocks.extend(marked_blocks(text, role));
+        }
+
+        let root = normalize(path);
+        clauses.push(format!(
+            "If the file path starts with {root}/, apply: {}",
+            blocks.join("\n\n")
+        ));
+    }
+
+    clauses
+}
+
+fn marked_blocks(text: &str, role: &str) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut blocks = Vec::new();
+
+    for (index, line) in lines.iter().enumerate() {
+        let Some((marker_role, content)) = marker(line) else {
+            continue;
+        };
+
+        assert!(
+            ROLES.contains(&marker_role),
+            "a block is marked for the unknown role `{marker_role}`"
+        );
+
+        if marker_role == role {
+            blocks.push(block_text(&lines, index, content));
+        }
+    }
+
+    blocks
+}
+
+fn marker(line: &str) -> Option<(&str, &str)> {
+    let start = line.find(ROLE_MARKER_START)?;
+    let rest = &line[start + ROLE_MARKER_START.len()..];
+    let end = rest.find(ROLE_MARKER_END)?;
+
+    Some((&rest[..end], &line[..start]))
+}
+
+fn block_text(lines: &[&str], marker_index: usize, content: &str) -> String {
+    let start = block_start(lines, marker_index);
+    let mut block: Vec<&str> = lines[start..marker_index].to_vec();
+
+    block.push(content.trim_end());
+
+    let first = block[0]
+        .strip_prefix("- ")
+        .expect("a marked block starts with a list item");
+
+    block[0] = first;
+
+    block.join("\n")
+}
+
+fn block_start(lines: &[&str], marker_index: usize) -> usize {
+    lines[..=marker_index]
+        .iter()
+        .rposition(|line| line.starts_with("- "))
+        .expect("a marked block starts with a list item")
+}
+
+pub(crate) fn without_marked_blocks(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut dropped = vec![false; lines.len()];
+
+    for (index, line) in lines.iter().enumerate() {
+        if marker(line).is_none() {
+            continue;
+        }
+
+        let start = block_start(&lines, index);
+
+        for flag in &mut dropped[start..=index] {
+            *flag = true;
+        }
+    }
+
+    lines
+        .iter()
+        .zip(dropped)
+        .filter(|(_, drop)| !drop)
+        .map(|(line, _)| *line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn guide_text(guides: &[(&str, &str)], clauses: &[String]) -> String {
     let mut text = String::from(GUIDE_INTRO);
 
     for (path, content) in guides {
         text.push_str("\n\nFile: ");
         text.push_str(path);
         text.push_str("\n\n");
-        text.push_str(content.trim_end());
+        text.push_str(without_marked_blocks(content).trim_end());
+    }
+
+    if !clauses.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&clauses.join("\n\n"));
     }
 
     text.push_str("\n\n");

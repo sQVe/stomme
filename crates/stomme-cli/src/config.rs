@@ -11,6 +11,7 @@ use crate::rule::Rule;
 
 pub(crate) const CONFIG_FILE: &str = "stomme.toml";
 pub(crate) const SCHEMA: i64 = 1;
+pub(crate) const ROLES: &[&str] = &["core", "ui", "kit", "app", "cli"];
 
 #[derive(Debug)]
 pub(crate) enum Installation {
@@ -406,7 +407,7 @@ fn validate_extra_doc(root: &Path, path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn normalize(path: &str) -> String {
+pub(crate) fn normalize(path: &str) -> String {
     path.split('/')
         .filter(|part| !part.is_empty() && *part != ".")
         .collect::<Vec<_>>()
