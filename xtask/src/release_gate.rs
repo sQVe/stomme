@@ -362,13 +362,11 @@ fn rewrite_workflow_call(line: &str, version: &str, commit: &str) -> Option<Stri
 
 fn unquoted(value: &str) -> &str {
     for quote in ['"', '\''] {
-        let quoted = value
-            .strip_prefix(quote)
-            .and_then(|rest| rest.strip_suffix(quote));
+        let Some(rest) = value.strip_prefix(quote) else {
+            continue;
+        };
 
-        if let Some(inner) = quoted {
-            return inner;
-        }
+        return rest.strip_suffix(quote).unwrap_or(rest);
     }
 
     value
