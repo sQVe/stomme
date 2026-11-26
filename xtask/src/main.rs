@@ -1,4 +1,5 @@
 mod check;
+mod git_isolation;
 mod mutation;
 #[cfg(test)]
 mod ocr_review;

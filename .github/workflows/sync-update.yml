@@ -120,6 +120,23 @@ jobs:
         env:
           GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}
         run: stomme guides "$GUIDES_DIRECTORY"
+      - name: Check the written guides
+        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''
+        env:
+          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}
+        run: |
+          if ! ignored=$(git ls-files --others --ignored --exclude-standard -- "$GUIDES_DIRECTORY"); then
+            echo "::error::Git could not list the guides directory: $GUIDES_DIRECTORY"
+            exit 1
+          fi
+
+          if [ -z "$ignored" ]; then
+            exit 0
+          fi
+
+          printf '%s\n' "$ignored"
+          echo "::error::Git ignores files inside the guides directory, so the sync cannot commit the guides: $GUIDES_DIRECTORY"
+          exit 1
       - name: Detect the lockfile
         id: lockfile
         if: steps.check.outputs.run == 'true'

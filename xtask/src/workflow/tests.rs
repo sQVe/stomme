@@ -1,4 +1,10 @@
+use std::fs;
+use std::path::Path;
+use std::process::{Command, Output};
+
 use super::*;
+use crate::git_isolation::isolate_git;
+use crate::test_support::temporary_directory;
 
 const TOKEN_ACTION: &str = "actions/create-github-app-token@64ab";
 const RELEASE_GATE: &str = include_str!("../../../.github/workflows/release-gate.yml");
@@ -166,6 +172,62 @@ fn sync_update_checks_the_guides_directory_before_writing() {
 }
 
 #[test]
+fn sync_update_checks_the_written_guides_before_the_commit() {
+    let guides = line_index(SYNC_UPDATE, "name: Write the guides");
+    let check = line_index(SYNC_UPDATE, "name: Check the written guides");
+    let commit = line_index(SYNC_UPDATE, "name: Commit and push");
+
+    assert!(guides < check && check < commit);
+
+    let step = workflow_step(&workflow_steps(SYNC_UPDATE), "Check the written guides");
+
+    assert!(step.contains(
+        "\n        if: steps.check.outputs.run == 'true' && inputs['guides-directory'] != ''\n"
+    ));
+    assert!(step.contains(
+        "\n        env:\n          GUIDES_DIRECTORY: ${{ inputs['guides-directory'] }}\n"
+    ));
+}
+
+#[test]
+fn sync_update_fails_when_git_ignores_a_written_guide() {
+    let cases = [
+        ("an ignored guide file", Some("/vendor/stomme/shared/\n"), 1),
+        ("no ignored guide file", None, 0),
+    ];
+
+    for (name, ignore_rule, expected) in cases {
+        let repository = temporary_directory();
+        let root = repository.path();
+
+        write_file(root, ".gitignore", ignore_rule.unwrap_or(""));
+        write_file(root, "vendor/stomme/coding.md", "a\n");
+        write_file(root, "vendor/stomme/shared/coding.md", "b\n");
+
+        let step = workflow_step(&workflow_steps(SYNC_UPDATE), "Check the written guides");
+        let output = run_step(step, root);
+        let code = output.status.code();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert_eq!(code, Some(expected), "{name}: {stdout}{stderr}");
+
+        if expected == 0 {
+            continue;
+        }
+
+        assert!(
+            stdout.contains("vendor/stomme/shared/coding.md"),
+            "{name}: {stdout}{stderr}"
+        );
+        assert!(
+            stdout.contains("::error::Git ignores files inside the guides directory"),
+            "{name}: {stdout}{stderr}"
+        );
+    }
+}
+
+#[test]
 fn release_gate_token_steps_request_read_only_contents() {
     let token_steps = RELEASE_GATE
         .lines()
@@ -174,6 +236,53 @@ fn release_gate_token_steps_request_read_only_contents() {
 
     assert!(token_steps > 0, "the release gate creates an app token");
     assert_eq!(permission_problems(RELEASE_GATE), Vec::<String>::new());
+}
+
+fn write_file(root: &Path, path: &str, contents: &str) {
+    let path = root.join(path);
+    let parent = path.parent().expect("the file has a parent folder");
+
+    fs::create_dir_all(parent).expect("create the file's folder");
+    fs::write(&path, contents).expect("write the file");
+}
+
+fn run_step(step: &str, directory: &Path) -> Output {
+    let script = step
+        .split_once("        run: |\n")
+        .unwrap_or_else(|| panic!("the step runs a script: {step}"))
+        .1;
+    let script = script
+        .lines()
+        .map(|line| line.strip_prefix("          ").unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let init = isolated_command("git", directory)
+        .args(["init", "--quiet", "."])
+        .output()
+        .expect("run git init");
+
+    assert!(init.status.success(), "git init failed: {init:?}");
+
+    isolated_command("bash", directory)
+        .arg("-e")
+        .arg("-c")
+        .arg(script)
+        .env("GUIDES_DIRECTORY", "vendor/stomme")
+        .output()
+        .expect("run the workflow step")
+}
+
+fn isolated_command(program: &str, directory: &Path) -> Command {
+    let mut command = Command::new(program);
+
+    command
+        .current_dir(directory)
+        .env("HOME", directory)
+        .env("XDG_CONFIG_HOME", directory);
+    isolate_git(&mut command);
+
+    command
 }
 
 fn workflow_steps(workflow: &str) -> Vec<&str> {
