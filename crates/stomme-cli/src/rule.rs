@@ -827,7 +827,7 @@ rules! {
     },
     ReactTestPlacement => Metadata {
         id: "react-test-placement",
-        summary: "A component's unit test sits beside it as `<Component>.test.tsx`.",
+        summary: "A `.tsx` unit test sits beside its owner as `<owner>.test.tsx`.",
         owner: Owner::Layer("react"),
         applies: "always",
         fields: &[],

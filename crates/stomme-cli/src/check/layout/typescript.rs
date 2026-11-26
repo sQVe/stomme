@@ -39,7 +39,7 @@ fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<O
     }
 
     if let Some(base) = test_base(file)
-        && has_class_owner(tree, file, base)?
+        && has_pascal_case_owner(tree, file, base)?
     {
         return Ok(None);
     }
@@ -54,22 +54,27 @@ fn file_case(tree: &Tree, file: &SourceFile, skip_tsx: bool) -> anyhow::Result<O
     )))
 }
 
-fn is_production_sibling(file: &SourceFile, sibling: &SourceFile, extension: &str) -> bool {
-    sibling.folder == file.folder && !is_test_file(sibling) && sibling.name.ends_with(extension)
+// A test matches an owner of either TypeScript extension: its own extension says whether it
+// renders JSX, not which extension its owner has. Every file in the tree is a TypeScript source.
+fn owners<'a>(
+    tree: &'a Tree,
+    file: &SourceFile,
+    base: &str,
+) -> impl Iterator<Item = &'a SourceFile> {
+    tree.files.iter().filter(move |sibling| {
+        sibling.folder == file.folder
+            && !is_test_file(sibling)
+            && is_owner_stem(base, &sibling.stem)
+    })
 }
 
-fn has_class_owner(tree: &Tree, file: &SourceFile, base: &str) -> anyhow::Result<bool> {
+fn has_pascal_case_owner(tree: &Tree, file: &SourceFile, base: &str) -> anyhow::Result<bool> {
     if !is_pascal_case(base) {
         return Ok(false);
     }
 
-    let extension = if file.is_tsx() { ".tsx" } else { ".ts" };
-    let owners = tree.files.iter().filter(|sibling| {
-        is_production_sibling(file, sibling, extension) && is_owner_stem(base, &sibling.stem)
-    });
-
-    for owner in owners {
-        if exports_class(&tree.read(owner)?, &owner.stem) {
+    for owner in owners(tree, file, base) {
+        if owner.is_tsx() || exports_class(&tree.read(owner)?, &owner.stem) {
             return Ok(true);
         }
     }
@@ -159,14 +164,7 @@ fn test_base(file: &SourceFile) -> Option<&str> {
 }
 
 fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
-    let extension = if file.is_tsx() { ".tsx" } else { ".ts" };
-
-    tree.files.iter().any(|sibling| {
-        sibling.folder == file.folder
-            && !is_test_file(sibling)
-            && sibling.name.ends_with(extension)
-            && is_owner_stem(base, &sibling.stem)
-    })
+    owners(tree, file, base).next().is_some()
 }
 
 fn is_owner_stem(stem: &str, base: &str) -> bool {

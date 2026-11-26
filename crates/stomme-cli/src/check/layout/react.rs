@@ -35,7 +35,7 @@ fn component_file(file: &SourceFile) -> Option<Problem> {
 fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
     let base = file.name.strip_suffix(".test.tsx")?;
 
-    if has_component(tree, file, base) {
+    if has_owner(tree, file, base) {
         return None;
     }
 
@@ -43,22 +43,23 @@ fn test_placement(file: &SourceFile, tree: &Tree) -> Option<Problem> {
         file,
         Rule::ReactTestPlacement,
         format!(
-            "puts the test `{}` beside no component; name it `<Component>.test.tsx` beside `<Component>.tsx`",
+            "puts the test `{}` beside no owner; name it `<owner>.test.tsx` beside `<owner>.ts` or `<owner>.tsx`",
             file.name
         ),
     ))
 }
 
-fn has_component(tree: &Tree, file: &SourceFile, base: &str) -> bool {
+// A `.test.tsx` test matches an owner of either TypeScript extension: the test's extension says
+// that it renders JSX, not which extension its owner has.
+fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
     tree.files.iter().any(|sibling| {
         sibling.folder == file.folder
-            && sibling.is_tsx()
             && !is_test_file(sibling)
-            && is_component_stem(&sibling.stem, base)
+            && is_owner_stem(&sibling.stem, base)
     })
 }
 
-fn is_component_stem(stem: &str, base: &str) -> bool {
+fn is_owner_stem(stem: &str, base: &str) -> bool {
     if stem == base {
         return true;
     }

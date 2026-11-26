@@ -17,5 +17,5 @@ in the [rules table](../../shared/rules.md).
 This narrows the `## Test placement` section of the
 [TypeScript coding guide](../../languages/typescript/guide.md#test-placement).
 
-- `react-test-placement`: A component's unit test sits beside it as `<Component>.test.tsx` or
-  `<Component><Behavior>.test.tsx`. A test that renders no JSX uses `.test.ts`.
+- `react-test-placement`: A `.tsx` unit test sits beside its owner as `<owner>.test.tsx` or
+  `<owner><Behavior>.test.tsx`. A test that renders no JSX uses `.test.ts`.

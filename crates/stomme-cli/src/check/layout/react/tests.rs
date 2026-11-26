@@ -17,6 +17,49 @@ fn rules(problems: &[Problem]) -> Vec<Rule> {
 }
 
 #[test]
+fn tsx_test_placement_accepts_an_owner_of_either_extension() {
+    let cases = [
+        (
+            "component owner",
+            &["src/TicketList.tsx"][..],
+            "src/TicketList.test.tsx",
+            None,
+        ),
+        (
+            "module owner",
+            &["src/report.ts"][..],
+            "src/report.test.tsx",
+            None,
+        ),
+        (
+            "no owner",
+            &[][..],
+            "src/missing.test.tsx",
+            Some(Rule::ReactTestPlacement),
+        ),
+    ];
+
+    for (case, owners, test, expected) in cases {
+        let root = tempfile::tempdir().expect("create a temporary directory");
+
+        for owner in owners {
+            write_file(root.path(), owner, "");
+        }
+
+        write_file(root.path(), test, "");
+
+        let problems = check(&tree(root.path()));
+        let expected_rules: Vec<Rule> = expected.into_iter().collect();
+
+        assert_eq!(rules(&problems), expected_rules, "{case}");
+        assert!(
+            problems.iter().all(|problem| problem.path == test),
+            "{case}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn tsx_rules_run_only_with_the_react_layer() {
     let root = tempfile::tempdir().expect("create a temporary directory");
     write_file(root.path(), "src/button.tsx", "");

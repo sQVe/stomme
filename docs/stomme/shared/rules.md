@@ -78,7 +78,7 @@ paths are relative to the stomme crate.
 | `gpui-component-kit` | Only the `kit` role imports gpui-component; other code uses the project's own widget types. | layer `gpui-component` | always | `roles` | src/check/package_boundaries.rs | tests/fixtures/rules/gpui-component-kit | partial; not enforced: components that a package other than `kit` uses through a bundle crate that re-exports them |
 | `react-jsx-extension` | Only a file that contains JSX uses `.tsx`. | layer `react` | always | none | none | none | guidance only |
 | `react-component-file` | A file that mainly exports one component is named after it in PascalCase. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-component-file | enforced |
-| `react-test-placement` | A component's unit test sits beside it as `<Component>.test.tsx`. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-test-placement | enforced |
+| `react-test-placement` | A `.tsx` unit test sits beside its owner as `<owner>.test.tsx`. | layer `react` | always | none | src/check/layout/react.rs | tests/fixtures/rules/react-test-placement | enforced |
 | `pi-discovered-path` | `package.json` declares every path Pi discovers, and renaming code keeps those paths. | layer `pi` | always | none | none | none | guidance only |
 | `pi-registered-name` | Renaming code keeps every name registered with Pi. | layer `pi` | always | none | none | none | guidance only |
 | `herdr-mod-bundle` | Each mod builds into one `main.js` bundle; imports of Herdr's own modules stay imports. | layer `herdr` | always | none | none | none | guidance only |
