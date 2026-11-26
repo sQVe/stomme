@@ -123,6 +123,64 @@ fn refuses_a_comment_version_that_is_not_a_release_version() {
 }
 
 #[test]
+fn refuses_a_quoted_call_with_a_trailing_comment() {
+    let (path, text) = workflow(
+        "ci.yml",
+        "uses: \"sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0\" # v1.2.3",
+    );
+    let root = project_with(&[(&path, &text)]);
+
+    let problems = check(root.path(), "1.2.3").expect("check the workflows");
+
+    assert_eq!(problems.len(), 1);
+    assert!(
+        problems[0]
+            .message
+            .contains("quotes the call to `ocr-review.yml`"),
+        "{problems:?}"
+    );
+}
+
+#[test]
+fn reports_the_same_messages_for_unquoted_calls() {
+    let cases = [
+        (
+            "a tag ref",
+            "uses: sQVe/stomme/.github/workflows/ocr-review.yml@v0.2.0".to_string(),
+            "by the moving name `v0.2.0`",
+        ),
+        (
+            "a commit with no comment",
+            format!("uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT}"),
+            "at a commit with no version comment",
+        ),
+        (
+            "a comment with no version",
+            format!("uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # notes"),
+            "with the comment `# notes`",
+        ),
+        (
+            "a different version",
+            format!("uses: sQVe/stomme/.github/workflows/ocr-review.yml@{COMMIT} # v1.2.2"),
+            "at v1.2.2; `stomme.toml` has version 1.2.3",
+        ),
+    ];
+
+    for (name, line, expected) in cases {
+        let (path, text) = workflow("ci.yml", &line);
+        let root = project_with(&[(&path, &text)]);
+
+        let problems = check(root.path(), "1.2.3").expect("check the workflows");
+
+        assert_eq!(problems.len(), 1, "{name}: {problems:?}");
+        assert!(
+            problems[0].message.contains(expected),
+            "{name}: {problems:?}"
+        );
+    }
+}
+
+#[test]
 fn accepts_a_release_candidate_comment_version() {
     let (path, text) = workflow(
         "ci.yml",

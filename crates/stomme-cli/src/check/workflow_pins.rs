@@ -151,13 +151,13 @@ fn call_problem(line: &str, number: usize, version: &str, path: &str) -> Option<
 
 fn unquote(value: &str) -> (&str, bool) {
     for quote in ['"', '\''] {
-        let quoted = value
-            .strip_prefix(quote)
-            .and_then(|rest| rest.strip_suffix(quote));
+        let Some(rest) = value.strip_prefix(quote) else {
+            continue;
+        };
 
-        if let Some(inner) = quoted {
-            return (inner, true);
-        }
+        let inner = rest.strip_suffix(quote).unwrap_or(rest);
+
+        return (inner, true);
     }
 
     (value, false)
