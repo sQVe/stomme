@@ -190,19 +190,6 @@ fn check_reports_a_test_beside_no_owner_for_either_extension() {
 }
 
 #[test]
-fn check_ignores_test_files_when_counting_an_owner_folder() {
-    let root = tempfile::tempdir().expect("create a temporary directory");
-
-    write_file(root.path(), "src/report.ts", "");
-    write_file(root.path(), "src/report.test.ts", "");
-    write_file(root.path(), "src/report.test.tsx", "");
-
-    let problems = check(&tree(root.path()), &BTreeSet::new()).expect("check the project");
-
-    assert_eq!(problems, Vec::<Problem>::new());
-}
-
-#[test]
 fn check_passes_a_test_named_after_its_owner_family() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 

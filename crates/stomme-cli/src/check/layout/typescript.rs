@@ -64,7 +64,7 @@ fn owners<'a>(
     tree.files.iter().filter(move |sibling| {
         sibling.folder == file.folder
             && !is_test_file(sibling)
-            && is_owner_stem(base, &sibling.stem)
+            && is_owner_stem(&sibling.stem, base)
     })
 }
 
@@ -163,16 +163,16 @@ fn test_base(file: &SourceFile) -> Option<&str> {
     }
 }
 
-fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
+pub(super) fn has_owner(tree: &Tree, file: &SourceFile, base: &str) -> bool {
     owners(tree, file, base).next().is_some()
 }
 
-fn is_owner_stem(stem: &str, base: &str) -> bool {
-    if stem == base {
+fn is_owner_stem(owner: &str, test_base: &str) -> bool {
+    if owner == test_base {
         return true;
     }
 
-    let Some(rest) = stem.strip_prefix(base) else {
+    let Some(rest) = test_base.strip_prefix(owner) else {
         return false;
     };
     let mut characters = rest.chars();
@@ -183,7 +183,7 @@ fn is_owner_stem(stem: &str, base: &str) -> bool {
     first.is_ascii_uppercase() && characters.next().is_some()
 }
 
-fn is_test_file(file: &SourceFile) -> bool {
+pub(super) fn is_test_file(file: &SourceFile) -> bool {
     file.name.ends_with(".test.ts")
         || file.name.ends_with(".test.tsx")
         || file.path.split('/').any(|part| part == "__tests__")

@@ -32,6 +32,18 @@ fn tsx_test_placement_accepts_an_owner_of_either_extension() {
             None,
         ),
         (
+            "test sibling only",
+            &["src/report.test.ts"][..],
+            "src/report.test.tsx",
+            Some(Rule::ReactTestPlacement),
+        ),
+        (
+            "one letter family stem",
+            &["src/TicketList.tsx"][..],
+            "src/TicketListX.test.tsx",
+            Some(Rule::ReactTestPlacement),
+        ),
+        (
             "no owner",
             &[][..],
             "src/missing.test.tsx",
