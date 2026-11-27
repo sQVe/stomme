@@ -537,6 +537,61 @@ fn repository_variables_cover_gits_local_variables() {
 }
 
 #[test]
+fn stomme_command_runs_the_subcommand() {
+    let root = Path::new("/root");
+    let folder = Path::new("/scratch");
+    let sync = stomme_command(root, folder, "sync");
+    let scope = stomme_command(root, folder, "ocr-scope");
+
+    assert_eq!(
+        arguments(&sync),
+        [
+            "run",
+            "--locked",
+            "--quiet",
+            "--manifest-path",
+            "/root/Cargo.toml",
+            "-p",
+            "stomme",
+            "--",
+            "sync",
+        ]
+    );
+    assert_eq!(
+        arguments(&scope),
+        [
+            "run",
+            "--locked",
+            "--quiet",
+            "--manifest-path",
+            "/root/Cargo.toml",
+            "-p",
+            "stomme",
+            "--",
+            "ocr-scope",
+        ]
+    );
+    assert_eq!(sync.get_current_dir(), Some(folder));
+    assert_eq!(scope.get_current_dir(), Some(folder));
+}
+
+#[test]
+fn stage_tree_stages_the_written_files() {
+    let folder = temporary_directory();
+
+    init_repository(folder.path()).expect("init the repository");
+    let tree = stage_tree(
+        folder.path(),
+        &[("a.txt", "one\n"), ("nested/b.txt", "two\n")],
+    )
+    .expect("stage the files");
+    let listing =
+        git_text(folder.path(), &["ls-tree", "-r", "--name-only", &tree]).expect("list the tree");
+
+    assert_eq!(listing, "a.txt\nnested/b.txt");
+}
+
+#[test]
 fn scratch_commands_clear_repository_variables() {
     let home = temporary_directory();
     let commands = [
@@ -545,7 +600,8 @@ fn scratch_commands_clear_repository_variables() {
             &ocr(Path::new("/root"), home.path()),
             &["review".to_string()],
         ),
-        sync_command(Path::new("/root"), Path::new("/scratch")),
+        stomme_command(Path::new("/root"), Path::new("/scratch"), "sync"),
+        stomme_command(Path::new("/root"), Path::new("/scratch"), "ocr-scope"),
     ];
 
     for command in commands {

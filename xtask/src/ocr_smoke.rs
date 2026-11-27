@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
 
 use anyhow::Context as _;
 use serde::Deserialize;
@@ -446,14 +446,10 @@ fn build_repository() -> anyhow::Result<Repository> {
 
     init_repository(path)?;
 
-    write_files(path, BASE_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let base_tree = git_text(path, &["write-tree"])?;
+    let base_tree = stage_tree(path, BASE_FILES)?;
     let base = git_text(path, &["commit-tree", &base_tree, "-m", "base"])?;
 
-    write_files(path, HEAD_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let head_tree = git_text(path, &["write-tree"])?;
+    let head_tree = stage_tree(path, HEAD_FILES)?;
     let head = git_text(
         path,
         &["commit-tree", &head_tree, "-p", &base, "-m", "head"],
@@ -492,32 +488,39 @@ fn stomme_version(root: &Path) -> anyhow::Result<String> {
 }
 
 fn sync_typescript_consumer(root: &Path, folder: &Path) -> anyhow::Result<()> {
-    let output = sync_command(root, folder)
-        .output()
-        .context("Could not run cargo run -p stomme -- sync")?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "cargo run -p stomme -- sync failed with {}:\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    stomme_output(&mut stomme_command(root, folder, "sync"), "sync")?;
 
     Ok(())
 }
 
-fn sync_command(root: &Path, folder: &Path) -> Command {
+fn stomme_command(root: &Path, folder: &Path, subcommand: &str) -> Command {
     let mut command = Command::new("cargo");
 
     command
         .args(["run", "--locked", "--quiet", "--manifest-path"])
         .arg(root.join("Cargo.toml"))
-        .args(["-p", "stomme", "--", "sync"])
+        .args(["-p", "stomme", "--", subcommand])
         .current_dir(folder);
     isolate_git(&mut command);
 
     command
+}
+
+fn stomme_output(command: &mut Command, subcommand: &str) -> anyhow::Result<Output> {
+    let description = format!("cargo run -p stomme -- {subcommand}");
+    let output = command
+        .output()
+        .with_context(|| format!("Could not run {description}"))?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "{description} failed with {}:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(output)
 }
 
 pub(super) fn init_repository(folder: &Path) -> anyhow::Result<()> {
@@ -539,6 +542,13 @@ pub(super) fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Resu
     Ok(())
 }
 
+pub(super) fn stage_tree(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<String> {
+    write_files(folder, files)?;
+    git_text(folder, &["add", "-A"])?;
+
+    git_text(folder, &["write-tree"])
+}
+
 fn git_command(folder: &Path) -> Command {
     let mut command = Command::new("git");
 
@@ -557,13 +567,9 @@ fn git_command(folder: &Path) -> Command {
 
 pub(super) fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
     let mut command = git_command(folder);
-
-    git_text_from(command.args(arguments), arguments)
-}
-
-fn git_text_from(command: &mut Command, arguments: &[&str]) -> anyhow::Result<String> {
     let description = format!("git {}", arguments.join(" "));
     let output = command
+        .args(arguments)
         .output()
         .with_context(|| format!("Could not run {description}"))?;
 

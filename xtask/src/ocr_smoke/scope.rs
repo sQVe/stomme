@@ -1,13 +1,11 @@
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::Context as _;
 
 use super::{
     CaseOutcome, Ocr, Preview, RULES, admission_failures, git_text, init_repository, parse_preview,
-    preview_arguments, run_ocr, temporary_folder, write_files,
+    preview_arguments, run_ocr, stage_tree, stomme_command, stomme_output, temporary_folder,
 };
-use crate::git_isolation::isolate_git;
 
 const CASE: &str = "scope";
 
@@ -131,22 +129,16 @@ fn absence_failures(preview: &Preview, paths: &[&str]) -> Vec<String> {
 }
 
 fn build_history(path: &Path, root: &Path) -> anyhow::Result<History> {
-    write_files(path, BASE_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let base_tree = git_text(path, &["write-tree"])?;
+    let base_tree = stage_tree(path, BASE_FILES)?;
     let base = git_text(path, &["commit-tree", &base_tree, "-m", "base"])?;
 
-    write_files(path, REVIEWED_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let reviewed_tree = git_text(path, &["write-tree"])?;
+    let reviewed_tree = stage_tree(path, REVIEWED_FILES)?;
     let reviewed = git_text(
         path,
         &["commit-tree", &reviewed_tree, "-p", &base, "-m", "reviewed"],
     )?;
 
-    write_files(path, MOVED_BASE_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let moved_base_tree = git_text(path, &["write-tree"])?;
+    let moved_base_tree = stage_tree(path, MOVED_BASE_FILES)?;
     let moved_base = git_text(
         path,
         &[
@@ -159,9 +151,7 @@ fn build_history(path: &Path, root: &Path) -> anyhow::Result<History> {
         ],
     )?;
 
-    write_files(path, HEAD_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let head_tree = git_text(path, &["write-tree"])?;
+    let head_tree = stage_tree(path, HEAD_FILES)?;
     let head = git_text(
         path,
         &["commit-tree", &head_tree, "-p", &moved_base, "-m", "head"],
@@ -180,46 +170,18 @@ fn run_scope_command(
     base: &str,
     head: &str,
 ) -> anyhow::Result<String> {
-    let output = scope_command(folder, root, reviewed, reviewed_base, base, head)
-        .output()
-        .context("Could not run cargo run -p stomme -- ocr-scope")?;
+    let mut command = stomme_command(root, folder, "ocr-scope");
 
-    if !output.status.success() {
-        anyhow::bail!(
-            "cargo run -p stomme -- ocr-scope failed with {}:\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
+    command
+        .args(["--reviewed", reviewed])
+        .args(["--reviewed-base", reviewed_base])
+        .args(["--base", base])
+        .args(["--head", head]);
+    let output = stomme_output(&mut command, "ocr-scope")?;
     let text = String::from_utf8(output.stdout)
         .context("ocr-scope printed a base commit that is not UTF-8")?;
 
     Ok(text.trim().to_string())
-}
-
-fn scope_command(
-    folder: &Path,
-    root: &Path,
-    reviewed: &str,
-    reviewed_base: &str,
-    base: &str,
-    head: &str,
-) -> Command {
-    let mut command = Command::new("cargo");
-
-    command
-        .args(["run", "--locked", "--quiet", "--manifest-path"])
-        .arg(root.join("Cargo.toml"))
-        .args(["-p", "stomme", "--", "ocr-scope"])
-        .args(["--reviewed", reviewed])
-        .args(["--reviewed-base", reviewed_base])
-        .args(["--base", base])
-        .args(["--head", head])
-        .current_dir(folder);
-    isolate_git(&mut command);
-
-    command
 }
 
 fn check_graft(path: &Path, history: &History) -> anyhow::Result<()> {
