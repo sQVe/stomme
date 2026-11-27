@@ -206,8 +206,12 @@ fn job_counts(cores: NonZeroUsize) -> (usize, usize) {
     (jobs, threads)
 }
 
+fn scratch_directory(root: &Path) -> PathBuf {
+    root.join(SCRATCH_DIRECTORY)
+}
+
 fn empty_scratch(root: &Path) -> anyhow::Result<()> {
-    let scratch = root.join(SCRATCH_DIRECTORY);
+    let scratch = scratch_directory(root);
 
     if scratch.exists() {
         fs::remove_dir_all(&scratch)
@@ -228,7 +232,7 @@ fn mutants_command(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> Co
     let mut command = Command::new(cargo);
 
     command
-        .env("TMPDIR", root.join(SCRATCH_DIRECTORY))
+        .env("TMPDIR", scratch_directory(root))
         .env("NEXTEST_TEST_THREADS", threads.to_string())
         .args(["mutants", "--workspace", "--no-shuffle", "--jobs"])
         .arg(jobs.to_string())
