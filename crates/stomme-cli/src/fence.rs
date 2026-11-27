@@ -15,6 +15,7 @@ pub(crate) struct Line<'a> {
 pub(crate) struct UnfencedLine<'a> {
     pub(crate) index: usize,
     pub(crate) item_start: usize,
+    pub(crate) raw: &'a str,
     pub(crate) view: Line<'a>,
 }
 
@@ -27,12 +28,16 @@ pub(crate) fn unfenced_lines<'a>(
     let mut fence: Option<OpenFence> = None;
 
     lines.enumerate().filter_map(move |(index, raw)| {
-        let view = containers.view(without_quote(raw));
+        let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
+        let (raw_indent, _) = split_indent(raw);
+        let base = containers.base_for(raw_indent);
+        let quote = split_quote(raw, quote_limit, base);
+        let view = containers.view(quote.indent, quote.start, quote.content);
 
         if let Some(open) = &fence {
-            let container_ended = view.depth < open.depth;
-            let closes =
-                view.relative <= MAX_BLOCK_INDENT && closes_fence(view.content, &open.fence);
+            let container_ended = view.depth < open.depth || quote.quotes < open.quotes;
+            let closes = view.indent.saturating_sub(open.column) <= MAX_BLOCK_INDENT
+                && closes_fence(view.content, &open.fence);
 
             if container_ended || closes {
                 fence = None;
@@ -47,14 +52,16 @@ pub(crate) fn unfenced_lines<'a>(
             return None;
         }
 
-        let opens_item = list_marker(view.content).is_some();
+        let item_column = list_content_column(view.indent, view.content);
 
         if let Some(open) = opening_fence(content_after_markers(view.content)) {
             containers.open_list_item(&view);
 
             fence = Some(OpenFence {
                 fence: open,
-                depth: view.depth + usize::from(opens_item),
+                depth: view.depth + usize::from(item_column.is_some()),
+                quotes: quote.quotes,
+                column: item_column.unwrap_or(view.indent - view.relative),
             });
 
             return None;
@@ -67,25 +74,63 @@ pub(crate) fn unfenced_lines<'a>(
         Some(UnfencedLine {
             index,
             item_start,
+            raw,
             view,
         })
     })
 }
 
-// A block quote marker is transparent to the list items and fences it holds.
-fn without_quote(raw: &str) -> &str {
-    let (indent, content) = split_indent(raw);
-    let Some(rest) = content.strip_prefix('>') else {
-        return raw;
-    };
+struct Quote<'a> {
+    indent: usize,
+    quotes: usize,
+    start: usize,
+    content: &'a str,
+}
 
-    if indent > MAX_BLOCK_INDENT {
-        return raw;
+// A block quote marker is transparent to the list items and fences it holds. The marker counts as
+// a column, so the content keeps its position inside the enclosing list item.
+fn split_quote<'a>(raw: &'a str, limit: usize, mut base: usize) -> Quote<'a> {
+    let mut column = 0;
+    let mut quotes = 0;
+    let mut start = 0;
+    let mut rest = raw;
+
+    loop {
+        let content = rest.trim_start_matches([' ', '\t']);
+        let whitespace = &rest[..rest.len() - content.len()];
+
+        column = indentation_from(whitespace, column);
+
+        let has_room = column.saturating_sub(base) <= MAX_BLOCK_INDENT;
+        let is_quote = quotes < limit && has_room && content.starts_with('>');
+
+        if !is_quote {
+            return Quote {
+                indent: column,
+                quotes,
+                start,
+                content,
+            };
+        }
+
+        let after = &content[1..];
+
+        column += 1;
+        quotes += 1;
+
+        if let Some(after) = after.strip_prefix('\t') {
+            column += TAB_WIDTH - column % TAB_WIDTH;
+            rest = after;
+        } else if let Some(after) = after.strip_prefix(' ') {
+            column += 1;
+            rest = after;
+        } else {
+            rest = after;
+        }
+
+        start = column;
+        base = start;
     }
-
-    let rest = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
-
-    without_quote(rest)
 }
 
 // The text a fence starts at, after every list marker the line holds.
@@ -120,12 +165,20 @@ impl Containers {
         }
     }
 
+    // The content column of the innermost open item that holds a line at `indent`.
+    fn base_for(&self, indent: usize) -> usize {
+        self.items
+            .iter()
+            .rev()
+            .find(|item| item.column <= indent)
+            .map(|item| item.column)
+            .unwrap_or(0)
+    }
+
     // Reads the line against the open items. A blank line continues every open item, so it closes
     // none of them.
-    fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
+    fn view<'a>(&mut self, indent: usize, container_start: usize, content: &'a str) -> Line<'a> {
         self.viewed += 1;
-
-        let (indent, content) = split_indent(raw);
 
         if content.is_empty() {
             return Line {
@@ -141,10 +194,11 @@ impl Containers {
         }
 
         let base = self.items.last().map(|item| item.column).unwrap_or(0);
+        let start = container_start.max(base);
 
         Line {
             indent,
-            relative: indent - base,
+            relative: indent - start,
             depth: self.items.len(),
             content,
         }
@@ -171,16 +225,24 @@ impl Containers {
 struct OpenFence {
     fence: Fence,
     depth: usize,
+    quotes: usize,
+    column: usize,
+}
+
+fn indentation_from(whitespace: &str, mut column: usize) -> usize {
+    for character in whitespace.chars() {
+        if character == '\t' {
+            column += TAB_WIDTH - column % TAB_WIDTH;
+        } else {
+            column += 1;
+        }
+    }
+
+    column
 }
 
 fn indentation(whitespace: &str) -> usize {
-    whitespace.chars().fold(0, |column, character| {
-        if character == '\t' {
-            column + TAB_WIDTH - column % TAB_WIDTH
-        } else {
-            column + 1
-        }
-    })
+    indentation_from(whitespace, 0)
 }
 
 pub(crate) fn split_indent(line: &str) -> (usize, &str) {

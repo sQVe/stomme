@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
-use crate::fence::{is_heading, unfenced_lines};
+use crate::fence::{is_heading, split_indent, unfenced_lines};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
@@ -277,8 +277,8 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 
 fn heading_line(text: &str) -> Option<&str> {
     unfenced_lines(text.lines())
-        .find(|line| is_heading(line.view.content))
-        .map(|line| line.view.content)
+        .map(|line| split_indent(line.raw).1)
+        .find(|content| is_heading(content))
 }
 
 fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
@@ -293,7 +293,7 @@ fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
     let mut unparsed = Vec::new();
 
     for line in unfenced_lines(section(index, "## Index")) {
-        let text = line.view.content.trim_end();
+        let text = split_indent(line.raw).1.trim_end();
 
         if text.is_empty() {
             continue;

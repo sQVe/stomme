@@ -93,6 +93,10 @@ fn a_fence_on_a_list_marker_line_hides_the_item_content() {
             "ordered",
             "1. ```\n   - [entry](./0001-a.md)\n   ```\nafter\n",
         ),
+        (
+            "two markers",
+            "- - ```\n    - [entry](./0001-a.md)\n    ```\nafter\n",
+        ),
     ];
 
     for (case, text) in cases {
@@ -101,10 +105,38 @@ fn a_fence_on_a_list_marker_line_hides_the_item_content() {
 }
 
 #[test]
-fn a_fence_after_two_list_markers_on_one_line_hides_the_item_content() {
-    let text = "- - ```\n  - [entry](./0001-a.md)\n  ```\nafter\n";
+fn a_quote_inside_a_fence_is_content() {
+    let text = "- Topic\n  ```\n  > quoted\n  ```\nafter\n";
 
-    assert_eq!(scanned(text), [(3, 0, "after")]);
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (4, 0, "after")]);
+}
+
+#[test]
+fn a_quoted_fence_ends_with_the_quote() {
+    let text = "> ```\n> hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(2, 0, "after")]);
+}
+
+#[test]
+fn a_quote_inside_a_fence_does_not_close_it() {
+    let text = "- Topic\n  ```\n  > ```\n  still hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (4, 0, "after")]);
+}
+
+#[test]
+fn an_over_indented_closer_does_not_close_the_fence() {
+    let text = "- Topic\n    ```\n    hidden\n       ```\n    still hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (5, 0, "after")]);
+}
+
+#[test]
+fn a_quote_at_a_list_item_content_column_is_transparent() {
+    let text = "10. Topic\n    > - ```\n    >   - [entry](./0001-a.md)\n    >   ```\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "10. Topic"), (4, 0, "after")]);
 }
 
 #[test]

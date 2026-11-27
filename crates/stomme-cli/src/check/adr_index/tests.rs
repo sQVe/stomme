@@ -551,58 +551,37 @@ fn check_reports_an_index_link_inside_indented_code_in_a_list() {
 }
 
 #[test]
-fn check_ignores_a_fenced_link_on_a_list_marker_line() {
-    let root = complete_project();
-    let sample = "- ```\n  - [0001: Documentation scope](./0001-documentation-scope.md)\n  ```\n";
+fn check_ignores_an_index_link_inside_a_fenced_block() {
+    let cases = [
+        (
+            "fence on a list marker line",
+            "- ```\n  - [0001: Documentation scope](./0001-documentation-scope.md)\n  ```\n",
+        ),
+        (
+            "fence after two list markers",
+            "- - ```\n    - [0001: Documentation scope](./0001-documentation-scope.md)\n    ```\n",
+        ),
+        (
+            "fence in a quoted list item",
+            "> - ```\n>   - [0001: Documentation scope](./0001-documentation-scope.md)\n>   ```\n",
+        ),
+        (
+            "fence in the index",
+            "```\n- [0001: Documentation scope](./0001-documentation-scope.md)\n```\n",
+        ),
+    ];
 
-    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
+    for (case, sample) in cases {
+        let root = complete_project();
 
-    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
-}
+        replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
 
-#[test]
-fn check_ignores_a_fenced_link_after_two_list_markers() {
-    let root = complete_project();
-    let sample = "- - ```\n  - [0001: Documentation scope](./0001-documentation-scope.md)\n  ```\n";
-
-    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
-
-    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
-}
-
-#[test]
-fn check_ignores_a_fenced_link_in_a_quoted_list_item() {
-    let root = complete_project();
-    let sample =
-        "> - ```\n>   - [0001: Documentation scope](./0001-documentation-scope.md)\n>   ```\n";
-
-    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
-
-    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
-}
-
-#[test]
-fn check_ignores_a_fenced_link_in_the_index() {
-    let root = complete_project();
-    let sample = "```\n- [0001: Documentation scope](./0001-documentation-scope.md)\n```\n";
-
-    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
-
-    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
-}
-
-#[test]
-fn check_reports_a_no_break_space_index_line_as_not_a_list_entry() {
-    let root = complete_project();
-
-    add_index_line(
-        root.path(),
-        "\u{a0}- [0001: Documentation scope](./0001-documentation-scope.md)",
-    );
-
-    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
-
-    assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexEntry)]);
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{case}"
+        );
+    }
 }
 
 #[test]
@@ -619,6 +598,7 @@ fn check_reports_an_index_line_that_is_not_a_plain_entry() {
         "- 0001-documentation-scope.md",
         "- [Template](./TEMPLATE.md)",
         "- [Notes](./notes.md)",
+        "\u{a0}- [0001: Documentation scope](./0001-documentation-scope.md)",
     ];
 
     for line in cases {
