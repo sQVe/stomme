@@ -65,6 +65,7 @@ impl Lock {
         let mut packages = Vec::new();
         let mut by_name: BTreeMap<String, Vec<Package>> = BTreeMap::new();
         let mut raw_dependencies = Vec::new();
+        let mut seen: BTreeSet<Package> = BTreeSet::new();
 
         for raw in file.package {
             let RawPackage {
@@ -78,6 +79,13 @@ impl Lock {
                 version,
                 source,
             };
+
+            if !seen.insert(package.clone()) {
+                return Err(format!(
+                    "lists the package `{}` more than once",
+                    identity_label(&package)
+                ));
+            }
 
             by_name
                 .entry(package.name.clone())
@@ -150,7 +158,8 @@ fn resolve(by_name: &BTreeMap<String, Vec<Package>>, entry: &str) -> Result<Pack
     let version = parts.next();
     let source = parts
         .next()
-        .map(|part| part.trim_start_matches('(').trim_end_matches(')'));
+        .map(|part| source_qualifier(entry, part))
+        .transpose()?;
 
     if parts.next().is_some() {
         return Err(format!(
@@ -159,23 +168,19 @@ fn resolve(by_name: &BTreeMap<String, Vec<Package>>, entry: &str) -> Result<Pack
     }
 
     let candidates = by_name.get(name).map(Vec::as_slice).unwrap_or(&[]);
-
-    if candidates.len() == 1 {
-        return Ok(candidates[0].clone());
-    }
-
     let mut matches: Vec<&Package> = candidates.iter().collect();
 
     if let Some(version) = version {
         matches.retain(|package| package.version == version);
     }
 
-    if matches.len() == 1 {
-        return Ok(matches[0].clone());
-    }
-
     if let Some(source) = source {
-        matches.retain(|package| package.source.as_deref() == Some(source));
+        matches.retain(|package| {
+            package
+                .source
+                .as_deref()
+                .is_some_and(|package_source| source_matches(package_source, source))
+        });
     }
 
     match matches.as_slice() {
@@ -186,6 +191,46 @@ fn resolve(by_name: &BTreeMap<String, Vec<Package>>, entry: &str) -> Result<Pack
         _ => Err(format!(
             "has the dependency `{entry}`, which matches more than one lock package"
         )),
+    }
+}
+
+fn source_matches(package_source: &str, qualifier: &str) -> bool {
+    if package_source == qualifier {
+        return true;
+    }
+
+    let is_git = package_source.starts_with("git+");
+
+    is_git && source_without_precise(package_source) == qualifier
+}
+
+fn source_without_precise(source: &str) -> &str {
+    source.split_once('#').map_or(source, |(base, _)| base)
+}
+
+fn source_qualifier<'a>(entry: &str, part: &'a str) -> Result<&'a str, String> {
+    let Some(source) = part
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return Err(format!(
+            "has the dependency entry `{entry}`, whose source qualifier `{part}` is not enclosed in parentheses"
+        ));
+    };
+
+    if source.is_empty() {
+        return Err(format!(
+            "has the dependency entry `{entry}`, whose source qualifier is empty"
+        ));
+    }
+
+    Ok(source)
+}
+
+fn identity_label(package: &Package) -> String {
+    match &package.source {
+        Some(source) => format!("{} {} ({source})", package.name, package.version),
+        None => format!("{} {}", package.name, package.version),
     }
 }
 

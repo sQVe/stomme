@@ -7,6 +7,7 @@ use super::{Problem, Rule};
 use crate::layer::policy::RequiredBan;
 
 const CLIPPY_FILE: &str = "clippy.toml";
+const CLIPPY_FILE_NAMES: [&str; 2] = [".clippy.toml", CLIPPY_FILE];
 
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -18,13 +19,15 @@ struct ProjectFile {
 #[derive(Deserialize)]
 #[serde(
     untagged,
-    expecting = "needs a method path, or a table with `path` and an optional `reason`"
+    expecting = "needs a method path, or a table with `path`, an optional `reason`, and an optional `replacement`"
 )]
 enum ProjectBan {
     Path(String),
     Table {
         path: String,
         reason: Option<String>,
+        #[serde(rename = "replacement")]
+        _replacement: Option<String>,
     },
 }
 
@@ -36,15 +39,15 @@ pub(super) fn check(
         return Ok(Vec::new());
     }
 
-    let entries = match read_project_bans(root)? {
-        Ok(entries) => entries,
+    let (path, entries) = match read_project_bans(root)? {
+        Ok(found) => found,
         Err(problem) => return Ok(vec![problem]),
     };
     let problems = required
         .iter()
         .filter_map(|&(rule, ban)| {
             ban_message(ban, &entries).map(|message| Problem {
-                path: CLIPPY_FILE.to_string(),
+                path: path.clone(),
                 rule,
                 message,
                 key: None,
@@ -55,18 +58,26 @@ pub(super) fn check(
     Ok(problems)
 }
 
-fn read_project_bans(root: &Path) -> anyhow::Result<Result<Vec<ProjectBan>, Problem>> {
-    let bans = match read_toml_file::<ProjectFile>(root, CLIPPY_FILE)? {
-        Some(Ok(file)) => file.disallowed_methods,
-        Some(Err(reason)) => {
-            let message = format!("is not valid: {reason}");
-
-            return Ok(Err(config_problem(CLIPPY_FILE.to_string(), message)));
+fn read_project_bans(root: &Path) -> anyhow::Result<Result<(String, Vec<ProjectBan>), Problem>> {
+    for name in CLIPPY_FILE_NAMES {
+        if !root.join(name).is_file() {
+            continue;
         }
-        None => Vec::new(),
-    };
 
-    Ok(Ok(bans))
+        let bans = match read_toml_file::<ProjectFile>(root, name)? {
+            Some(Ok(file)) => file.disallowed_methods,
+            Some(Err(reason)) => {
+                let message = format!("is not valid: {reason}");
+
+                return Ok(Err(config_problem(name.to_string(), message)));
+            }
+            None => continue,
+        };
+
+        return Ok(Ok((name.to_string(), bans)));
+    }
+
+    Ok(Ok((CLIPPY_FILE.to_string(), Vec::new())))
 }
 
 fn ban_message(ban: &RequiredBan, entries: &[ProjectBan]) -> Option<String> {

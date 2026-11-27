@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 
 use super::*;
 use crate::layer;
@@ -259,6 +260,21 @@ fn check_reports_an_unreadable_root_manifest() {
             "[workspace]\nexclude = 3\n",
             "line 2: ",
         ),
+        (
+            "dependency table field of the wrong type",
+            "[workspace.dependencies]\nhelper = { path = \"../helper\", workspace = \"false\" }\n",
+            "line 2: ",
+        ),
+        (
+            "dependency table version of the wrong type",
+            "[workspace.dependencies]\nhelper = { version = 42 }\n",
+            "line 2: ",
+        ),
+        (
+            "dependency shorthand of the wrong type",
+            "[workspace.dependencies]\nhelper = 42\n",
+            "line 2: ",
+        ),
     ];
 
     for (case, text, line) in cases {
@@ -270,6 +286,68 @@ fn check_reports_an_unreadable_root_manifest() {
 
         assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, line, case);
     }
+}
+
+#[test]
+fn check_accepts_string_dependency_forms() {
+    let root = complete_project();
+    let manifest = fs::read_to_string(root.path().join("Cargo.toml")).expect("read Cargo.toml");
+
+    write_file(
+        root.path(),
+        "Cargo.toml",
+        &format!(
+            "{manifest}\n[workspace.dependencies]\nshorthand = \"1.0\"\ntable = {{ version = \"1.0\" }}\n"
+        ),
+    );
+
+    assert_eq!(check_project(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn check_fails_when_it_cannot_read_the_root_manifest() {
+    let root = complete_project();
+
+    fs::remove_file(root.path().join("Cargo.toml")).expect("remove Cargo.toml");
+    fs::create_dir(root.path().join("Cargo.toml")).expect("create a directory at Cargo.toml");
+
+    let error = run(
+        root.path(),
+        layer::catalog(),
+        &target(),
+        &config::FileRead::filesystem(),
+    )
+    .expect_err("a read error other than invalid UTF-8 aborts");
+    let path = root.path().join("Cargo.toml");
+
+    assert!(
+        error.to_string().contains(&path.display().to_string()),
+        "{error}"
+    );
+
+    let cause = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<io::Error>())
+        .expect("the I/O error is in the chain");
+
+    assert_eq!(cause.kind(), io::ErrorKind::IsADirectory);
+}
+
+#[test]
+fn check_reports_a_root_manifest_that_is_not_utf8() {
+    let root = complete_project();
+
+    fs::write(root.path().join("Cargo.toml"), [0xff, 0xfe]).expect("write invalid UTF-8");
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "Cargo.toml",
+        Rule::RustConfigFile,
+        "UTF-8",
+        "invalid UTF-8",
+    );
 }
 
 #[test]

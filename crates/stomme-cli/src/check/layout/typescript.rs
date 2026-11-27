@@ -266,12 +266,8 @@ fn is_family_stem(stem: &str, owner: &str) -> bool {
     let Some(rest) = stem.strip_prefix(owner) else {
         return false;
     };
-    let mut characters = rest.chars();
-    let Some(first) = characters.next() else {
-        return false;
-    };
 
-    first.is_ascii_uppercase() && characters.next().is_some()
+    is_pascal_case(rest)
 }
 
 #[cfg(test)]

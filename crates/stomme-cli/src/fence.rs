@@ -173,7 +173,7 @@ pub(crate) fn opens_block(content: &str) -> bool {
     is_quote_or_html || is_heading_or_break || starts_marker
 }
 
-fn is_heading(content: &str) -> bool {
+pub(crate) fn is_heading(content: &str) -> bool {
     let hashes = content.bytes().take_while(|byte| *byte == b'#').count();
     let rest = &content[hashes..];
 

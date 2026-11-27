@@ -115,5 +115,10 @@ pub(super) fn is_pascal_case(stem: &str) -> bool {
         return false;
     };
 
-    first.is_ascii_uppercase() && characters.all(|character| character.is_ascii_alphanumeric())
+    let has_lowercase = characters
+        .clone()
+        .any(|character| character.is_ascii_lowercase());
+    let is_alphanumeric = characters.all(|character| character.is_ascii_alphanumeric());
+
+    first.is_ascii_uppercase() && has_lowercase && is_alphanumeric
 }
