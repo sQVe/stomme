@@ -2,7 +2,7 @@
 # does not know yet, and its generated shell scripts trigger shellcheck's informational and style
 # checks.
 paths:
-  .github/workflows/release.yml:
+  .github/workflows/v-release.yml:
     ignore:
       - 'reusable workflow call "\$/.github/workflows/.+" at "uses" is not following'
       - 'shellcheck reported issue in this script: SC[0-9]+:(info|style):.+'

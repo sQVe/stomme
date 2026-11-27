@@ -4,6 +4,7 @@ members = ["cargo:."]
 [dist]
 cargo-dist-version = "0.34.0"
 ci = ["github"]
+tag-namespace = "v"
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "aarch64-apple-darwin"]
 installers = []
 include = ["packages.toml"]
