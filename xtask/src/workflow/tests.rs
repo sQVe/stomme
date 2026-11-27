@@ -286,10 +286,15 @@ fn release_workflow_starts_only_on_v_tags() {
 
 #[test]
 fn tag_push_patterns_reads_each_trigger_form() {
-    let cases: [(&str, &str, Vec<&str>); 9] = [
+    let cases: [(&str, &str, Vec<&str>); 10] = [
         (
             "a block list",
             "on:\n  push:\n    tags:\n      - 'v1.0.0'\n",
+            vec!["v1.0.0"],
+        ),
+        (
+            "a block list at the key's indentation",
+            "on:\n  push:\n    tags:\n    - 'v1.0.0'\n",
             vec!["v1.0.0"],
         ),
         (
@@ -1502,6 +1507,14 @@ fn tag_push_patterns(workflow: &str) -> Vec<String> {
             continue;
         }
 
+        if let Some(pattern) = trimmed.strip_prefix("- ") {
+            if tags {
+                patterns.push(strip_quotes(strip_comment(pattern)).to_string());
+            }
+
+            continue;
+        }
+
         let starts_filter = match filter_indent {
             Some(filter) => indent <= filter,
             None => true,
@@ -1519,16 +1532,6 @@ fn tag_push_patterns(workflow: &str) -> Vec<String> {
 
                 patterns.extend(inline_list(strip_comment(values.trim())));
             }
-
-            continue;
-        }
-
-        if !tags {
-            continue;
-        }
-
-        if let Some(pattern) = trimmed.strip_prefix("- ") {
-            patterns.push(strip_quotes(strip_comment(pattern)).to_string());
         }
     }
 
