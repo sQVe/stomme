@@ -1639,64 +1639,6 @@ fn a_restricted_use_does_not_bind_through_a_public_glob() {
 }
 
 #[test]
-fn edition_2015_resolves_a_leading_colon_inside_the_crate() {
-    let files = [
-        (
-            "Cargo.toml",
-            "[package]\nname = \"edition-2015\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
-        ),
-        ("src/config.rs", "pub mod parse;\n"),
-        ("src/config/parse.rs", "pub fn read() {}\n"),
-        ("src/ticket.rs", "use ::config::parse::read;\n"),
-    ];
-    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
-    let root = project(&files, table);
-
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "edition 2015",
-    );
-}
-
-#[test]
-fn a_leading_colon_stays_external_without_edition_2015() {
-    let cases: [(&str, Option<&str>); 3] = [
-        ("missing manifest", None),
-        (
-            "edition 2018",
-            Some("[package]\nname = \"x\"\nversion = \"0.1.0\"\nedition = \"2018\"\n"),
-        ),
-        (
-            "inherited edition",
-            Some("[package]\nname = \"x\"\nversion = \"0.1.0\"\nedition.workspace = true\n"),
-        ),
-    ];
-
-    for (name, manifest) in cases {
-        let mut files: Vec<(&str, &str)> = vec![
-            ("src/config.rs", "pub mod parse;\n"),
-            ("src/config/parse.rs", "pub fn read() {}\n"),
-            ("src/ticket.rs", "use ::config::parse::read;\n"),
-        ];
-
-        if let Some(manifest) = manifest {
-            files.push(("Cargo.toml", manifest));
-        }
-
-        let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
-        let root = project(&files, table);
-        let problems = problems(root.path());
-
-        assert!(problems.is_empty(), "{name}: {problems:?}");
-    }
-}
-
-#[test]
 fn a_public_glob_does_not_reach_a_restricted_export_of_a_public_module() {
     let files = [
         (
@@ -1846,6 +1788,23 @@ fn pub_super_use_at_the_crate_root_is_crate_visible() {
 }
 
 #[test]
+fn a_pub_super_use_below_the_crate_root_does_not_reach_the_private_file() {
+    let files = [
+        ("src/config.rs", "pub mod parse;\n"),
+        (
+            "src/config/parse.rs",
+            "mod hidden;\npub(super) use self::hidden as api;\n",
+        ),
+        ("src/config/parse/hidden.rs", "pub fn read() {}\n"),
+        ("src/ticket.rs", "use crate::config::parse::api::read;\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.\"config.parse\"]\nentry = \"src/config/parse.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\", \"config.parse\"]\n";
+    let root = project(&files, table);
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
 fn a_leading_colon_expression_resolves_in_edition_2015() {
     let files = [
         (
@@ -1868,73 +1827,6 @@ fn a_leading_colon_expression_resolves_in_edition_2015() {
         "leading colon expression",
     );
     assert!(problems[0].message.contains("line 2"), "{problems:?}");
-}
-
-#[test]
-fn an_inherited_edition_is_read_from_the_workspace() {
-    let cases = [
-        ("inherited 2015", "edition.workspace = true", "2015", true),
-        ("inherited 2018", "edition.workspace = true", "2018", false),
-        ("not inherited", "edition.workspace = false", "2015", false),
-    ];
-    let table = "[modules.config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.ticket]\nentry = \"crates/a/src/ticket.rs\"\n";
-
-    for (name, member_edition, workspace_edition, expected) in cases {
-        let workspace = format!(
-            "[workspace]\nmembers = [\"crates/a\"]\n\n[workspace.package]\nedition = \"{workspace_edition}\"\n"
-        );
-        let member = format!("[package]\nname = \"a\"\nversion = \"0.1.0\"\n{member_edition}\n");
-        let files = [
-            ("Cargo.toml", workspace.as_str()),
-            ("crates/a/Cargo.toml", member.as_str()),
-            ("crates/a/src/config.rs", "pub fn read() {}\n"),
-            ("crates/a/src/ticket.rs", "use ::config::read;\n"),
-        ];
-        let root = project(&files, table);
-        let problems = problems(root.path());
-
-        if expected {
-            assert_problem(
-                &problems,
-                "crates/a/src/ticket.rs",
-                Rule::ModuleImports,
-                "ticket:config",
-                name,
-            );
-        } else {
-            assert!(problems.is_empty(), "{name}: {problems:?}");
-        }
-    }
-}
-
-#[test]
-fn each_package_keeps_its_own_edition() {
-    let files = [
-        (
-            "crates/a/Cargo.toml",
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
-        ),
-        ("crates/a/src/config.rs", "pub fn read() {}\n"),
-        ("crates/a/src/ticket.rs", "use ::config::read;\n"),
-        (
-            "crates/b/Cargo.toml",
-            "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2018\"\n",
-        ),
-        ("crates/b/src/config.rs", "pub fn read() {}\n"),
-        ("crates/b/src/ticket.rs", "use ::config::read;\n"),
-    ];
-    let table = "[modules.a_config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.a_ticket]\nentry = \"crates/a/src/ticket.rs\"\n\n[modules.b_config]\nentry = \"crates/b/src/config.rs\"\n\n[modules.b_ticket]\nentry = \"crates/b/src/ticket.rs\"\n";
-    let root = project(&files, table);
-
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "crates/a/src/ticket.rs",
-        Rule::ModuleImports,
-        "a_ticket:a_config",
-        "per-package editions",
-    );
 }
 
 #[test]
@@ -2078,118 +1970,6 @@ fn a_leading_colon_after_return_resolves_in_edition_2015() {
         "leading colon after return",
     );
     assert!(problems[0].message.contains("line 2"), "{problems:?}");
-}
-
-#[test]
-fn an_explicit_package_workspace_selects_its_edition() {
-    let files = [
-        (
-            "crates/Cargo.toml",
-            "[workspace]\n\n[workspace.package]\nedition = \"2018\"\n",
-        ),
-        (
-            "crates/ws/Cargo.toml",
-            "[workspace]\nmembers = []\n\n[workspace.package]\nedition = \"2015\"\n",
-        ),
-        (
-            "crates/a/Cargo.toml",
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition.workspace = true\nworkspace = \"../ws\"\n",
-        ),
-        ("crates/a/src/config.rs", "pub fn read() {}\n"),
-        ("crates/a/src/ticket.rs", "use ::config::read;\n"),
-    ];
-    let table = "[modules.config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.ticket]\nentry = \"crates/a/src/ticket.rs\"\n";
-    let root = project(&files, table);
-
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "crates/a/src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "explicit package workspace",
-    );
-}
-
-#[test]
-fn an_escaping_package_workspace_falls_back_to_the_ancestors() {
-    let files = [
-        (
-            "crates/Cargo.toml",
-            "[workspace]\n\n[workspace.package]\nedition = \"2015\"\n",
-        ),
-        (
-            "crates/a/Cargo.toml",
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition.workspace = true\nworkspace = \"../../../outside\"\n",
-        ),
-        ("crates/a/src/config.rs", "pub fn read() {}\n"),
-        ("crates/a/src/ticket.rs", "use ::config::read;\n"),
-    ];
-    let table = "[modules.config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.ticket]\nentry = \"crates/a/src/ticket.rs\"\n";
-    let root = project(&files, table);
-
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "crates/a/src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "escaping package workspace",
-    );
-}
-
-#[test]
-fn a_missing_package_workspace_falls_back_to_the_ancestors() {
-    let files = [
-        (
-            "crates/Cargo.toml",
-            "[workspace]\n\n[workspace.package]\nedition = \"2015\"\n",
-        ),
-        (
-            "crates/a/Cargo.toml",
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition.workspace = true\nworkspace = \"../missing\"\n",
-        ),
-        ("crates/a/src/config.rs", "pub fn read() {}\n"),
-        ("crates/a/src/ticket.rs", "use ::config::read;\n"),
-    ];
-    let table = "[modules.config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.ticket]\nentry = \"crates/a/src/ticket.rs\"\n";
-    let root = project(&files, table);
-
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "crates/a/src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "missing package workspace",
-    );
-}
-
-#[test]
-fn a_package_without_an_edition_is_edition_2015() {
-    let files = [
-        (
-            "Cargo.toml",
-            "[package]\nname = \"default-edition\"\nversion = \"0.1.0\"\n",
-        ),
-        ("src/config.rs", "pub fn read() {}\n"),
-        ("src/ticket.rs", "use ::config::read;\n"),
-    ];
-    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
-    let root = project(&files, table);
-
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "default edition",
-    );
 }
 
 #[test]

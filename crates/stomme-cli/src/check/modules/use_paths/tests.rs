@@ -1,7 +1,28 @@
+use super::super::scopes::{self, Scope};
 use super::*;
 
 fn paths(source: &str) -> Vec<UsePath> {
-    super::paths(source, Edition::Other)
+    paths_in(source, Edition::Other)
+}
+
+fn paths_in(source: &str, edition: Edition) -> Vec<UsePath> {
+    let table = binding_table(scopes::scopes(source, edition, false));
+
+    super::paths(source, edition, &table)
+}
+
+fn binding_table(scopes: Vec<Scope>) -> BindingTable {
+    let mut table = BindingTable::new();
+
+    for scope in scopes {
+        let bindings = table.entry(scope.inline_path).or_default();
+
+        for binding in scope.bindings {
+            bindings.insert(binding.name.clone(), binding);
+        }
+    }
+
+    table
 }
 
 fn segments(source: &str) -> Vec<Vec<String>> {
@@ -277,7 +298,7 @@ fn a_value_path_is_a_value_namespace_path() {
 
 #[test]
 fn edition_2015_emits_a_leading_colon_path_inside_the_crate() {
-    let paths = super::paths("use ::config::parse::read;\n", Edition::Rust2015);
+    let paths = paths_in("use ::config::parse::read;\n", Edition::Rust2015);
 
     assert_eq!(paths.len(), 1);
     assert_eq!(
@@ -288,7 +309,7 @@ fn edition_2015_emits_a_leading_colon_path_inside_the_crate() {
 
 #[test]
 fn a_leading_colon_path_is_skipped_without_edition_2015() {
-    assert!(super::paths("use ::config::parse::read;\n", Edition::Other).is_empty());
+    assert!(paths_in("use ::config::parse::read;\n", Edition::Other).is_empty());
 }
 
 #[test]
@@ -298,7 +319,7 @@ fn a_multiline_value_path_reports_the_line_of_its_first_segment_after_the_root()
 
 #[test]
 fn edition_2015_binds_a_leading_colon_alias() {
-    let paths = super::paths(
+    let paths = paths_in(
         "use ::config as cfg;\ncfg::parse::read();\n",
         Edition::Rust2015,
     );
@@ -307,5 +328,24 @@ fn edition_2015_binds_a_leading_colon_alias() {
     assert_eq!(
         segments,
         expected(&[&["crate", "config"], &["crate", "config", "parse", "read"],])
+    );
+}
+
+#[test]
+fn a_type_annotation_before_a_leading_colon_is_not_a_path_start() {
+    assert!(segments("use super as parent;\nfn f(parent: ::std::sync::Arc<u8>) {}\n").is_empty());
+}
+
+#[test]
+fn a_leading_colon_after_a_cast_is_a_path_in_edition_2015() {
+    let paths = paths_in(
+        "fn f() {\n    let value = 0 as ::config::Ty;\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert_eq!(paths.len(), 1);
+    assert_eq!(
+        paths[0].segments,
+        expected(&[&["crate", "config", "Ty"]])[0]
     );
 }

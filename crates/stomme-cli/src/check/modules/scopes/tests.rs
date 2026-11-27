@@ -1,7 +1,7 @@
 use super::*;
 
 fn scopes(source: &str) -> Vec<Scope> {
-    super::scopes(source, Edition::Other)
+    super::scopes(source, Edition::Other, false)
 }
 
 fn strings(segments: &[&str]) -> Vec<String> {
@@ -325,6 +325,7 @@ fn an_export_records_its_visibility() {
     let exports: Vec<(String, ExportVisibility)> = file_scope(
         "pub use a as public;\n\
          pub(self) use a as private;\n\
+         pub(in self) use a as in_self;\n\
          pub(crate) use a as crate_wide;\n\
          pub(in crate::x) use a as in_crate;\n\
          use a as plain;\n",
@@ -339,15 +340,49 @@ fn an_export_records_its_visibility() {
         [
             ("public".to_string(), ExportVisibility::Public),
             ("private".to_string(), ExportVisibility::Restricted),
+            ("in_self".to_string(), ExportVisibility::Restricted),
             ("crate_wide".to_string(), ExportVisibility::Crate),
-            ("in_crate".to_string(), ExportVisibility::Crate),
+            ("in_crate".to_string(), ExportVisibility::Restricted),
         ]
     );
 }
 
 #[test]
+fn pub_super_is_crate_visible_only_at_a_crate_root_module_file_scope() {
+    let at_crate_root = super::scopes("pub(super) use a as b;", Edition::Other, true);
+    let nested_file = super::scopes("pub(super) use a as b;", Edition::Other, false);
+    let inline_module = super::scopes("mod inner { pub(super) use a as b; }", Edition::Other, true);
+
+    assert_eq!(
+        at_crate_root[0].exports[0].visibility,
+        ExportVisibility::Crate
+    );
+    assert_eq!(
+        nested_file[0].exports[0].visibility,
+        ExportVisibility::Restricted
+    );
+    assert_eq!(
+        inline_module[1].exports[0].visibility,
+        ExportVisibility::Restricted
+    );
+}
+
+#[test]
+fn const_generics_and_modifiers_are_not_value_items() {
+    let scope = file_scope(
+        "struct S<const N: usize>;\n\
+         fn f<const M: usize>() {}\n\
+         const unsafe fn g() {}\n\
+         const extern \"C\" fn h() {}\n\
+         const I: u8 = 0;\n",
+    );
+
+    assert_eq!(scope.value_items, names(&["f", "g", "h", "I"]));
+}
+
+#[test]
 fn a_leading_colon_target_is_a_crate_target_in_edition_2015() {
-    let mut scopes = super::scopes("pub use ::std::mem as a;", Edition::Rust2015);
+    let mut scopes = super::scopes("pub use ::std::mem as a;", Edition::Rust2015, false);
     let exports = scopes.remove(0).exports;
 
     assert_eq!(

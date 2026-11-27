@@ -26,6 +26,28 @@ pub(super) struct RootManifest {
     pub(super) workspace: Workspace,
 }
 
+#[derive(Deserialize)]
+pub(super) struct PackageManifest {
+    pub(super) package: Option<PackageSection>,
+    pub(super) workspace: Option<WorkspaceSection>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct PackageSection {
+    pub(super) edition: Option<toml::Value>,
+    pub(super) workspace: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct WorkspaceSection {
+    pub(super) package: Option<WorkspacePackage>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct WorkspacePackage {
+    pub(super) edition: Option<toml::Value>,
+}
+
 #[derive(Default, Deserialize)]
 pub(super) struct Workspace {
     #[serde(default)]
@@ -165,6 +187,26 @@ pub(super) fn read_toml_file<T: DeserializeOwned>(
     let parsed = toml::from_str(&text).map_err(|error| describe_toml_error(&error, &text));
 
     Ok(Some(parsed))
+}
+
+pub(super) fn read_package_manifest(
+    root: &Path,
+    folder: &str,
+) -> anyhow::Result<Result<Option<PackageManifest>, Problem>> {
+    let path = if folder.is_empty() {
+        ROOT_MANIFEST.to_string()
+    } else {
+        format!("{folder}/{ROOT_MANIFEST}")
+    };
+
+    match read_toml_file::<PackageManifest>(root, &path)? {
+        Some(Ok(manifest)) => Ok(Ok(Some(manifest))),
+        Some(Err(reason)) => {
+            let message = format!("is not a valid manifest: {reason}");
+            Ok(Err(config_problem(path, message)))
+        }
+        None => Ok(Ok(None)),
+    }
 }
 
 pub(super) fn config_problem(path: String, message: String) -> Problem {

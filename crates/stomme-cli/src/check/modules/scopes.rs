@@ -39,7 +39,7 @@ impl Scope {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Binding {
     pub(super) name: String,
     pub(super) absolute: bool,
@@ -77,9 +77,9 @@ enum Frame {
     Other,
 }
 
-pub(super) fn scopes(source: &str, edition: Edition) -> Vec<Scope> {
-    let tokens = code_tokens(source);
-    let mut tokens = tokens.iter().peekable();
+pub(super) fn scopes(source: &str, edition: Edition, crate_root_module: bool) -> Vec<Scope> {
+    let all_tokens = code_tokens(source);
+    let mut tokens = all_tokens.iter().peekable();
     let mut scopes = vec![Scope::file()];
     let mut open_scopes = vec![0];
     let mut frames: Vec<Frame> = Vec::new();
@@ -90,22 +90,27 @@ pub(super) fn scopes(source: &str, edition: Edition) -> Vec<Scope> {
             .all(|frame| matches!(frame, Frame::InlineModule));
 
         if at_item_level {
-            if let Some(name) = public_module_name(token, &tokens) {
-                let current = *open_scopes.last().expect("the file scope stays open");
+            let current = *open_scopes.last().expect("the file scope stays open");
+            let in_inline_module = !scopes[current].inline_path.is_empty();
+            let super_is_crate_visible = crate_root_module && !in_inline_module;
+            let previous = token
+                .index
+                .checked_sub(1)
+                .and_then(|index| all_tokens.get(index));
+
+            if let Some(name) = public_module_name(token, &tokens, super_is_crate_visible) {
                 scopes[current].public_modules.insert(name.to_string());
             }
 
-            if let Some(name) = value_item_name(token, &tokens) {
-                let current = *open_scopes.last().expect("the file scope stays open");
+            if let Some(name) = value_item_name(token, &tokens, previous) {
                 scopes[current].value_items.insert(name.to_string());
             }
 
             if let Some(Declaration { name, inline: true }) = module_declaration(token, &tokens) {
                 tokens.next().expect("a checked module has its name");
                 tokens.next().expect("a checked module has its brace");
-                let parent = *open_scopes.last().expect("the file scope stays open");
-                scopes[parent].inline_modules.insert(name.to_string());
-                let mut inline_path = scopes[parent].inline_path.clone();
+                scopes[current].inline_modules.insert(name.to_string());
+                let mut inline_path = scopes[current].inline_path.clone();
                 inline_path.push(name.to_string());
                 scopes.push(Scope::inline(inline_path));
                 open_scopes.push(scopes.len() - 1);
@@ -113,9 +118,7 @@ pub(super) fn scopes(source: &str, edition: Edition) -> Vec<Scope> {
                 continue;
             }
 
-            if let Some(kind) = use_kind(token, &mut tokens) {
-                let current = *open_scopes.last().expect("the file scope stays open");
-
+            if let Some(kind) = use_kind(token, &mut tokens, super_is_crate_visible) {
                 for leaf in read_use_tree(&mut tokens) {
                     if let Some(binding) = binding(&leaf) {
                         scopes[current].bindings.push(binding);
@@ -154,6 +157,7 @@ pub(super) fn scopes(source: &str, edition: Edition) -> Vec<Scope> {
 fn after_visibility<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
+    super_is_crate_visible: bool,
 ) -> Option<(TokenStream<'source>, ExportVisibility)> {
     let is_public = token.kind == TokenKind::Ident && token.text == "pub";
 
@@ -169,15 +173,20 @@ fn after_visibility<'source>(
         .is_some_and(|next| next.kind == TokenKind::OpenParen)
     {
         lookahead.next().expect("a peeked open paren is present");
-        let first = lookahead.next();
-        let is_self =
-            first.is_some_and(|next| next.kind == TokenKind::Ident && next.text == "self");
+        let mut first = lookahead.next();
+        let has_in = first.is_some_and(|next| next.kind == TokenKind::Ident && next.text == "in");
+
+        if has_in {
+            first = lookahead.next();
+        }
+
+        let keyword = first.and_then(|next| (next.kind == TokenKind::Ident).then_some(next.text));
 
         lookahead.position(|next| next.kind == TokenKind::CloseParen);
-        visibility = if is_self {
-            ExportVisibility::Restricted
-        } else {
-            ExportVisibility::Crate
+        visibility = match keyword {
+            Some("crate") if !has_in => ExportVisibility::Crate,
+            Some("super") if !has_in && super_is_crate_visible => ExportVisibility::Crate,
+            _ => ExportVisibility::Restricted,
         };
     }
 
@@ -199,12 +208,16 @@ impl UseKind {
     }
 }
 
-fn use_kind<'source>(token: &Token<'source>, tokens: &mut TokenStream<'source>) -> Option<UseKind> {
+fn use_kind<'source>(
+    token: &Token<'source>,
+    tokens: &mut TokenStream<'source>,
+    super_is_crate_visible: bool,
+) -> Option<UseKind> {
     if token.kind == TokenKind::Ident && token.text == "use" {
         return Some(UseKind::Plain);
     }
 
-    let (mut lookahead, visibility) = after_visibility(token, tokens)?;
+    let (mut lookahead, visibility) = after_visibility(token, tokens, super_is_crate_visible)?;
 
     let is_use = lookahead
         .next_if(|next| next.kind == TokenKind::Ident && next.text == "use")
@@ -221,8 +234,9 @@ fn use_kind<'source>(token: &Token<'source>, tokens: &mut TokenStream<'source>) 
 fn public_module_name<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
+    super_is_crate_visible: bool,
 ) -> Option<&'source str> {
-    let (mut lookahead, _) = after_visibility(token, tokens)?;
+    let (mut lookahead, _) = after_visibility(token, tokens, super_is_crate_visible)?;
     let module_token = lookahead.next()?;
     let declaration = module_declaration(module_token, &lookahead)?;
 
@@ -232,6 +246,7 @@ fn public_module_name<'source>(
 fn value_item_name<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
+    previous: Option<&Token<'source>>,
 ) -> Option<&'source str> {
     let keyword = item_name(token)?;
     let mut lookahead = tokens.clone();
@@ -248,9 +263,17 @@ fn value_item_name<'source>(
             item_name(next)
         }
         "const" => {
-            let next = lookahead.next()?;
+            let follows_generic_parameter =
+                previous.is_some_and(|previous| matches!(previous.text, "<" | ","));
 
-            if next.kind == TokenKind::Ident && next.text == "fn" {
+            if follows_generic_parameter {
+                return None;
+            }
+
+            let next = lookahead.next()?;
+            let is_modifier = matches!(next.text, "fn" | "unsafe" | "extern" | "async");
+
+            if is_modifier {
                 return None;
             }
 

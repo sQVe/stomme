@@ -1,3 +1,4 @@
+mod check_file;
 mod resolution;
 mod scopes;
 mod test_code;
@@ -6,17 +7,15 @@ mod use_paths;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path};
 
-use serde::Deserialize;
-
 use super::Problem;
 use super::cargo_manifest;
 use super::source_files::{self, SourceFile, Tree};
 use crate::config::ModuleRow;
 use crate::layer::Language;
 use crate::rule::Rule;
+use check_file::check_file;
 use resolution::Resolver;
 use test_code::test_files;
-use use_paths::{Namespace, UsePath, paths};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Edition {
@@ -41,26 +40,10 @@ struct Module {
     edition: Edition,
 }
 
-#[derive(Deserialize)]
-struct PackageManifest {
-    package: Option<PackageSection>,
-    workspace: Option<WorkspaceSection>,
-}
-
-#[derive(Deserialize)]
-struct PackageSection {
-    edition: Option<toml::Value>,
-    workspace: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct WorkspaceSection {
-    package: Option<WorkspacePackage>,
-}
-
-#[derive(Deserialize)]
-struct WorkspacePackage {
-    edition: Option<toml::Value>,
+enum ManifestRead {
+    Found(cargo_manifest::PackageManifest),
+    Missing,
+    Invalid,
 }
 
 pub(super) fn check(
@@ -72,7 +55,7 @@ pub(super) fn check(
     }
 
     let tree = source_files::walk(root, Language::Rust)?;
-    let modules = read_modules(root, modules)?;
+    let (modules, mut problems) = read_modules(root, modules)?;
     let src_folders: BTreeSet<String> = modules
         .iter()
         .map(|module| module.src_folder.clone())
@@ -80,7 +63,6 @@ pub(super) fn check(
     let sources = read_sources(&tree, &modules, &src_folders)?;
     let resolver = Resolver::new(&tree, &modules, &sources);
     let test_files = test_files(&sources, &src_folders);
-    let mut problems = Vec::new();
 
     for (file, source) in &sources {
         let owner = owner_module(&modules, &file.path);
@@ -133,8 +115,12 @@ fn read_sources<'tree>(
     Ok(sources)
 }
 
-fn read_modules(root: &Path, rows: &BTreeMap<String, ModuleRow>) -> anyhow::Result<Vec<Module>> {
+fn read_modules(
+    root: &Path,
+    rows: &BTreeMap<String, ModuleRow>,
+) -> anyhow::Result<(Vec<Module>, Vec<Problem>)> {
     let mut modules = Vec::new();
+    let mut problems = Vec::new();
     let mut editions = BTreeMap::new();
 
     for (name, row) in rows {
@@ -148,7 +134,7 @@ fn read_modules(root: &Path, rows: &BTreeMap<String, ModuleRow>) -> anyhow::Resu
         let edition = match editions.get(&src_folder) {
             Some(edition) => *edition,
             None => {
-                let edition = read_edition(root, &src_folder)?;
+                let edition = read_edition(root, &src_folder, &mut problems)?;
                 editions.insert(src_folder.clone(), edition);
                 edition
             }
@@ -166,13 +152,18 @@ fn read_modules(root: &Path, rows: &BTreeMap<String, ModuleRow>) -> anyhow::Resu
         });
     }
 
-    Ok(modules)
+    Ok((modules, problems))
 }
 
-fn read_edition(root: &Path, src_folder: &str) -> anyhow::Result<Edition> {
+fn read_edition(
+    root: &Path,
+    src_folder: &str,
+    problems: &mut Vec<Problem>,
+) -> anyhow::Result<Edition> {
     let package = package_folder(src_folder);
-    let Some(manifest) = read_package_manifest(root, package)? else {
-        return Ok(Edition::Other);
+    let manifest = match read_manifest(root, package, problems)? {
+        ManifestRead::Found(manifest) => manifest,
+        ManifestRead::Missing | ManifestRead::Invalid => return Ok(Edition::Other),
     };
     let Some(package_section) = manifest.package.as_ref() else {
         return Ok(Edition::Other);
@@ -182,28 +173,29 @@ fn read_edition(root: &Path, src_folder: &str) -> anyhow::Result<Edition> {
     };
 
     match edition {
-        toml::Value::String(edition) if edition == "2015" => Ok(Edition::Rust2015),
         toml::Value::Table(table) if inherits_workspace(table) => {
-            read_workspace_edition(root, package, &manifest)
+            read_workspace_edition(root, package, &manifest, problems)
         }
-        _ => Ok(Edition::Other),
+        _ => Ok(edition_from_value(edition)),
     }
 }
 
 fn read_workspace_edition(
     root: &Path,
     package: &str,
-    manifest: &PackageManifest,
+    manifest: &cargo_manifest::PackageManifest,
+    problems: &mut Vec<Problem>,
 ) -> anyhow::Result<Edition> {
-    if let Some(folder) = explicit_workspace_folder(package, manifest)
-        && let Some(workspace_manifest) = read_package_manifest(root, &folder)?
-        && let Some(workspace) = workspace_manifest.workspace.as_ref()
-        && let Some(edition) = workspace
-            .package
-            .as_ref()
-            .and_then(|package| package.edition.as_ref())
-    {
-        return Ok(edition_from_value(edition));
+    if let Some(folder) = explicit_workspace_folder(package, manifest) {
+        match read_manifest(root, &folder, problems)? {
+            ManifestRead::Found(workspace_manifest) => {
+                if let Some(workspace) = workspace_manifest.workspace.as_ref() {
+                    return Ok(workspace_edition(workspace));
+                }
+            }
+            ManifestRead::Missing => {}
+            ManifestRead::Invalid => return Ok(Edition::Other),
+        }
     }
 
     if let Some(workspace) = manifest.workspace.as_ref() {
@@ -215,11 +207,13 @@ fn read_workspace_edition(
     while let Some(parent) = parent_folder(folder) {
         folder = parent;
 
-        let Some(manifest) = read_package_manifest(root, folder)? else {
-            continue;
+        let workspace = match read_manifest(root, folder, problems)? {
+            ManifestRead::Found(manifest) => manifest,
+            ManifestRead::Missing => continue,
+            ManifestRead::Invalid => return Ok(Edition::Other),
         };
 
-        if let Some(workspace) = manifest.workspace.as_ref() {
+        if let Some(workspace) = workspace.workspace.as_ref() {
             return Ok(workspace_edition(workspace));
         }
     }
@@ -227,7 +221,10 @@ fn read_workspace_edition(
     Ok(Edition::Other)
 }
 
-fn explicit_workspace_folder(package: &str, manifest: &PackageManifest) -> Option<String> {
+fn explicit_workspace_folder(
+    package: &str,
+    manifest: &cargo_manifest::PackageManifest,
+) -> Option<String> {
     let workspace = manifest.package.as_ref()?.workspace.as_deref()?;
 
     workspace_folder(package, workspace)
@@ -258,7 +255,7 @@ fn workspace_folder(package: &str, workspace: &str) -> Option<String> {
     Some(folder.to_string_lossy().into_owned())
 }
 
-fn workspace_edition(workspace: &WorkspaceSection) -> Edition {
+fn workspace_edition(workspace: &cargo_manifest::WorkspaceSection) -> Edition {
     workspace
         .package
         .as_ref()
@@ -280,16 +277,18 @@ fn inherits_workspace(table: &toml::Table) -> bool {
         .is_some_and(|workspace| workspace)
 }
 
-fn read_package_manifest(root: &Path, folder: &str) -> anyhow::Result<Option<PackageManifest>> {
-    let path = if folder.is_empty() {
-        cargo_manifest::ROOT_MANIFEST.to_string()
-    } else {
-        format!("{folder}/{}", cargo_manifest::ROOT_MANIFEST)
-    };
-
-    match cargo_manifest::read_toml_file::<PackageManifest>(root, &path)? {
-        Some(Ok(manifest)) => Ok(Some(manifest)),
-        Some(Err(_)) | None => Ok(None),
+fn read_manifest(
+    root: &Path,
+    folder: &str,
+    problems: &mut Vec<Problem>,
+) -> anyhow::Result<ManifestRead> {
+    match cargo_manifest::read_package_manifest(root, folder)? {
+        Ok(Some(manifest)) => Ok(ManifestRead::Found(manifest)),
+        Ok(None) => Ok(ManifestRead::Missing),
+        Err(problem) => {
+            problems.push(problem);
+            Ok(ManifestRead::Invalid)
+        }
     }
 }
 
@@ -358,233 +357,6 @@ fn module_listed(file: &SourceFile) -> Problem {
         rule: Rule::ModuleListed,
         message: "belongs to no module in `[modules]`; add a row or move the file".to_string(),
         key: None,
-    }
-}
-
-fn check_file(
-    resolver: &Resolver,
-    module: &Module,
-    file: &SourceFile,
-    source: &str,
-    file_is_test: bool,
-) -> Vec<Problem> {
-    let file_path = module_path(&file.path, &module.src_folder);
-    let mut problems = Vec::new();
-    let mut seen = BTreeSet::new();
-
-    for use_path in paths(source, module.edition) {
-        let mut current = file_path.clone();
-        current.extend(use_path.inline_modules.iter().cloned());
-        let in_test_module = file_is_test || use_path.in_test_module;
-        let Some(resolved) = resolve(&use_path, &current) else {
-            continue;
-        };
-        let found = classify(resolver, module, file, &resolved, &use_path, in_test_module);
-
-        for problem in found {
-            let key = (problem.rule.id(), problem.key.clone());
-
-            if seen.insert(key) {
-                problems.push(problem);
-            }
-        }
-    }
-
-    problems
-}
-
-fn resolve(use_path: &UsePath, file_path: &[String]) -> Option<Vec<String>> {
-    let mut current = file_path.to_vec();
-    let first = use_path.segments.first().map(String::as_str);
-
-    if first == Some("super") {
-        let supers = use_path
-            .segments
-            .iter()
-            .take_while(|segment| *segment == "super")
-            .count();
-
-        if supers > current.len() {
-            return None;
-        }
-
-        current.truncate(current.len() - supers);
-        current.extend(use_path.segments[supers..].iter().cloned());
-    } else if first == Some("self") {
-        current.extend(use_path.segments[1..].iter().cloned());
-    } else {
-        current.clear();
-        current.extend(use_path.segments[1..].iter().cloned());
-    }
-
-    Some(current)
-}
-
-fn classify(
-    resolver: &Resolver,
-    module: &Module,
-    file: &SourceFile,
-    resolved: &[String],
-    use_path: &UsePath,
-    in_test_module: bool,
-) -> Vec<Problem> {
-    let resolved = value_path_parent(resolver, module, resolved, use_path)
-        .unwrap_or_else(|| resolved.to_vec());
-    let Some(found) = longest_prefix(resolver.modules, module, &resolved) else {
-        let unlisted = classify_unlisted(resolver.tree, module, file, &resolved, use_path);
-
-        return unlisted.into_iter().collect();
-    };
-
-    if found.name == module.name {
-        return Vec::new();
-    }
-
-    if !module.imports.contains(&found.name) {
-        let message = format!(
-            "line {}: module `{}` uses module `{}`, which `[modules.{}] imports` does not list",
-            use_path.line, module.name, found.name, module.name
-        );
-        let key = format!("{}:{}", module.name, found.name);
-
-        return vec![problem(file, Rule::ModuleImports, message, key)];
-    }
-
-    if in_test_module {
-        return Vec::new();
-    }
-
-    private_file_problems(resolver, module, found, file, &resolved, use_path)
-}
-
-fn value_path_parent(
-    resolver: &Resolver,
-    module: &Module,
-    resolved: &[String],
-    use_path: &UsePath,
-) -> Option<Vec<String>> {
-    if use_path.namespace != Namespace::Value {
-        return None;
-    }
-
-    let is_row = resolver
-        .modules
-        .iter()
-        .any(|row| row.src_folder == module.src_folder && row.path.as_slice() == resolved);
-
-    if !is_row {
-        return None;
-    }
-
-    let (last, parent_path) = resolved.split_last()?;
-    let parent = longest_prefix(resolver.modules, module, parent_path)?;
-
-    if !resolver.declares_value_item(parent, parent_path, last) {
-        return None;
-    }
-
-    Some(parent_path.to_vec())
-}
-
-fn private_file_problems(
-    resolver: &Resolver,
-    module: &Module,
-    found: &Module,
-    file: &SourceFile,
-    resolved: &[String],
-    use_path: &UsePath,
-) -> Vec<Problem> {
-    let reached = resolver.reached_files(found, &module.path, resolved, use_path.namespace);
-
-    reached
-        .into_iter()
-        .filter(|used_file| !found.public.contains(used_file))
-        .map(|used_file| {
-            let message = format!(
-                "line {}: module `{}` uses `{}`, which `[modules.{}] public` does not list",
-                use_path.line, module.name, used_file, found.name
-            );
-            let key = format!("{}:{}", module.name, used_file);
-
-            problem(file, Rule::ModulePrivateFile, message, key)
-        })
-        .collect()
-}
-
-fn classify_unlisted(
-    tree: &Tree,
-    module: &Module,
-    file: &SourceFile,
-    resolved: &[String],
-    use_path: &UsePath,
-) -> Option<Problem> {
-    let Some(first) = resolved.first() else {
-        return Some(crate_root_itself(file, module, use_path));
-    };
-
-    if first == "*" {
-        return Some(crate_root_path(file, module, use_path, "*"));
-    }
-
-    let names_file = tree
-        .files
-        .iter()
-        .any(|file| file.path == format!("{}/{first}.rs", module.src_folder));
-    let names_folder = tree
-        .folders
-        .contains(&format!("{}/{first}", module.src_folder));
-
-    if !names_file && !names_folder {
-        return Some(crate_root_path(file, module, use_path, first));
-    }
-
-    let message = format!(
-        "line {}: module `{}` uses `{first}`, which no `[modules]` row covers",
-        use_path.line, module.name
-    );
-    let key = format!("{}:{first}", module.name);
-
-    Some(problem(file, Rule::ModuleImports, message, key))
-}
-
-fn crate_root_itself(file: &SourceFile, module: &Module, use_path: &UsePath) -> Problem {
-    let message = format!(
-        "line {}: module `{}` uses the crate root itself; use a module path",
-        use_path.line, module.name
-    );
-    let key = format!("{}:crate", module.name);
-
-    problem(file, Rule::CrateRootPath, message, key)
-}
-
-fn crate_root_path(file: &SourceFile, module: &Module, use_path: &UsePath, name: &str) -> Problem {
-    let message = format!(
-        "line {}: module `{}` uses the crate root path `{name}`; use a module path",
-        use_path.line, module.name
-    );
-    let key = format!("{}:{name}", module.name);
-
-    problem(file, Rule::CrateRootPath, message, key)
-}
-
-fn longest_prefix<'a>(
-    modules: &'a [Module],
-    current: &Module,
-    resolved: &[String],
-) -> Option<&'a Module> {
-    modules
-        .iter()
-        .filter(|module| module.src_folder == current.src_folder)
-        .filter(|module| resolved.starts_with(&module.path))
-        .max_by_key(|module| module.path.len())
-}
-
-fn problem(file: &SourceFile, rule: Rule, message: String, key: String) -> Problem {
-    Problem {
-        path: file.path.clone(),
-        rule,
-        message,
-        key: Some(key),
     }
 }
 

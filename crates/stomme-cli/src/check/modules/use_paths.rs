@@ -5,7 +5,7 @@ use std::slice::Iter;
 use ra_ap_rustc_lexer::{FrontmatterAllowed, TokenKind, strip_shebang, tokenize};
 
 use super::Edition;
-use super::scopes::{self, Binding, Scope};
+use super::scopes::Binding;
 use super::test_code::{InlineModules, test_modules};
 
 pub(super) type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
@@ -105,12 +105,11 @@ pub(super) fn read_use_tree(tokens: &mut TokenStream<'_>) -> Vec<UseLeaf> {
         .collect()
 }
 
-type BindingTable = BTreeMap<Vec<String>, BTreeMap<String, Binding>>;
+pub(super) type BindingTable = BTreeMap<Vec<String>, BTreeMap<String, Binding>>;
 
-pub(super) fn paths(source: &str, edition: Edition) -> Vec<UsePath> {
+pub(super) fn paths(source: &str, edition: Edition, table: &BindingTable) -> Vec<UsePath> {
     let all_tokens = code_tokens(source);
     let test_modules = test_modules(&all_tokens);
-    let table = binding_table(scopes::scopes(source, edition));
     let mut tokens = all_tokens.iter().peekable();
     let mut paths = Vec::new();
     let mut inline_modules = InlineModules::default();
@@ -125,7 +124,7 @@ pub(super) fn paths(source: &str, edition: Edition) -> Vec<UsePath> {
         inline_modules.advance(token);
 
         if is_use_keyword(token) {
-            read_use_declaration(&mut tokens, &mut paths, &inline_modules, &table, edition);
+            read_use_declaration(&mut tokens, &mut paths, &inline_modules, table, edition);
             continue;
         }
 
@@ -143,7 +142,7 @@ pub(super) fn paths(source: &str, edition: Edition) -> Vec<UsePath> {
             &mut tokens,
             &mut paths,
             &inline_modules,
-            &table,
+            table,
             edition,
         );
     }
@@ -189,6 +188,10 @@ fn push_value_path(
     table: &BindingTable,
     edition: Edition,
 ) {
+    if !followed_by_colon_colon(tokens) {
+        return;
+    }
+
     let inline_path = inline_modules.names();
     let Some(root) = path_root(token, tokens, &inline_path, table, edition) else {
         return;
@@ -216,20 +219,6 @@ fn push_value_path(
             namespace: Namespace::Value,
         });
     }
-}
-
-fn binding_table(scopes: Vec<Scope>) -> BindingTable {
-    let mut table = BindingTable::new();
-
-    for scope in scopes {
-        let bindings = table.entry(scope.inline_path).or_default();
-
-        for binding in scope.bindings {
-            bindings.insert(binding.name.clone(), binding);
-        }
-    }
-
-    table
 }
 
 fn read_use_declaration(
@@ -320,7 +309,18 @@ fn is_expression_keyword(token: &Token<'_>) -> bool {
     token.kind == TokenKind::Ident
         && matches!(
             token.text,
-            "break" | "continue" | "else" | "if" | "in" | "match" | "return" | "while" | "yield"
+            "as" | "break"
+                | "continue"
+                | "else"
+                | "for"
+                | "if"
+                | "impl"
+                | "in"
+                | "let"
+                | "match"
+                | "return"
+                | "while"
+                | "yield"
         )
 }
 
@@ -451,8 +451,13 @@ fn followed_by_colon_colon(tokens: &TokenStream<'_>) -> bool {
     let Some(second_colon) = lookahead.next() else {
         return false;
     };
+    let follows_another_colon = lookahead
+        .peek()
+        .is_some_and(|next| next.kind == TokenKind::Colon);
 
-    first_colon.kind == TokenKind::Colon && second_colon.kind == TokenKind::Colon
+    first_colon.kind == TokenKind::Colon
+        && second_colon.kind == TokenKind::Colon
+        && !follows_another_colon
 }
 
 pub(super) fn module_declaration<'source>(

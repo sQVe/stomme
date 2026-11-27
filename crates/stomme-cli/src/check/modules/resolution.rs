@@ -5,7 +5,7 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::scopes::{self, ExportVisibility, Scope, Target};
-use super::use_paths::Namespace;
+use super::use_paths::{BindingTable, Namespace};
 use super::{Module, is_crate_root, is_under_bin, keeps_exports, module_path, owner_module};
 use crate::check::source_files::{SourceFile, Tree};
 use walk::Walk;
@@ -30,7 +30,6 @@ enum Meaning {
 enum Visibility {
     All,
     Crate,
-    Public,
 }
 
 type ScopeTable = BTreeMap<String, BTreeMap<Vec<String>, Scope>>;
@@ -160,15 +159,12 @@ impl<'a> Resolver<'a> {
 
         let children = self.child_meanings(module, place, name);
         let Some(scope) = scope else {
-            return match visibility {
-                Visibility::Public => BTreeSet::new(),
-                Visibility::All | Visibility::Crate => children,
-            };
+            return children;
         };
         let pair = (place.path.clone(), name.to_string());
 
         if walk.cut_if_open(&pair) {
-            return visible_children(scope, name, children, visibility);
+            return children;
         }
 
         let open = walk.enter(pair);
@@ -181,7 +177,7 @@ impl<'a> Resolver<'a> {
             meanings.extend(self.glob_meanings(place, scope, name, walk));
         }
 
-        meanings.extend(visible_children(scope, name, children, visibility));
+        meanings.extend(children);
         let cacheable = walk.leave(open);
 
         if cacheable && !walk.exhausted {
@@ -222,7 +218,6 @@ impl<'a> Resolver<'a> {
             let visible = match visibility {
                 Visibility::All => true,
                 Visibility::Crate => export.visibility != ExportVisibility::Restricted,
-                Visibility::Public => export.visibility == ExportVisibility::Public,
             };
 
             if !visible {
@@ -308,6 +303,30 @@ impl<'a> Resolver<'a> {
     pub(super) fn declares_value_item(&self, module: &Module, path: &[String], name: &str) -> bool {
         self.scope(module, path)
             .is_some_and(|scope| scope.value_items.contains(name))
+    }
+
+    pub(super) fn bindings(&self, module: &Module, file_path: &[String]) -> BindingTable {
+        let mut table = BindingTable::new();
+        let Some(scopes) = self.scopes.get(&module.src_folder) else {
+            return table;
+        };
+
+        for (scope_path, scope) in scopes {
+            let mut expected = file_path.to_vec();
+            expected.extend(scope.inline_path.iter().cloned());
+
+            if *scope_path != expected {
+                continue;
+            }
+
+            let bindings = table.entry(scope.inline_path.clone()).or_default();
+
+            for binding in &scope.bindings {
+                bindings.insert(binding.name.clone(), binding.clone());
+            }
+        }
+
+        table
     }
 
     fn in_deeper_row(&self, module: &Module, path: &[String]) -> bool {
@@ -427,8 +446,9 @@ fn read_scopes(
     table: &mut ScopeTable,
 ) {
     let file_path = module_path(&file.path, &module.src_folder);
+    let crate_root_module = file_path.len() == 1 && !is_crate_root(&file.path, &module.src_folder);
 
-    for mut scope in scopes::scopes(source, module.edition) {
+    for mut scope in scopes::scopes(source, module.edition, crate_root_module) {
         // A glob in a private file still binds names inside it, and the walk needs those names
         // to reach the module a use names. Its explicit exports only hide its own globs.
         scope.keeps_exports = keep_exports;
@@ -485,21 +505,6 @@ fn may_name_module(meanings: &BTreeSet<Meaning>) -> bool {
     meanings
         .iter()
         .any(|meaning| !matches!(meaning, Meaning::Item))
-}
-
-fn visible_children(
-    scope: &Scope,
-    name: &str,
-    children: BTreeSet<Meaning>,
-    visibility: Visibility,
-) -> BTreeSet<Meaning> {
-    let hidden = visibility == Visibility::Public && !scope.public_modules.contains(name);
-
-    if hidden {
-        return BTreeSet::new();
-    }
-
-    children
 }
 
 fn terminal_files(place: &Place, meanings: &BTreeSet<Meaning>) -> Vec<String> {
