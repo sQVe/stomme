@@ -423,7 +423,8 @@ fn opens_block_names_each_block_that_interrupts_a_paragraph() {
 #[test]
 fn every_short_line_sequence_keeps_the_scanner_invariants() {
     let alphabet = [
-        "- item", "  text", "    code", "```", "~~~", "<!--", "-->", "", "# head", "1. one",
+        "- item", "  text", "    code", "```", "~~~", "<!--", "-->", "- <!--", "", "# head",
+        "1. one",
     ];
     let mut sequences: Vec<Vec<&str>> = vec![Vec::new()];
 
@@ -463,9 +464,11 @@ fn every_short_line_sequence_keeps_the_scanner_invariants() {
                 assert_eq!(indices, all, "{text:?}: every line is returned");
             }
 
-            let opens_a_comment = sequence
-                .iter()
-                .any(|line| split_indent(line).1.starts_with(COMMENT_START));
+            let opens_a_comment = sequence.iter().any(|line| {
+                let (_, content) = split_indent(line);
+
+                content_after_markers(content).starts_with(COMMENT_START)
+            });
 
             if !opens_a_comment {
                 assert!(

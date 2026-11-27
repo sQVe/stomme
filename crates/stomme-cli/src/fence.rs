@@ -30,16 +30,18 @@ pub(crate) fn unfenced_lines<'a>(
 ) -> impl Iterator<Item = UnfencedLine<'a>> {
     let mut containers = Containers::new();
     let mut fence: Option<OpenFence> = None;
-    let mut open_comment: Option<OpenComment> = None;
+    let mut open_comment: Option<Container> = None;
 
     lines.enumerate().filter_map(move |(index, raw)| {
-        let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
+        let quote_limit = fence
+            .as_ref()
+            .map_or(usize::MAX, |open| open.container.quotes);
         let (raw_indent, _) = split_indent(raw);
         let mut quote = split_quote(raw, quote_limit, containers.base_for(raw_indent));
         let mut view = containers.view(quote.indent, quote.start, quote.content);
 
         if let Some(open) = &fence {
-            let container_ended = view.depth < open.depth || quote.quotes < open.quotes;
+            let container_ended = open.container.outside(view.depth, quote.quotes);
             let closes = view.indent.saturating_sub(open.column) <= MAX_BLOCK_INDENT
                 && closes_fence(view.content, &open.fence);
 
@@ -57,7 +59,7 @@ pub(crate) fn unfenced_lines<'a>(
 
         let leaves_container = open_comment
             .as_ref()
-            .is_some_and(|open| view.depth < open.depth || quote.quotes < open.quotes);
+            .is_some_and(|container| container.outside(view.depth, quote.quotes));
 
         if leaves_container {
             open_comment = None;
@@ -73,15 +75,16 @@ pub(crate) fn unfenced_lines<'a>(
         let opens_comment = open_comment.is_none()
             && content_after_markers(view.content).starts_with(COMMENT_START);
         let in_comment = open_comment.is_some() || opens_comment;
+        let closes = view.content.contains(COMMENT_END);
 
         if opens_comment {
-            let closes = view.content.contains(COMMENT_END);
-
-            open_comment = (!closes).then(|| OpenComment {
+            let container = Container {
                 depth: view.depth + usize::from(item_column.is_some()),
                 quotes: quote.quotes,
-            });
-        } else if view.content.contains(COMMENT_END) {
+            };
+
+            open_comment = (!closes).then_some(container);
+        } else if closes {
             open_comment = None;
         }
 
@@ -90,8 +93,10 @@ pub(crate) fn unfenced_lines<'a>(
 
             fence = Some(OpenFence {
                 fence: open,
-                depth: view.depth + usize::from(item_column.is_some()),
-                quotes: quote.quotes,
+                container: Container {
+                    depth: view.depth + usize::from(item_column.is_some()),
+                    quotes: quote.quotes,
+                },
                 column: item_column.unwrap_or(view.indent - view.relative),
             });
 
@@ -244,16 +249,23 @@ impl Containers {
     }
 }
 
-struct OpenFence {
-    fence: Fence,
+struct Container {
     depth: usize,
     quotes: usize,
-    column: usize,
 }
 
-struct OpenComment {
-    depth: usize,
-    quotes: usize,
+impl Container {
+    // A fence or a comment holds a line while the line stays at or inside the opener's depth and
+    // quote count.
+    fn outside(&self, depth: usize, quotes: usize) -> bool {
+        depth < self.depth || quotes < self.quotes
+    }
+}
+
+struct OpenFence {
+    fence: Fence,
+    container: Container,
+    column: usize,
 }
 
 fn indentation_from(whitespace: &str, mut column: usize) -> usize {
