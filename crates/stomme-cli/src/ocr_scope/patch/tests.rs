@@ -90,7 +90,7 @@ fn stops_a_hunk_at_the_counts_its_header_declares() {
 
 #[test]
 fn ignores_a_row_beyond_the_counts_its_hunk_declares() {
-    let cases: [RowCase; 5] = [
+    let cases: [RowCase; 6] = [
         (
             "a removed row after the declared removals",
             b"@@ -1,2 +0,0 @@\n-a\n-b\n-c",
@@ -115,6 +115,11 @@ fn ignores_a_row_beyond_the_counts_its_hunk_declares() {
             "a context row without an old line left",
             b"@@ -1,0 +1,2 @@\n+new\n keep",
             &[b"new"],
+        ),
+        (
+            "a context row without a new line left",
+            b"@@ -1,2 +1,0 @@\n-a\n keep",
+            &[b"a"],
         ),
     ];
 
