@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+use std::num::NonZeroUsize;
 use std::os::unix::fs::PermissionsExt as _;
 
 use tempfile::TempDir;
@@ -363,9 +365,67 @@ fn scope_arguments_keep_flag_and_value_order() {
 
 #[test]
 fn job_count_stays_within_the_limit() {
-    let jobs = job_count();
+    let (jobs, _) = job_counts(available_cores());
 
     assert!((1..=MAX_JOBS).contains(&jobs), "{jobs}");
+}
+
+#[test]
+fn job_counts_keep_the_whole_run_within_the_cores() {
+    let cases = [
+        (1, 1, 1),
+        (2, 2, 1),
+        (4, 4, 1),
+        (6, 4, 1),
+        (8, 4, 2),
+        (32, 4, 8),
+        (64, 4, 16),
+    ];
+
+    for (cores, expected_jobs, expected_threads) in cases {
+        let cores = NonZeroUsize::new(cores).expect("a positive core count");
+        let (jobs, threads) = job_counts(cores);
+
+        assert_eq!(jobs, expected_jobs, "{cores} cores");
+        assert_eq!(threads, expected_threads, "{cores} cores");
+        assert!(jobs * threads <= cores.get(), "{cores} cores");
+    }
+}
+
+#[test]
+fn mutants_command_caps_the_test_threads_of_each_job() {
+    let fixture = Fixture::new();
+    let root = fixture.folder.path();
+    let output = root.join(OUTPUT_DIRECTORY);
+    let scope = Scope {
+        diff: None,
+        files: strings(&["a.rs"]),
+    };
+    let cores = std::thread::available_parallelism()
+        .expect("the machine reports its core count")
+        .get();
+    let jobs = cores.min(MAX_JOBS);
+    let threads = (cores / jobs).to_string();
+    let command = mutants_command("cargo", root, &output, &scope);
+    let environment: Vec<(&OsStr, Option<&OsStr>)> = command.get_envs().collect();
+    let arguments: Vec<&OsStr> = command.get_args().collect();
+    let received_threads = environment
+        .iter()
+        .find(|(name, _)| *name == OsStr::new("NEXTEST_TEST_THREADS"))
+        .and_then(|(_, value)| *value)
+        .expect("NEXTEST_TEST_THREADS is set on the child");
+    let received_jobs = arguments
+        .windows(2)
+        .find(|pair| pair[0] == OsStr::new("--jobs"))
+        .map(|pair| pair[1])
+        .expect("--jobs is passed to the child");
+
+    assert_eq!(received_threads, OsStr::new(&threads));
+    assert_eq!(received_jobs, OsStr::new(&jobs.to_string()));
+    assert!(
+        jobs * (cores / jobs) <= cores,
+        "{jobs} jobs x {threads} threads on {cores} cores"
+    );
 }
 
 #[test]

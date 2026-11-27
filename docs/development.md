@@ -150,7 +150,8 @@ cargo xtask mutation changed main --max-mutants 50
 `.cargo/mutants.toml` leaves out test code and test helpers. A missed mutant is a survivor: add a
 test that fails when that line changes. The command exits 0 when every mutant is caught, 2 for
 survivors in changed mode, and 1 for an error or an unmutated file. cargo-mutants writes its logs
-to `target/mutants/mutants.out`.
+to `target/mutants/mutants.out`. Each job runs nextest with a test-thread count that bounds the
+concurrent nextest tests across all jobs; it does not bound total CPU use.
 
 ## CI
 
