@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -471,6 +472,252 @@ fn keeps_the_head_entry_of_a_binary_file() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn keeps_the_head_entry_of_a_symlink() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            write_symlink(folder, "link", "target one");
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]),
+        |_| {},
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\ntwo reviewed\nthree new\n")]);
+            write_symlink(folder, "link", "target three");
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/file.rs"]
+    );
+    assert_eq!(
+        tree_entry(folder.path(), &base, "link"),
+        tree_entry(folder.path(), &history.head, "link")
+    );
+}
+
+#[test]
+fn keeps_the_head_entry_of_a_submodule() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            write_submodule(folder, "vendor/sub", "inner one\n");
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]),
+        |_| {},
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\ntwo reviewed\nthree new\n")]);
+            write_submodule(folder, "vendor/sub", "inner two\n");
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/file.rs"]
+    );
+    assert_eq!(
+        tree_entry(folder.path(), &base, "vendor/sub"),
+        tree_entry(folder.path(), &history.head, "vendor/sub")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn keeps_the_head_entry_of_a_mode_only_change() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "one\n"), ("src/tool.sh", "echo one\n")],
+            )
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]),
+        |_| {},
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\ntwo reviewed\nthree new\n")]);
+            make_executable(folder, "src/tool.sh");
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/file.rs"]
+    );
+    assert_eq!(
+        tree_entry(folder.path(), &base, "src/tool.sh"),
+        tree_entry(folder.path(), &history.head, "src/tool.sh")
+    );
+}
+
+#[test]
+fn keeps_no_final_newline_in_a_rebuilt_base_file() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/other.rs", "other\n")]),
+        |folder| write_file(folder, "src/new.rs", b"new first"),
+        |_| {},
+        |folder| write_file(folder, "src/new.rs", b"new first\nnew second"),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        blob_text(folder.path(), &format!("{base}:src/new.rs")),
+        "new first"
+    );
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/new.rs"]
+    );
+}
+
+#[test]
+fn leaves_out_a_new_file_whose_lines_are_all_scoped() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/other.rs", "other\n")]),
+        |_| {},
+        |_| {},
+        |folder| write_files(folder, &[("src/new.rs", "brand new one\nbrand new two\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 2, 0));
+    assert!(tree_entry(folder.path(), &base, "src/new.rs").is_empty());
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/new.rs"]
+    );
+}
+
+#[test]
+fn keeps_an_empty_base_entry_when_every_head_line_is_scoped() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "old line\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "reviewed line\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "old line\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "new line\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(blob_text(folder.path(), &format!("{base}:src/file.rs")), "");
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/file.rs"]
+    );
+}
+
+#[test]
+fn counts_scoped_whole_files_and_line_files() {
+    let mut added = BTreeSet::new();
+    added.insert(1);
+    added.insert(3);
+    let removed = vec![InsertedLine {
+        after: 1,
+        text: "old".to_string(),
+    }];
+    let scoped = BTreeMap::from([
+        (
+            "src/lines.rs".to_string(),
+            ScopedFile::Lines {
+                added,
+                removed,
+                base_present: true,
+            },
+        ),
+        (
+            "src/whole.rs".to_string(),
+            ScopedFile::Whole {
+                base_object: None,
+                base_mode: "100644".to_string(),
+                added: 4,
+                removed: 2,
+            },
+        ),
+    ]);
+
+    assert_eq!(counts(&scoped), (2, 6, 3));
+}
+
 #[test]
 fn refuses_a_reviewed_head_that_is_not_in_the_clone() {
     let folder = repository_folder();
@@ -595,6 +842,44 @@ fn remove_files(folder: &Path, paths: &[&str]) {
     }
 }
 
+fn write_submodule(folder: &Path, path: &str, text: &str) {
+    let nested = folder.join(path);
+
+    fs::create_dir_all(&nested).expect("create the submodule folder");
+    git(&nested, &["init", "-q"]);
+    write_file(&nested, "inner.txt", text.as_bytes());
+    commit(&nested, "inner");
+}
+
+#[cfg(unix)]
+fn write_symlink(folder: &Path, path: &str, target: &str) {
+    use std::os::unix::fs::symlink;
+
+    let path = folder.join(path);
+    let parent = path.parent().expect("a fixture symlink has a parent");
+
+    fs::create_dir_all(parent).expect("create the fixture folder");
+
+    if fs::symlink_metadata(&path).is_ok() {
+        fs::remove_file(&path).expect("replace the fixture symlink");
+    }
+
+    symlink(target, &path).expect("create the fixture symlink");
+}
+
+#[cfg(unix)]
+fn make_executable(folder: &Path, path: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = folder.join(path);
+    let mut permissions = fs::metadata(&path)
+        .expect("read the fixture mode")
+        .permissions();
+
+    permissions.set_mode(0o755);
+    fs::set_permissions(&path, permissions).expect("make the fixture file executable");
+}
+
 fn head_commit(folder: &Path) -> String {
     let output = git_output(folder, &["rev-parse", "HEAD"]);
 
@@ -666,6 +951,21 @@ fn replace_refs(folder: &Path) -> String {
         .expect("the replace list is UTF-8")
         .trim()
         .to_string()
+}
+
+fn tree_entry(folder: &Path, revision: &str, path: &str) -> String {
+    let output = git_output(folder, &["ls-tree", revision, "--", path]);
+
+    String::from_utf8(output.stdout)
+        .expect("the tree entry is UTF-8")
+        .trim()
+        .to_string()
+}
+
+fn blob_text(folder: &Path, revision: &str) -> String {
+    let output = git_output(folder, &["cat-file", "-p", revision]);
+
+    String::from_utf8(output.stdout).expect("the blob is UTF-8")
 }
 
 fn object_id(folder: &Path, revision: &str) -> String {

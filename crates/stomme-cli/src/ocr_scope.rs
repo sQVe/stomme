@@ -304,7 +304,6 @@ struct RawChange {
     old_mode: String,
     new_mode: String,
     old_object: String,
-    new_object: String,
 }
 
 fn raw_changes(
@@ -347,7 +346,7 @@ fn parse_raw_changes(bytes: &[u8]) -> Result<BTreeMap<String, RawChange>, OcrSco
             .ok_or_else(|| malformed("diff --raw"))?;
         let new_mode = parts.next().ok_or_else(|| malformed("diff --raw"))?;
         let old_object = parts.next().ok_or_else(|| malformed("diff --raw"))?;
-        let new_object = parts.next().ok_or_else(|| malformed("diff --raw"))?;
+        let _new_object = parts.next().ok_or_else(|| malformed("diff --raw"))?;
         let status = parts
             .next()
             .and_then(|status| status.chars().next())
@@ -362,7 +361,6 @@ fn parse_raw_changes(bytes: &[u8]) -> Result<BTreeMap<String, RawChange>, OcrSco
                     old_mode: old_mode.to_string(),
                     new_mode: new_mode.to_string(),
                     old_object: old_object.to_string(),
-                    new_object: new_object.to_string(),
                 },
             );
             index += 3;
@@ -373,7 +371,6 @@ fn parse_raw_changes(bytes: &[u8]) -> Result<BTreeMap<String, RawChange>, OcrSco
                     old_mode: old_mode.to_string(),
                     new_mode: new_mode.to_string(),
                     old_object: old_object.to_string(),
-                    new_object: new_object.to_string(),
                 },
             );
             index += 2;
@@ -464,7 +461,6 @@ struct Change {
     old_mode: String,
     new_mode: String,
     old_object: String,
-    new_object: String,
     added: usize,
     removed: usize,
     binary: bool,
@@ -493,7 +489,6 @@ fn detailed_changes(git: &Git<'_>, base: &str, head: &str) -> Result<Vec<Change>
             old_mode: raw.old_mode.clone(),
             new_mode: raw.new_mode.clone(),
             old_object: raw.old_object.clone(),
-            new_object: raw.new_object.clone(),
             added: stat.added.unwrap_or(0),
             removed: stat.removed.unwrap_or(0),
             binary: stat.binary,
@@ -736,21 +731,11 @@ fn scope_changes(
 }
 
 fn is_skipped(change: &Change) -> bool {
-    if change.status == 'D' || change.binary || is_non_regular(&change.new_mode) {
-        return true;
-    }
-
-    is_mode_only(change)
+    change.status == 'D' || change.binary || is_non_regular(&change.new_mode)
 }
 
 fn is_non_regular(mode: &str) -> bool {
     mode == "120000" || mode == "160000"
-}
-
-fn is_mode_only(change: &Change) -> bool {
-    change.status == 'M'
-        && change.old_object == change.new_object
-        && change.old_mode != change.new_mode
 }
 
 fn is_zero_object(object: &str) -> bool {
