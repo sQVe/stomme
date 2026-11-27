@@ -328,6 +328,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "toml_datetime",
  "unicode-properties",
 ]
 

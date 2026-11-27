@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -6,7 +7,8 @@ use std::collections::BTreeMap;
 
 use anyhow::Context as _;
 use serde::Deserialize;
-use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::de::{DeserializeOwned, Error as _, IgnoredAny, MapAccess, Visitor};
+use toml_datetime::de::VisitMap;
 
 use super::{Problem, Rule, describe_toml_error};
 use crate::layer::policy::LintTable;
@@ -36,30 +38,94 @@ pub(super) struct Workspace {
     pub(super) lints: LintTable,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
 pub(super) enum Dependency {
     Table {
         path: Option<String>,
-        #[serde(rename = "version")]
-        _version: Option<String>,
-        #[serde(default)]
         workspace: bool,
     },
-    Version(VersionString),
+    Version,
 }
 
-pub(super) struct VersionString;
-
-impl<'de> Deserialize<'de> for VersionString {
+impl<'de> Deserialize<'de> for Dependency {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        String::deserialize(deserializer)?;
-
-        Ok(Self)
+        deserializer.deserialize_any(DependencyVisitor)
     }
+}
+
+struct DependencyVisitor;
+
+impl<'de> Visitor<'de> for DependencyVisitor {
+    type Value = Dependency;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a version string or a dependency table")
+    }
+
+    fn visit_str<E>(self, _version: &str) -> Result<Dependency, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Dependency::Version)
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Dependency, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let first = match VisitMap::next_key_seed(&mut map)? {
+            Some(VisitMap::Key(key)) => key.into_owned(),
+            // A datetime reaches Serde as a map with one private key, so a map that continues past
+            // that key is a table that holds a user key of the same name.
+            Some(VisitMap::Datetime(_)) => match map.next_key::<String>()? {
+                Some(key) => key,
+                None => {
+                    return Err(A::Error::custom(
+                        "a TOML date or timestamp is not a dependency",
+                    ));
+                }
+            },
+            None => {
+                return Ok(Dependency::Table {
+                    path: None,
+                    workspace: false,
+                });
+            }
+        };
+
+        read_table(&mut map, first)
+    }
+}
+
+fn read_table<'de, A>(map: &mut A, first: String) -> Result<Dependency, A::Error>
+where
+    A: MapAccess<'de>,
+{
+    let mut path = None;
+    let mut workspace = false;
+    let mut key = first;
+
+    loop {
+        match key.as_str() {
+            "path" => path = Some(map.next_value()?),
+            "version" => {
+                map.next_value::<String>()?;
+            }
+            "workspace" => workspace = map.next_value()?,
+            _ => {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+
+        match map.next_key::<String>()? {
+            Some(next) => key = next,
+            None => break,
+        }
+    }
+
+    Ok(Dependency::Table { path, workspace })
 }
 
 pub(super) fn read_root(root: &Path) -> anyhow::Result<Result<RootManifest, Problem>> {
@@ -119,7 +185,7 @@ impl RootManifest {
 impl Dependency {
     pub(super) fn path(&self) -> Option<&str> {
         match self {
-            Self::Version(_) => None,
+            Self::Version => None,
             Self::Table { path, .. } => path.as_deref(),
         }
     }

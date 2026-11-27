@@ -6,15 +6,18 @@ use crate::layer;
 use crate::rule::Rule;
 use crate::test_support::{complete_project, write_file};
 
-fn assert_single_problem(problems: &[Problem], path: &str, rule: Rule, named: &str, case: &str) {
+fn assert_single_problem(problems: &[Problem], path: &str, rule: Rule, named: &[&str], case: &str) {
     assert_eq!(problems.len(), 1, "{case}: {problems:?}");
     assert_eq!(problems[0].path, path, "{case}");
     assert_eq!(problems[0].rule, rule, "{case}");
-    assert!(
-        problems[0].message.contains(named),
-        "{case}: {}",
-        problems[0].message
-    );
+
+    for fragment in named {
+        assert!(
+            problems[0].message.contains(fragment),
+            "{case}: {}",
+            problems[0].message
+        );
+    }
 }
 
 fn target() -> TargetBranch {
@@ -239,52 +242,86 @@ fn describe_toml_error_names_the_line_of_the_error() {
 #[test]
 fn check_reports_an_unreadable_root_manifest() {
     let cases = [
-        ("invalid TOML", "[workspace\n", "line 1: "),
+        ("invalid TOML", "[workspace\n", &["line 1: "][..]),
         (
             "unknown level",
             "[workspace.lints.clippy]\ntodo = \"loud\"\n",
-            "line 2: ",
+            &["line 2: "][..],
         ),
         (
             "level of the wrong type",
             "[workspace.lints.clippy]\ntodo = 3\n",
-            "line 2: ",
+            &["line 2: "][..],
         ),
         (
             "members of the wrong type",
             "[workspace]\nmembers = \"crates/*\"\n",
-            "line 2: ",
+            &["line 2: "][..],
         ),
         (
             "exclude of the wrong type",
             "[workspace]\nexclude = 3\n",
-            "line 2: ",
+            &["line 2: "][..],
         ),
         (
             "dependency table field of the wrong type",
             "[workspace.dependencies]\nhelper = { path = \"../helper\", workspace = \"false\" }\n",
-            "line 2: ",
+            &["line 2: "][..],
         ),
         (
             "dependency table version of the wrong type",
             "[workspace.dependencies]\nhelper = { version = 42 }\n",
-            "line 2: ",
+            &["line 2: "][..],
         ),
         (
             "dependency shorthand of the wrong type",
             "[workspace.dependencies]\nhelper = 42\n",
-            "line 2: ",
+            &[
+                "line 2: ",
+                "expected a version string or a dependency table",
+            ][..],
         ),
     ];
 
-    for (case, text, line) in cases {
+    for (case, text, named) in cases {
         let root = complete_project();
 
         write_file(root.path(), "Cargo.toml", text);
 
         let problems = check_project(root.path());
 
-        assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, line, case);
+        assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, named, case);
+    }
+}
+
+#[test]
+fn check_reports_a_toml_datetime_dependency() {
+    let cases = [
+        ("offset date-time", "2026-11-22T10:12:00Z"),
+        ("local date-time", "2026-11-22T10:12:00"),
+        ("local date", "2026-11-22"),
+        ("local time", "10:12:00"),
+    ];
+
+    for (case, value) in cases {
+        let root = complete_project();
+        let manifest = fs::read_to_string(root.path().join("Cargo.toml")).expect("read Cargo.toml");
+
+        write_file(
+            root.path(),
+            "Cargo.toml",
+            &format!("{manifest}\n[workspace.dependencies]\nhelper = {value}\n"),
+        );
+
+        let problems = check_project(root.path());
+
+        assert_single_problem(
+            &problems,
+            "Cargo.toml",
+            Rule::RustConfigFile,
+            &["a TOML date or timestamp is not a dependency"],
+            case,
+        );
     }
 }
 
@@ -298,6 +335,38 @@ fn check_accepts_string_dependency_forms() {
         "Cargo.toml",
         &format!(
             "{manifest}\n[workspace.dependencies]\nshorthand = \"1.0\"\ntable = {{ version = \"1.0\" }}\n"
+        ),
+    );
+
+    assert_eq!(check_project(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn check_accepts_a_dependency_table_with_fields_no_check_reads() {
+    let root = complete_project();
+    let manifest = fs::read_to_string(root.path().join("Cargo.toml")).expect("read Cargo.toml");
+
+    write_file(
+        root.path(),
+        "Cargo.toml",
+        &format!(
+            "{manifest}\n[workspace.dependencies]\nempty = {{}}\nfeatured = {{ version = \"1.0\", features = [\"std\"] }}\n"
+        ),
+    );
+
+    assert_eq!(check_project(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn check_accepts_a_dependency_table_that_starts_with_the_toml_datetime_key() {
+    let root = complete_project();
+    let manifest = fs::read_to_string(root.path().join("Cargo.toml")).expect("read Cargo.toml");
+
+    write_file(
+        root.path(),
+        "Cargo.toml",
+        &format!(
+            "{manifest}\n[workspace.dependencies]\nquoted = {{ \"$__toml_private_datetime\" = \"2026-11-22\", version = \"1.0\" }}\n"
         ),
     );
 
@@ -345,7 +414,7 @@ fn check_reports_a_root_manifest_that_is_not_utf8() {
         &problems,
         "Cargo.toml",
         Rule::RustConfigFile,
-        "UTF-8",
+        &["UTF-8"],
         "invalid UTF-8",
     );
 }
@@ -358,7 +427,13 @@ fn check_reports_a_missing_root_manifest() {
 
     let problems = check_project(root.path());
 
-    assert_single_problem(&problems, "Cargo.toml", Rule::RustConfigFile, "", "missing");
+    assert_single_problem(
+        &problems,
+        "Cargo.toml",
+        Rule::RustConfigFile,
+        &[],
+        "missing",
+    );
 }
 
 #[test]
