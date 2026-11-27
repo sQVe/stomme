@@ -1032,7 +1032,6 @@ fn commit_tree(git: &Git<'_>, tree: &str) -> Result<String, OcrScopeError> {
 }
 
 fn graft(git: &Git<'_>, head: &str, commit: &str) -> Result<(), OcrScopeError> {
-    // A rerun replaces the graft of the same head, which `-f` allows.
     let arguments = ["replace", "-f", "--graft", head, commit];
     let output = git.run(&arguments)?;
 
