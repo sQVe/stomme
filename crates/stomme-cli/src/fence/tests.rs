@@ -177,6 +177,38 @@ fn an_indented_html_comment_is_code_not_a_comment() {
 }
 
 #[test]
+fn a_comment_ends_with_the_container_that_holds_it() {
+    let text = "> <!--\n> hidden\nvisible\n";
+
+    assert_eq!(scanned(text), [(2, 0, "visible")]);
+    assert_eq!(comments(text), [0, 1]);
+}
+
+#[test]
+fn a_comment_after_a_list_marker_is_a_comment() {
+    let text = "- <!-- [0001: A](./0001-a.md) -->\nafter\n";
+
+    assert_eq!(scanned(text), [(1, 0, "after")]);
+    assert_eq!(comments(text), [0]);
+}
+
+#[test]
+fn a_comment_keeps_hiding_lines_inside_a_deeper_item() {
+    let text = "- Topic\n  <!--\n  - nested\n    more\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic")]);
+    assert_eq!(comments(text), [1, 2, 3]);
+}
+
+#[test]
+fn a_comment_opened_on_a_list_marker_ends_with_the_item() {
+    let text = "- <!--\n  hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(2, 0, "after")]);
+    assert_eq!(comments(text), [0, 1]);
+}
+
+#[test]
 fn a_quote_inside_a_fence_is_content() {
     let text = "- Topic\n  ```\n  > quoted\n  ```\nafter\n";
 

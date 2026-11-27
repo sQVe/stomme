@@ -136,6 +136,10 @@ fn check_accepts_a_heading_after_text_and_with_up_to_three_spaces() {
             "#hashtag\n\n# ADR 0001: Documentation scope",
         ),
         (
+            "html comment before the heading",
+            "<!--\n# ADR 0001: Other\n-->\n\n# ADR 0001: Documentation scope",
+        ),
+        (
             "backtick fence",
             "```md\n# ADR 0001: Other\n```\n\n# ADR 0001: Documentation scope",
         ),

@@ -281,15 +281,15 @@ fn heading_line(text: &str) -> Option<&str> {
         .find(|content| is_heading(content))
 }
 
-fn content_lines<'a>(text: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
-    unfenced_lines(text.lines()).filter(|line| !line.in_comment)
-}
-
 fn section<'a>(text: &'a str, heading: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
     content_lines(text)
         .skip_while(move |line| line.raw.trim_end() != heading)
         .skip(1)
         .take_while(|line| !line.raw.starts_with("## "))
+}
+
+fn content_lines<'a>(text: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
+    unfenced_lines(text.lines()).filter(|line| !line.in_comment)
 }
 
 fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {

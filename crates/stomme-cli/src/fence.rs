@@ -30,7 +30,7 @@ pub(crate) fn unfenced_lines<'a>(
 ) -> impl Iterator<Item = UnfencedLine<'a>> {
     let mut containers = Containers::new();
     let mut fence: Option<OpenFence> = None;
-    let mut comment = false;
+    let mut open_comment: Option<OpenComment> = None;
 
     lines.enumerate().filter_map(move |(index, raw)| {
         let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
@@ -55,19 +55,37 @@ pub(crate) fn unfenced_lines<'a>(
             view = containers.view(quote.indent, quote.start, quote.content);
         }
 
-        let is_code = !comment && view.relative >= INDENTED_CODE;
-        let opens_comment = !is_code && view.content.starts_with(COMMENT_START);
-        let in_comment = comment || opens_comment;
+        let leaves_container = open_comment
+            .as_ref()
+            .is_some_and(|open| view.depth < open.depth || quote.quotes < open.quotes);
+
+        if leaves_container {
+            open_comment = None;
+        }
+
+        let is_code = open_comment.is_none() && view.relative >= INDENTED_CODE;
 
         if is_code {
             return None;
         }
 
-        if in_comment {
-            comment = !view.content.contains(COMMENT_END);
-        } else if let Some(open) = opening_fence(content_after_markers(view.content)) {
-            let item_column = list_content_column(view.indent, view.content);
+        let item_column = list_content_column(view.indent, view.content);
+        let opens_comment = open_comment.is_none()
+            && content_after_markers(view.content).starts_with(COMMENT_START);
+        let in_comment = open_comment.is_some() || opens_comment;
 
+        if opens_comment {
+            let closes = view.content.contains(COMMENT_END);
+
+            open_comment = (!closes).then(|| OpenComment {
+                depth: view.depth + usize::from(item_column.is_some()),
+                quotes: quote.quotes,
+            });
+        } else if view.content.contains(COMMENT_END) {
+            open_comment = None;
+        }
+
+        if !in_comment && let Some(open) = opening_fence(content_after_markers(view.content)) {
             containers.open_list_item(&view, index);
 
             fence = Some(OpenFence {
@@ -231,6 +249,11 @@ struct OpenFence {
     depth: usize,
     quotes: usize,
     column: usize,
+}
+
+struct OpenComment {
+    depth: usize,
+    quotes: usize,
 }
 
 fn indentation_from(whitespace: &str, mut column: usize) -> usize {
