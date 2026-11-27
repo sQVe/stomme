@@ -126,6 +126,13 @@ fn a_quote_inside_a_fence_does_not_close_it() {
 }
 
 #[test]
+fn a_fence_that_leaves_its_item_starts_a_quoted_fence() {
+    let text = "- item\n  ```\n  hidden\n> ```\n> - [entry](./0001-a.md)\n> ```\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- item"), (6, 0, "after")]);
+}
+
+#[test]
 fn an_over_indented_closer_does_not_close_the_fence() {
     let text = "- Topic\n    ```\n    hidden\n       ```\n    still hidden\nafter\n";
 

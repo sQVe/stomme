@@ -30,9 +30,8 @@ pub(crate) fn unfenced_lines<'a>(
     lines.enumerate().filter_map(move |(index, raw)| {
         let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
         let (raw_indent, _) = split_indent(raw);
-        let base = containers.base_for(raw_indent);
-        let quote = split_quote(raw, quote_limit, base);
-        let view = containers.view(quote.indent, quote.start, quote.content);
+        let mut quote = split_quote(raw, quote_limit, containers.base_for(raw_indent));
+        let mut view = containers.view(quote.indent, quote.start, quote.content);
 
         if let Some(open) = &fence {
             let container_ended = view.depth < open.depth || quote.quotes < open.quotes;
@@ -46,6 +45,9 @@ pub(crate) fn unfenced_lines<'a>(
             if !container_ended {
                 return None;
             }
+
+            quote = split_quote(raw, usize::MAX, containers.base_for(raw_indent));
+            view = containers.view(quote.indent, quote.start, quote.content);
         }
 
         if view.relative >= INDENTED_CODE {
@@ -55,7 +57,7 @@ pub(crate) fn unfenced_lines<'a>(
         let item_column = list_content_column(view.indent, view.content);
 
         if let Some(open) = opening_fence(content_after_markers(view.content)) {
-            containers.open_list_item(&view);
+            containers.open_list_item(&view, index);
 
             fence = Some(OpenFence {
                 fence: open,
@@ -69,7 +71,7 @@ pub(crate) fn unfenced_lines<'a>(
 
         let item_start = containers.item_start().unwrap_or(index);
 
-        containers.open_list_item(&view);
+        containers.open_list_item(&view, index);
 
         Some(UnfencedLine {
             index,
@@ -149,7 +151,6 @@ fn content_after_markers(mut content: &str) -> &str {
 // indented code and fenced code apart from content, which a count of leading spaces cannot do.
 struct Containers {
     items: Vec<Item>,
-    viewed: usize,
 }
 
 struct Item {
@@ -159,10 +160,7 @@ struct Item {
 
 impl Containers {
     fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            viewed: 0,
-        }
+        Self { items: Vec::new() }
     }
 
     // The content column of the innermost open item that holds a line at `indent`.
@@ -178,8 +176,6 @@ impl Containers {
     // Reads the line against the open items. A blank line continues every open item, so it closes
     // none of them.
     fn view<'a>(&mut self, indent: usize, container_start: usize, content: &'a str) -> Line<'a> {
-        self.viewed += 1;
-
         if content.is_empty() {
             return Line {
                 indent,
@@ -210,12 +206,8 @@ impl Containers {
         self.items.last().map(|item| item.index)
     }
 
-    // Opens an item at the line `view` read last. The line index counts the lines read so far.
-    fn open_list_item(&mut self, line: &Line) {
-        let Some(index) = self.viewed.checked_sub(1) else {
-            return;
-        };
-
+    // Opens an item at the line `view` read last.
+    fn open_list_item(&mut self, line: &Line, index: usize) {
         if let Some(column) = list_content_column(line.indent, line.content) {
             self.items.push(Item { column, index });
         }

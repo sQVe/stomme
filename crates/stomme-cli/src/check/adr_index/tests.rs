@@ -107,6 +107,7 @@ fn check_reports_a_first_heading_that_does_not_match_the_file() {
         "## ADR 0001: Documentation scope",
         "Documentation scope",
         "  # Draft\n\n# ADR 0001: Documentation scope",
+        "> # ADR 0001: Documentation scope",
     ];
 
     for heading in cases {
@@ -598,6 +599,7 @@ fn check_reports_an_index_line_that_is_not_a_plain_entry() {
         "- 0001-documentation-scope.md",
         "- [Template](./TEMPLATE.md)",
         "- [Notes](./notes.md)",
+        "> - [0001: Documentation scope](./0001-documentation-scope.md)",
         "\u{a0}- [0001: Documentation scope](./0001-documentation-scope.md)",
     ];
 
