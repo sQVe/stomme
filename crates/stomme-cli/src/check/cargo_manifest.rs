@@ -99,7 +99,6 @@ impl<'de> Visitor<'de> for DependencyVisitor {
     }
 }
 
-// A dependency table carries fields no check reads, so they are validated and dropped.
 fn read_table<'de, A>(map: &mut A, first: String) -> Result<Dependency, A::Error>
 where
     A: MapAccess<'de>,
