@@ -80,9 +80,10 @@ fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<(Vec<AdrFile>, Vec<Pro
 }
 
 fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
+    let lines: Vec<UnfencedLine> = content_lines(index).collect();
     let mut problems = duplicate_numbers(adrs);
-    let retired = retired_numbers(index);
-    let (entries, unparsed) = index_entries(index);
+    let retired = retired_numbers(&lines);
+    let (entries, unparsed) = index_entries(&lines);
     let entries_by_file = group_by_file(&entries);
 
     for adr in adrs {
@@ -281,22 +282,33 @@ fn heading_line(text: &str) -> Option<&str> {
         .find(|content| is_heading(content))
 }
 
-fn section<'a>(text: &'a str, heading: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
-    content_lines(text)
-        .skip_while(move |line| line.raw.trim_end() != heading)
-        .skip(1)
-        .take_while(|line| !line.raw.starts_with("## "))
+fn section<'a, 'text>(
+    lines: &'a [UnfencedLine<'text>],
+    heading: &str,
+) -> &'a [UnfencedLine<'text>] {
+    let Some(start) = lines.iter().position(|line| line.raw.trim_end() == heading) else {
+        return &[];
+    };
+    let body = &lines[start + 1..];
+    let end = body
+        .iter()
+        .position(|line| line.raw.starts_with("## "))
+        .unwrap_or(body.len());
+
+    &body[..end]
 }
 
 fn content_lines<'a>(text: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
     unfenced_lines(text.lines()).filter(|line| !line.in_comment)
 }
 
-fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
+fn index_entries<'text>(
+    lines: &[UnfencedLine<'text>],
+) -> (Vec<IndexEntry<'text>>, Vec<&'text str>) {
     let mut entries = Vec::new();
     let mut unparsed = Vec::new();
 
-    for line in section(index, "## Index") {
+    for line in section(lines, "## Index") {
         let text = split_indent(line.raw).1.trim_end();
 
         if text.is_empty() {
@@ -343,8 +355,9 @@ fn looks_like_a_link(line: &str) -> bool {
     line.contains(".md") || has_link_syntax || starts_with_brackets
 }
 
-fn retired_numbers(index: &str) -> BTreeSet<&str> {
-    section(index, "## Retired")
+fn retired_numbers<'text>(lines: &[UnfencedLine<'text>]) -> BTreeSet<&'text str> {
+    section(lines, "## Retired")
+        .iter()
         .filter_map(|line| line.raw.trim().strip_prefix('|')?.split('|').next())
         .map(str::trim)
         .collect()
