@@ -10,7 +10,8 @@ pub(crate) struct Row {
     pub(crate) kind: RowKind,
     pub(crate) old_line: Option<usize>,
     pub(crate) new_line: Option<usize>,
-    pub(crate) text: String,
+    pub(crate) text: Vec<u8>,
+    pub(crate) terminated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,30 +23,66 @@ pub(crate) struct Hunk {
     pub(crate) rows: Vec<Row>,
 }
 
-pub(crate) fn parse_hunks(patch: &str) -> Option<Vec<Hunk>> {
+pub(crate) fn parse_hunks(patch: &[u8]) -> Option<Vec<Hunk>> {
     let mut hunks: Vec<Hunk> = Vec::new();
     let mut old_line = 0;
     let mut new_line = 0;
+    let mut old_left = 0;
+    let mut new_left = 0;
 
-    for text in patch.split('\n') {
-        if text.starts_with("@@") {
-            let hunk = parse_header(text)?;
+    for text in patch.split(|byte| *byte == b'\n') {
+        if text.starts_with(b"@@") {
+            let hunk = parse_header(std::str::from_utf8(text).ok()?)?;
             old_line = hunk.old_start;
             new_line = hunk.new_start;
+            old_left = hunk.old_count;
+            new_left = hunk.new_count;
             hunks.push(hunk);
             continue;
         }
 
-        if hunks.is_empty() {
+        if text.starts_with(b"\\") {
+            if let Some(row) = hunks.last_mut().and_then(|hunk| hunk.rows.last_mut()) {
+                row.terminated = false;
+            }
+
             continue;
         }
 
-        if let Some(row) = row_for(text, &mut old_line, &mut new_line) {
-            hunks.last_mut()?.rows.push(row);
+        if old_left == 0 && new_left == 0 {
+            continue;
         }
+
+        let Some(marker) = text.first().copied() else {
+            continue;
+        };
+        let Some(kind) = counted_kind(marker, old_left, new_left) else {
+            continue;
+        };
+
+        if kind != RowKind::Added {
+            old_left -= 1;
+        }
+
+        if kind != RowKind::Removed {
+            new_left -= 1;
+        }
+
+        let row = row_for(kind, &text[1..], &mut old_line, &mut new_line);
+
+        hunks.last_mut()?.rows.push(row);
     }
 
     Some(hunks)
+}
+
+fn counted_kind(marker: u8, old_left: usize, new_left: usize) -> Option<RowKind> {
+    match marker {
+        b'-' if old_left > 0 => Some(RowKind::Removed),
+        b'+' if new_left > 0 => Some(RowKind::Added),
+        b' ' if old_left > 0 && new_left > 0 => Some(RowKind::Context),
+        _ => None,
+    }
 }
 
 fn parse_header(text: &str) -> Option<Hunk> {
@@ -87,41 +124,26 @@ fn parse_count(text: &str) -> Option<(usize, &str)> {
     parse_number(rest)
 }
 
-fn row_for(text: &str, old_line: &mut usize, new_line: &mut usize) -> Option<Row> {
-    let marker = text.chars().next()?;
-    let text = text.get(1..)?.to_string();
+fn row_for(kind: RowKind, text: &[u8], old_line: &mut usize, new_line: &mut usize) -> Row {
+    let mut row = Row {
+        kind,
+        old_line: None,
+        new_line: None,
+        text: text.to_vec(),
+        terminated: true,
+    };
 
-    match marker {
-        '-' => {
-            *old_line += 1;
-            Some(Row {
-                kind: RowKind::Removed,
-                old_line: Some(*old_line - 1),
-                new_line: None,
-                text,
-            })
-        }
-        '+' => {
-            *new_line += 1;
-            Some(Row {
-                kind: RowKind::Added,
-                old_line: None,
-                new_line: Some(*new_line - 1),
-                text,
-            })
-        }
-        ' ' => {
-            *old_line += 1;
-            *new_line += 1;
-            Some(Row {
-                kind: RowKind::Context,
-                old_line: Some(*old_line - 1),
-                new_line: Some(*new_line - 1),
-                text,
-            })
-        }
-        _ => None,
+    if kind != RowKind::Added {
+        *old_line += 1;
+        row.old_line = Some(*old_line - 1);
     }
+
+    if kind != RowKind::Removed {
+        *new_line += 1;
+        row.new_line = Some(*new_line - 1);
+    }
+
+    row
 }
 
 #[cfg(test)]

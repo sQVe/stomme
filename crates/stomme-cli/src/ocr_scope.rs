@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
@@ -15,7 +15,7 @@ use base::{ScopedFile, build_base_commit, counts};
 use change::{Change, Counts, detailed_changes, file_patch, name_status};
 use git::{Git, TreeEntry, blob, content_lines, git_text, graft, tree_entries};
 use mapping::{
-    CoveredLine, HeadToHeadFile, Removal, added_lines, claimed_positions, map_covered_lines,
+    CoveredLine, RangeChange, added_lines, claimed_positions, map_covered_lines, removed_texts,
     scoped_removed_lines, uncovered_added_lines,
 };
 use patch::{RowKind, parse_hunks};
@@ -61,18 +61,21 @@ pub(crate) fn run(root: &Path, request: &Request) -> Result<Outcome, OcrScopeErr
         return Err(OcrScopeError::ShallowClone);
     }
 
+    let root = repository_root(&git)?;
+    let git = Git { root: &root };
     let reviewed = resolve(&git, "--reviewed", &request.reviewed)?;
     let reviewed_base = resolve(&git, "--reviewed-base", &request.reviewed_base)?;
     let base = resolve(&git, "--base", &request.base)?;
     let head = resolve(&git, "--head", &request.head)?;
 
     let covered = coverage(&git, &reviewed_base, &reviewed)?;
-    let head_changes = head_to_head_changes(&git, &reviewed, &head)?;
+    let prior = range_changes(&git, &reviewed_base, &reviewed)?;
+    let head_changes = range_changes(&git, &reviewed, &head)?;
     let head_tree = tree_entries(&git, &head)?;
     let head_lines = read_head_lines(&git, &head_tree, &head_changes)?;
     let mapped = map_covered_lines(&covered, &head_changes, &head_lines);
     let claimed = claimed_positions(&mapped);
-    let removals = removals_by_head_path(&head_changes);
+    let removals = removals_by_new_path(&prior, &head_changes);
 
     let changes = detailed_changes(&git, &base, &head)?;
     let scoped = scope_changes(&git, &base, &head, &changes, &claimed, &removals)?;
@@ -99,6 +102,13 @@ fn is_shallow(git: &Git<'_>) -> Result<bool, OcrScopeError> {
     let shallow = git_text(git, &arguments)?;
 
     Ok(shallow == "true")
+}
+
+fn repository_root(git: &Git<'_>) -> Result<PathBuf, OcrScopeError> {
+    let arguments = ["rev-parse", "--show-toplevel"];
+    let root = git_text(git, &arguments)?;
+
+    Ok(PathBuf::from(root))
 }
 
 fn resolve(git: &Git<'_>, flag: &'static str, value: &str) -> Result<String, OcrScopeError> {
@@ -164,12 +174,12 @@ fn coverage(git: &Git<'_>, base: &str, reviewed: &str) -> Result<Vec<CoveredLine
     Ok(covered)
 }
 
-fn head_to_head_changes(
+fn range_changes(
     git: &Git<'_>,
-    reviewed: &str,
+    base: &str,
     head: &str,
-) -> Result<BTreeMap<String, HeadToHeadFile>, OcrScopeError> {
-    let statuses = name_status(git, reviewed, head)?;
+) -> Result<BTreeMap<String, RangeChange>, OcrScopeError> {
+    let statuses = name_status(git, base, head)?;
     let mut changes = BTreeMap::new();
 
     for change in statuses {
@@ -177,13 +187,13 @@ fn head_to_head_changes(
             continue;
         }
 
-        let patch = file_patch(git, reviewed, head, &change.old_path, &change.new_path)?;
+        let patch = file_patch(git, base, head, &change.old_path, &change.new_path)?;
         let hunks = parse_hunks(&patch);
 
         changes.insert(
             change.old_path,
-            HeadToHeadFile {
-                head_path: change.new_path,
+            RangeChange {
+                new_path: change.new_path,
                 hunks,
             },
         );
@@ -195,16 +205,16 @@ fn head_to_head_changes(
 fn read_head_lines(
     git: &Git<'_>,
     tree: &BTreeMap<String, TreeEntry>,
-    changes: &BTreeMap<String, HeadToHeadFile>,
+    changes: &BTreeMap<String, RangeChange>,
 ) -> Result<BTreeMap<String, Vec<Vec<u8>>>, OcrScopeError> {
     let mut lines = BTreeMap::new();
 
     for change in changes.values() {
-        if lines.contains_key(&change.head_path) {
+        if lines.contains_key(&change.new_path) {
             continue;
         }
 
-        let Some(entry) = tree.get(&change.head_path) else {
+        let Some(entry) = tree.get(&change.new_path) else {
             continue;
         };
 
@@ -218,41 +228,35 @@ fn read_head_lines(
             .map(<[u8]>::to_vec)
             .collect();
 
-        lines.insert(change.head_path.clone(), file_lines);
+        lines.insert(change.new_path.clone(), file_lines);
     }
 
     Ok(lines)
 }
 
-fn removals_by_head_path(changes: &BTreeMap<String, HeadToHeadFile>) -> BTreeMap<String, Removal> {
-    let mut removals: BTreeMap<String, Removal> = BTreeMap::new();
+// Removed texts the reviewed round already covered, keyed by the head path the reviewed path
+// maps onto.
+fn removals_by_new_path(
+    prior: &BTreeMap<String, RangeChange>,
+    changes: &BTreeMap<String, RangeChange>,
+) -> BTreeMap<String, BTreeSet<Vec<u8>>> {
+    let mut removals: BTreeMap<String, BTreeSet<Vec<u8>>> = BTreeMap::new();
 
-    for change in changes.values() {
-        let removal = match &change.hunks {
-            Some(hunks) => Removal::from_hunks(hunks),
-            None => Removal::Every,
-        };
-        let existing = removals.get(&change.head_path);
-        let merged = match existing {
-            Some(existing) => merge_removals(existing, &removal),
-            None => removal,
+    for change in prior.values() {
+        let Some(hunks) = &change.hunks else {
+            continue;
         };
 
-        removals.insert(change.head_path.clone(), merged);
+        let new_path = changes
+            .get(&change.new_path)
+            .map_or_else(|| change.new_path.clone(), |mapped| mapped.new_path.clone());
+        removals
+            .entry(new_path)
+            .or_default()
+            .extend(removed_texts(hunks));
     }
 
     removals
-}
-
-fn merge_removals(first: &Removal, second: &Removal) -> Removal {
-    match (first, second) {
-        (Removal::Every, _) | (_, Removal::Every) => Removal::Every,
-        (Removal::Texts(left), Removal::Texts(right)) => {
-            let mut texts = left.clone();
-            texts.extend(right.iter().cloned());
-            Removal::Texts(texts)
-        }
-    }
 }
 
 fn scope_changes(
@@ -261,7 +265,7 @@ fn scope_changes(
     head: &str,
     changes: &[Change],
     claimed: &BTreeSet<(String, usize)>,
-    removals: &BTreeMap<String, Removal>,
+    removals: &BTreeMap<String, BTreeSet<Vec<u8>>>,
 ) -> Result<BTreeMap<String, ScopedFile>, OcrScopeError> {
     let mut scoped = BTreeMap::new();
 
@@ -291,10 +295,8 @@ fn scope_changes(
         };
 
         let added = uncovered_added_lines(&change.new_path, &added_lines(&hunks), claimed);
-        let removed = match removals.get(&change.new_path) {
-            Some(removal) => scoped_removed_lines(&hunks, removal),
-            None => Vec::new(),
-        };
+        let covered = removals.get(&change.new_path);
+        let removed = scoped_removed_lines(&hunks, covered.unwrap_or(&BTreeSet::new()));
 
         if added.is_empty() && removed.is_empty() {
             continue;
@@ -316,6 +318,7 @@ fn scope_changes(
 fn is_skipped(change: &Change) -> bool {
     change.status == 'D'
         || matches!(change.counts, Counts::Binary)
+        || is_non_regular(&change.old_mode)
         || is_non_regular(&change.new_mode)
 }
 

@@ -268,7 +268,7 @@ pub(super) fn file_patch(
     head: &str,
     old_path: &str,
     new_path: &str,
-) -> Result<String, OcrScopeError> {
+) -> Result<Vec<u8>, OcrScopeError> {
     let mut arguments = vec![
         "diff",
         "-U0",
@@ -294,7 +294,7 @@ pub(super) fn file_patch(
 
     require_success(&arguments, &output)?;
 
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(output.stdout)
 }
 
 #[cfg(test)]

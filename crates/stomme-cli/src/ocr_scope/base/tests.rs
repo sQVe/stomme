@@ -9,7 +9,8 @@ fn counts_scoped_whole_files_and_line_files() {
     added.insert(3);
     let removed = vec![InsertedLine {
         after: 1,
-        text: "old".to_string(),
+        text: b"old".to_vec(),
+        terminated: true,
     }];
     let scoped = BTreeMap::from([
         (

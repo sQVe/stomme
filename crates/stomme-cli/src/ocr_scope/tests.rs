@@ -259,6 +259,76 @@ fn follows_a_renamed_file() {
 }
 
 #[test]
+fn scopes_a_removal_the_moved_base_added() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/a.txt", "keep\n")]),
+        |_| {},
+        |folder| write_files(folder, &[("src/a.txt", "keep\nbase-only\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 0, 1));
+    assert!(added_texts(folder.path(), &base, &history.head).is_empty());
+    assert_eq!(
+        removed_texts(folder.path(), &base, &history.head),
+        ["base-only"]
+    );
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/a.txt"]
+    );
+}
+
+#[test]
+fn leaves_out_a_removal_the_review_already_covered() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nremove me\nlast\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nlast\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nremove me\nlast\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nlast\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+
+    assert_eq!(outcome, Outcome::Empty);
+    assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn gives_the_same_scope_from_a_nested_folder() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, BASE_FILES),
+        |folder| write_files(folder, REVIEWED_FILES),
+        |folder| write_files(folder, MOVED_BASE_FILES),
+        |folder| write_files(folder, HEAD_FILES),
+    );
+
+    let from_root = run_scope(folder.path(), &history).expect("build the scope from the root");
+    let from_nested = run_scope(&folder.path().join("src"), &history)
+        .expect("build the scope from a nested folder");
+
+    assert!(matches!(from_root, Outcome::Base { .. }));
+    assert_eq!(from_nested, from_root);
+}
+
+#[test]
 fn scopes_a_line_removed_since_the_review() {
     let folder = repository_folder();
     let history = build_history(
@@ -425,6 +495,219 @@ fn counts_a_whitespace_only_edit_as_new() {
 
     assert_eq!((files, added, removed), (1, 1, 0));
     assert_eq!(added_texts(folder.path(), &base, &history.head), [" beta"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn keeps_the_head_entry_when_a_symlink_becomes_a_regular_file() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            write_symlink(folder, "src/a.txt", "target");
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "one\n")]),
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_files(
+                folder,
+                &[
+                    ("src/file.rs", "one\ntwo reviewed\nthree new\n"),
+                    ("src/a.txt", "new\n"),
+                ],
+            );
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/file.rs"]
+    );
+    assert_eq!(
+        tree_entry(folder.path(), &base, "src/a.txt"),
+        tree_entry(folder.path(), &history.head, "src/a.txt")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn keeps_the_head_entry_when_a_regular_file_becomes_a_symlink() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "one\n"), ("src/a.txt", "target\n")],
+            );
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "one\n")]),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\ntwo reviewed\nthree new\n")]);
+            write_symlink(folder, "src/a.txt", "target");
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        tree_entry(folder.path(), &base, "src/a.txt"),
+        tree_entry(folder.path(), &history.head, "src/a.txt")
+    );
+}
+
+#[test]
+fn keeps_the_head_entry_when_a_submodule_becomes_a_regular_file() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            write_submodule(folder, "vendor/sub", "inner one\n");
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "one\n")]),
+        |folder| {
+            remove_folder(folder, "vendor/sub");
+            write_files(
+                folder,
+                &[
+                    ("src/file.rs", "one\ntwo reviewed\nthree new\n"),
+                    ("vendor/sub", "new\n"),
+                ],
+            );
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        tree_entry(folder.path(), &base, "vendor/sub"),
+        tree_entry(folder.path(), &history.head, "vendor/sub")
+    );
+}
+
+#[test]
+fn keeps_the_bytes_of_a_restored_latin1_line() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_file(folder, "src/a.txt", b"keep\nlatin-1 \xe9\n"),
+        |_| {},
+        |_| {},
+        |folder| write_file(folder, "src/a.txt", b"keep\n"),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 0, 1));
+    assert_eq!(
+        blob_bytes(folder.path(), &format!("{base}:src/a.txt")),
+        b"keep\nlatin-1 \xe9\n"
+    );
+}
+
+#[test]
+fn keeps_an_unterminated_removed_line_unterminated() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_file(folder, "src/a.txt", b"keep\nlast"),
+        |_| {},
+        |_| {},
+        |folder| write_file(folder, "src/a.txt", b"keep\n"),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 0, 1));
+    assert_eq!(
+        blob_bytes(folder.path(), &format!("{base}:src/a.txt")),
+        b"keep\nlast"
+    );
+}
+
+#[test]
+fn writes_a_new_file_whose_name_starts_with_a_dash() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "one\n")]),
+        |_| {},
+        |_| {},
+        |folder| write_files(folder, &[("-note.txt", "new\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert!(tree_entry(folder.path(), &base, "-note.txt").is_empty());
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["-note.txt"]
+    );
 }
 
 #[test]
@@ -888,6 +1171,10 @@ fn remove_files(folder: &Path, paths: &[&str]) {
     }
 }
 
+fn remove_folder(folder: &Path, path: &str) {
+    fs::remove_dir_all(folder.join(path)).expect("remove the fixture folder");
+}
+
 fn write_submodule(folder: &Path, path: &str, text: &str) {
     let nested = folder.join(path);
 
@@ -1012,6 +1299,10 @@ fn blob_text(folder: &Path, revision: &str) -> String {
     let output = git_output(folder, &["cat-file", "-p", revision]);
 
     String::from_utf8(output.stdout).expect("the blob is UTF-8")
+}
+
+fn blob_bytes(folder: &Path, revision: &str) -> Vec<u8> {
+    git_output(folder, &["cat-file", "-p", revision]).stdout
 }
 
 fn object_id(folder: &Path, revision: &str) -> String {

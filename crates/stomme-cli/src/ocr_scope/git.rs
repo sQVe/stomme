@@ -129,7 +129,7 @@ pub(super) fn tree_entries(
     git: &Git<'_>,
     revision: &str,
 ) -> Result<BTreeMap<String, TreeEntry>, OcrScopeError> {
-    let arguments = ["ls-tree", "-r", "-z", revision];
+    let arguments = ["ls-tree", "-r", "-z", "--full-tree", revision];
     let output = git.run(&arguments)?;
 
     require_success(&arguments, &output)?;

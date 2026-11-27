@@ -6,30 +6,25 @@ use super::patch::{Hunk, RowKind};
 pub(crate) struct CoveredLine {
     pub(crate) path: String,
     pub(crate) line: usize,
-    pub(crate) text: String,
+    pub(crate) text: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct HeadToHeadFile {
-    pub(crate) head_path: String,
+pub(crate) struct RangeChange {
+    pub(crate) new_path: String,
     pub(crate) hunks: Option<Vec<Hunk>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Removal {
-    Every,
-    Texts(BTreeSet<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InsertedLine {
     pub(crate) after: usize,
-    pub(crate) text: String,
+    pub(crate) text: Vec<u8>,
+    pub(crate) terminated: bool,
 }
 
 pub(crate) fn map_covered_lines(
     covered: &[CoveredLine],
-    changes: &BTreeMap<String, HeadToHeadFile>,
+    changes: &BTreeMap<String, RangeChange>,
     head_lines: &BTreeMap<String, Vec<Vec<u8>>>,
 ) -> Vec<CoveredLine> {
     let mut claimed: BTreeSet<(String, usize)> = BTreeSet::new();
@@ -49,9 +44,9 @@ pub(crate) fn map_covered_lines(
             continue;
         };
 
-        claimed.insert((change.head_path.clone(), mapped_line));
+        claimed.insert((change.new_path.clone(), mapped_line));
         mapped.push(CoveredLine {
-            path: change.head_path.clone(),
+            path: change.new_path.clone(),
             line: mapped_line,
             text: line.text.clone(),
         });
@@ -88,7 +83,10 @@ pub(crate) fn added_lines(hunks: &[Hunk]) -> Vec<usize> {
         .collect()
 }
 
-pub(crate) fn scoped_removed_lines(hunks: &[Hunk], removal: &Removal) -> Vec<InsertedLine> {
+pub(crate) fn scoped_removed_lines(
+    hunks: &[Hunk],
+    covered: &BTreeSet<Vec<u8>>,
+) -> Vec<InsertedLine> {
     let mut lines = Vec::new();
 
     for hunk in hunks {
@@ -99,40 +97,28 @@ pub(crate) fn scoped_removed_lines(hunks: &[Hunk], removal: &Removal) -> Vec<Ins
         };
 
         for row in &hunk.rows {
-            if row.kind != RowKind::Removed {
+            if row.kind != RowKind::Removed || covered.contains(&row.text) {
                 continue;
             }
 
-            if removal.contains(&row.text) {
-                lines.push(InsertedLine {
-                    after,
-                    text: row.text.clone(),
-                });
-            }
+            lines.push(InsertedLine {
+                after,
+                text: row.text.clone(),
+                terminated: row.terminated,
+            });
         }
     }
 
     lines
 }
 
-impl Removal {
-    pub(crate) fn from_hunks(hunks: &[Hunk]) -> Self {
-        let texts = hunks
-            .iter()
-            .flat_map(|hunk| &hunk.rows)
-            .filter(|row| row.kind == RowKind::Removed)
-            .map(|row| row.text.clone())
-            .collect();
-
-        Removal::Texts(texts)
-    }
-
-    fn contains(&self, text: &str) -> bool {
-        match self {
-            Removal::Every => true,
-            Removal::Texts(texts) => texts.contains(text),
-        }
-    }
+pub(crate) fn removed_texts(hunks: &[Hunk]) -> BTreeSet<Vec<u8>> {
+    hunks
+        .iter()
+        .flat_map(|hunk| &hunk.rows)
+        .filter(|row| row.kind == RowKind::Removed)
+        .map(|row| row.text.clone())
+        .collect()
 }
 
 pub(crate) fn map_old_line(hunks: &[Hunk], line: usize) -> Option<usize> {
@@ -155,7 +141,7 @@ pub(crate) fn map_old_line(hunks: &[Hunk], line: usize) -> Option<usize> {
 }
 
 fn mapped_position(
-    change: &HeadToHeadFile,
+    change: &RangeChange,
     hunks: &[Hunk],
     line: &CoveredLine,
     claimed: &BTreeSet<(String, usize)>,
@@ -164,16 +150,16 @@ fn mapped_position(
     let direct = map_old_line(hunks, line.line);
 
     if let Some(direct) = direct
-        && head_text(head_lines, &change.head_path, direct) == Some(line.text.as_bytes())
+        && head_text(head_lines, &change.new_path, direct) == Some(line.text.as_slice())
     {
         return Some(direct);
     }
 
     let matches: Vec<usize> = added_lines(hunks)
         .into_iter()
-        .filter(|added| !claimed.contains(&(change.head_path.clone(), *added)))
+        .filter(|added| !claimed.contains(&(change.new_path.clone(), *added)))
         .filter(|added| {
-            head_text(head_lines, &change.head_path, *added) == Some(line.text.as_bytes())
+            head_text(head_lines, &change.new_path, *added) == Some(line.text.as_slice())
         })
         .collect();
 

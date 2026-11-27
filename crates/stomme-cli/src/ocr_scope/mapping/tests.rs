@@ -101,7 +101,7 @@ fn gives_every_added_line_in_scope_when_there_is_no_coverage() {
 
 #[test]
 fn maps_a_line_below_an_insertion_after_it() {
-    let hunks = parse_hunks("@@ -82,0 +83 @@\n+inserted").expect("parse the hunk");
+    let hunks = parse_hunks(b"@@ -82,0 +83 @@\n+inserted").expect("parse the hunk");
 
     assert_eq!(map_old_line(&hunks, 82), Some(82));
     assert_eq!(map_old_line(&hunks, 83), Some(84));
@@ -155,35 +155,38 @@ fn shifts_a_covered_line_below_a_hunk_by_its_line_difference() {
 
 #[test]
 fn inserts_a_removed_line_after_the_line_before_its_hunk() {
-    let hunks = parse_hunks("@@ -2 +2,2 @@\n-old\n+new\n+extra").expect("parse the hunk");
+    let hunks = parse_hunks(b"@@ -2 +2,2 @@\n-old\n+new\n+extra").expect("parse the hunk");
 
-    let inserted = scoped_removed_lines(&hunks, &Removal::Every);
+    let inserted = scoped_removed_lines(&hunks, &BTreeSet::new());
 
     assert_eq!(
         inserted,
         [InsertedLine {
             after: 1,
-            text: "old".to_string(),
+            text: b"old".to_vec(),
+            terminated: true,
         }]
     );
 }
 
 #[test]
 fn inserts_removed_lines_at_a_deletion_hunk_start() {
-    let hunks = parse_hunks("@@ -2,2 +1,0 @@\n-old\n-gone").expect("parse the hunk");
+    let hunks = parse_hunks(b"@@ -2,2 +1,0 @@\n-old\n-gone").expect("parse the hunk");
 
-    let inserted = scoped_removed_lines(&hunks, &Removal::Every);
+    let inserted = scoped_removed_lines(&hunks, &BTreeSet::new());
 
     assert_eq!(
         inserted,
         [
             InsertedLine {
                 after: 1,
-                text: "old".to_string(),
+                text: b"old".to_vec(),
+                terminated: true,
             },
             InsertedLine {
                 after: 1,
-                text: "gone".to_string(),
+                text: b"gone".to_vec(),
+                terminated: true,
             },
         ]
     );
@@ -193,14 +196,14 @@ fn covered_line(path: &str, line: usize, text: &str) -> CoveredLine {
     CoveredLine {
         path: path.to_string(),
         line,
-        text: text.to_string(),
+        text: text.as_bytes().to_vec(),
     }
 }
 
-fn changes(path: &str, patch: &str) -> BTreeMap<String, HeadToHeadFile> {
-    let hunks = parse_hunks(patch);
-    let change = HeadToHeadFile {
-        head_path: path.to_string(),
+fn changes(path: &str, patch: &str) -> BTreeMap<String, RangeChange> {
+    let hunks = parse_hunks(patch.as_bytes());
+    let change = RangeChange {
+        new_path: path.to_string(),
         hunks,
     };
 

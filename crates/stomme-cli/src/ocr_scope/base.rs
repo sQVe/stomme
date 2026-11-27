@@ -105,51 +105,65 @@ fn rebuild(content: &[u8], added: &BTreeSet<usize>, removed: &[InsertedLine]) ->
     let lines = content_lines(content);
     let final_newline = content.ends_with(b"\n");
     let line_count = lines.len();
-    let mut insertions: BTreeMap<usize, Vec<&[u8]>> = BTreeMap::new();
+    let mut insertions: BTreeMap<usize, Vec<&InsertedLine>> = BTreeMap::new();
 
     for line in removed {
-        insertions
-            .entry(line.after)
-            .or_default()
-            .push(line.text.as_bytes());
+        insertions.entry(line.after).or_default().push(line);
     }
 
-    let mut output: Vec<&[u8]> = Vec::new();
+    let mut output: Vec<OutputLine<'_>> = Vec::new();
 
     push_insertions(&mut output, &insertions, 0);
 
     for line in 1..=line_count {
         if !added.contains(&line) {
-            output.push(lines[line - 1]);
+            output.push(OutputLine::Head(lines[line - 1]));
         }
 
         push_insertions(&mut output, &insertions, line);
     }
 
-    let mut bytes = Vec::new();
+    serialize(&output, final_newline)
+}
 
-    for (index, line) in output.iter().enumerate() {
-        if index > 0 {
+enum OutputLine<'a> {
+    Head(&'a [u8]),
+    Restored(&'a InsertedLine),
+}
+
+fn serialize(lines: &[OutputLine<'_>], final_newline: bool) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let last = lines.len().saturating_sub(1);
+
+    for (index, line) in lines.iter().enumerate() {
+        let text = match line {
+            OutputLine::Head(text) => *text,
+            OutputLine::Restored(restored) => restored.text.as_slice(),
+        };
+        let terminated = match line {
+            OutputLine::Head(_) => index < last || final_newline,
+            OutputLine::Restored(restored) => index < last || restored.terminated,
+        };
+
+        bytes.extend_from_slice(text);
+
+        if terminated {
             bytes.push(b'\n');
         }
-
-        bytes.extend_from_slice(line);
-    }
-
-    if final_newline && !output.is_empty() {
-        bytes.push(b'\n');
     }
 
     bytes
 }
 
 fn push_insertions<'a>(
-    output: &mut Vec<&'a [u8]>,
-    insertions: &'a BTreeMap<usize, Vec<&'a [u8]>>,
+    output: &mut Vec<OutputLine<'a>>,
+    insertions: &'a BTreeMap<usize, Vec<&'a InsertedLine>>,
     after: usize,
 ) {
-    if let Some(texts) = insertions.get(&after) {
-        output.extend(texts.iter().copied());
+    if let Some(lines) = insertions.get(&after) {
+        for line in lines {
+            output.push(OutputLine::Restored(line));
+        }
     }
 }
 
@@ -179,7 +193,11 @@ fn write_tree(
     }
 
     for path in drops {
-        run_index(git, &environment, &["update-index", "--force-remove", path])?;
+        run_index(
+            git,
+            &environment,
+            &["update-index", "--force-remove", "--", path],
+        )?;
     }
 
     git_text_with_environment(git, &["write-tree"], &environment)
