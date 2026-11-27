@@ -663,6 +663,17 @@ fn check_reports_an_index_line_that_is_not_a_plain_entry() {
 }
 
 #[test]
+fn check_reports_the_adr_when_the_index_heading_is_missing() {
+    let root = complete_project();
+
+    replace_in_index(root.path(), "## Index", "## Listed");
+
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+    assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexCount)]);
+}
+
+#[test]
 fn check_reads_only_the_index_section_for_entries() {
     let root = complete_project();
 
