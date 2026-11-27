@@ -4,6 +4,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
+use super::git::git_text;
 use super::*;
 use crate::test_support::{commit, git};
 
@@ -705,6 +706,84 @@ fn refuses_a_reviewed_head_that_is_not_in_the_clone() {
         error,
         OcrScopeError::NotACommit { flag: "--reviewed", ref value } if value == &missing
     ));
+    assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn reports_the_failed_git_command_and_its_stderr() {
+    let folder = tempfile::Builder::new()
+        .prefix("stomme-ocr-scope-broken-repository-")
+        .tempdir()
+        .expect("create a temporary folder");
+    fs::write(folder.path().join(".git"), "garbage\n").expect("write a broken git file");
+    let request = Request {
+        reviewed: "HEAD".to_string(),
+        reviewed_base: "HEAD".to_string(),
+        base: "HEAD".to_string(),
+        head: "HEAD".to_string(),
+    };
+
+    let error = run(folder.path(), &request).expect_err("refuse a folder with a broken repository");
+
+    let OcrScopeError::Git { command, stderr } = error else {
+        panic!("expected a git error, got {error:?}");
+    };
+    let output = Command::new("git")
+        .args(["rev-parse", "--is-shallow-repository"])
+        .current_dir(folder.path())
+        .output()
+        .expect("run git");
+
+    assert_eq!(command, "rev-parse --is-shallow-repository");
+    assert!(!output.status.success());
+    assert_eq!(stderr, String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn trims_the_stdout_of_a_git_command() {
+    let folder = repository_folder();
+    let git = Git {
+        root: folder.path(),
+    };
+
+    let text =
+        git_text(&git, &["rev-parse", "--is-shallow-repository"]).expect("read the shallow state");
+
+    assert_eq!(text, "false");
+}
+
+#[test]
+fn refuses_a_shallow_clone() {
+    let source = repository_folder();
+    write_files(source.path(), &[("src/file.rs", "one\n")]);
+    commit(source.path(), "base");
+    write_files(source.path(), &[("src/file.rs", "one\ntwo\n")]);
+    commit(source.path(), "head");
+
+    let folder = tempfile::Builder::new()
+        .prefix("stomme-ocr-scope-shallow-")
+        .tempdir()
+        .expect("create a temporary folder");
+    let url = format!("file://{}", source.path().display());
+    git(
+        folder.path(),
+        &["clone", "-q", "--depth", "1", url.as_str(), "."],
+    );
+
+    let shallow = git_output(folder.path(), &["rev-parse", "--is-shallow-repository"]);
+    assert_eq!(shallow.stdout, b"true\n");
+
+    let head = head_commit(folder.path());
+    let request = Request {
+        reviewed: head.clone(),
+        reviewed_base: head.clone(),
+        base: head.clone(),
+        head,
+    };
+
+    let error = run(folder.path(), &request).expect_err("refuse a shallow clone");
+
+    assert!(matches!(error, OcrScopeError::ShallowClone));
     assert!(replace_refs(folder.path()).is_empty());
 }
 

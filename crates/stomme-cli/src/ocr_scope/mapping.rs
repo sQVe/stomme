@@ -195,7 +195,7 @@ fn head_text<'a>(
 }
 
 fn is_inside(hunk: &Hunk, line: usize) -> bool {
-    hunk.old_count > 0 && (hunk.old_start..hunk.old_start + hunk.old_count).contains(&line)
+    (hunk.old_start..hunk.old_start + hunk.old_count).contains(&line)
 }
 
 fn is_above(hunk: &Hunk, line: usize) -> bool {

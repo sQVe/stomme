@@ -107,6 +107,88 @@ fn maps_a_line_below_an_insertion_after_it() {
     assert_eq!(map_old_line(&hunks, 83), Some(84));
 }
 
+#[test]
+fn maps_a_covered_line_at_the_last_old_line_of_a_hunk() {
+    let patch = "@@ -2,2 +2,3 @@\n b\n+inserted\n c";
+    let covered = vec![covered_line("src/a.ts", 3, "c")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "a\nb\ninserted\nc"),
+    );
+
+    assert_eq!(mapped, [covered_line("src/a.ts", 4, "c")]);
+}
+
+#[test]
+fn keeps_a_covered_line_at_an_empty_old_range_unshifted() {
+    let patch = "@@ -82,0 +83 @@\n+inserted";
+    let head = (1..=82)
+        .map(|number| format!("line {number}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let covered = vec![covered_line("src/a.ts", 82, "line 82")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", &head),
+    );
+
+    assert_eq!(mapped, [covered_line("src/a.ts", 82, "line 82")]);
+}
+
+#[test]
+fn shifts_a_covered_line_below_a_hunk_by_its_line_difference() {
+    let patch = "@@ -2,3 +2,2 @@\n-b\n c\n d";
+    let covered = vec![covered_line("src/a.ts", 5, "target")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "a\nc\nd\ntarget"),
+    );
+
+    assert_eq!(mapped, [covered_line("src/a.ts", 4, "target")]);
+}
+
+#[test]
+fn inserts_a_removed_line_after_the_line_before_its_hunk() {
+    let hunks = parse_hunks("@@ -2 +2,2 @@\n-old\n+new\n+extra").expect("parse the hunk");
+
+    let inserted = scoped_removed_lines(&hunks, &Removal::Every);
+
+    assert_eq!(
+        inserted,
+        [InsertedLine {
+            after: 1,
+            text: "old".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn inserts_removed_lines_at_a_deletion_hunk_start() {
+    let hunks = parse_hunks("@@ -2,2 +1,0 @@\n-old\n-gone").expect("parse the hunk");
+
+    let inserted = scoped_removed_lines(&hunks, &Removal::Every);
+
+    assert_eq!(
+        inserted,
+        [
+            InsertedLine {
+                after: 1,
+                text: "old".to_string(),
+            },
+            InsertedLine {
+                after: 1,
+                text: "gone".to_string(),
+            },
+        ]
+    );
+}
+
 fn covered_line(path: &str, line: usize, text: &str) -> CoveredLine {
     CoveredLine {
         path: path.to_string(),
