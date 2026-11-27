@@ -89,20 +89,48 @@ fn stops_a_hunk_at_the_counts_its_header_declares() {
 }
 
 #[test]
-fn ignores_a_row_that_exceeds_its_side_of_the_hunk() {
-    let hunks = parse_hunks(b"@@ -1,0 +1 @@\n+new\n-stray").expect("parse the hunk");
+fn ignores_a_row_beyond_the_counts_its_hunk_declares() {
+    let cases: [RowCase; 5] = [
+        (
+            "a removed row after the declared removals",
+            b"@@ -1,2 +0,0 @@\n-a\n-b\n-c",
+            &[b"a", b"b"],
+        ),
+        (
+            "an added row after the declared additions",
+            b"@@ -1,0 +1,2 @@\n+a\n+b\n+c",
+            &[b"a", b"b"],
+        ),
+        (
+            "a removed row without an old line left",
+            b"@@ -1,0 +1,2 @@\n+new\n-stray\n+second",
+            &[b"new", b"second"],
+        ),
+        (
+            "an added row without a new line left",
+            b"@@ -1,2 +1,0 @@\n-a\n+stray\n-b",
+            &[b"a", b"b"],
+        ),
+        (
+            "a context row without an old line left",
+            b"@@ -1,0 +1,2 @@\n+new\n keep",
+            &[b"new"],
+        ),
+    ];
 
-    assert_eq!(
-        hunks[0].rows,
-        [Row {
-            kind: RowKind::Added,
-            old_line: None,
-            new_line: Some(1),
-            text: b"new".to_vec(),
-            terminated: true,
-        }]
-    );
+    for (name, patch, expected) in cases {
+        let hunks = parse_hunks(patch).expect("parse the hunk");
+        let texts: Vec<&[u8]> = hunks[0]
+            .rows
+            .iter()
+            .map(|row| row.text.as_slice())
+            .collect();
+
+        assert_eq!(texts, expected, "{name}");
+    }
 }
+
+type RowCase = (&'static str, &'static [u8], &'static [&'static [u8]]);
 
 #[test]
 fn keeps_the_bytes_of_a_non_utf8_row() {

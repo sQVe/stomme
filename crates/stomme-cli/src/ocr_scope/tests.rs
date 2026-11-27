@@ -882,9 +882,9 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     let history = build_history(
         folder.path(),
         |folder| write_files(folder, &[("src/other.rs", "other\n")]),
-        |folder| write_file(folder, "src/new.rs", b"new first"),
-        |_| {},
         |folder| write_file(folder, "src/new.rs", b"new first\nnew second"),
+        |_| {},
+        |folder| write_file(folder, "src/new.rs", b"new first\nnew second\nnew third"),
     );
 
     let outcome = run_scope(folder.path(), &history).expect("build the scope base");
@@ -901,7 +901,7 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     assert_eq!((files, added, removed), (1, 1, 0));
     assert_eq!(
         blob_text(folder.path(), &format!("{base}:src/new.rs")),
-        "new first"
+        "new first\nnew second"
     );
     assert_eq!(
         changed_paths(folder.path(), &base, &history.head),
