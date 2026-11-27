@@ -133,6 +133,25 @@ fn a_fence_that_leaves_its_item_starts_a_quoted_fence() {
 }
 
 #[test]
+fn a_line_after_a_fence_ends_is_read_as_a_fresh_block() {
+    let text = "- item\n  ```\n  hidden\n> - quoted\n>   continued\nafter\n";
+    let lines: Vec<(usize, usize, usize)> = unfenced_lines(text.lines())
+        .map(|line| (line.index, line.item_start, line.view.depth))
+        .collect();
+
+    assert_eq!(
+        scanned(text),
+        [
+            (0, 0, "- item"),
+            (3, 0, "- quoted"),
+            (4, 0, "continued"),
+            (5, 0, "after"),
+        ]
+    );
+    assert_eq!(lines, [(0, 0, 0), (3, 3, 0), (4, 3, 1), (5, 5, 0)]);
+}
+
+#[test]
 fn an_over_indented_closer_does_not_close_the_fence() {
     let text = "- Topic\n    ```\n    hidden\n       ```\n    still hidden\nafter\n";
 
