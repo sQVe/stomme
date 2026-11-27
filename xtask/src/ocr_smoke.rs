@@ -8,6 +8,8 @@ use tempfile::TempDir;
 
 use crate::git_isolation::isolate_git;
 
+mod scope;
+
 const USAGE: &str = "Usage:\n  cargo xtask ocr-smoke";
 
 const OCR_BINARY: &str = "node_modules/.bin/ocr";
@@ -109,14 +111,14 @@ const TYPESCRIPT_CASE: Case = Case {
     )],
 };
 
-struct CaseOutcome {
+pub(super) struct CaseOutcome {
     name: &'static str,
     admission: Vec<String>,
     precedence: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct Preview {
+pub(super) struct Preview {
     files: Vec<PreviewFile>,
 }
 
@@ -140,12 +142,12 @@ struct RuleCheck {
     pattern: String,
 }
 
-struct CommandOutput {
+pub(super) struct CommandOutput {
     stdout: String,
     stderr: String,
 }
 
-struct Ocr {
+pub(super) struct Ocr {
     binary: PathBuf,
     root: PathBuf,
     home: PathBuf,
@@ -217,6 +219,8 @@ fn check(root: &Path) -> anyhow::Result<Vec<CaseOutcome>> {
             case,
         )?);
     }
+
+    outcomes.push(scope::run_scope_case(&ocr)?);
 
     Ok(outcomes)
 }
@@ -344,7 +348,12 @@ fn report(outcomes: &[CaseOutcome]) -> bool {
     passed
 }
 
-fn preview_arguments(scratch: &Path, rules: &Path, base: &str, head: &str) -> Vec<String> {
+pub(super) fn preview_arguments(
+    scratch: &Path,
+    rules: &Path,
+    base: &str,
+    head: &str,
+) -> Vec<String> {
     vec![
         "review".to_string(),
         "--repo".to_string(),
@@ -377,7 +386,7 @@ fn display_path(path: &Path) -> String {
     path.display().to_string()
 }
 
-fn run_ocr(ocr: &Ocr, arguments: &[String]) -> anyhow::Result<CommandOutput> {
+pub(super) fn run_ocr(ocr: &Ocr, arguments: &[String]) -> anyhow::Result<CommandOutput> {
     let description = format!("ocr {}", arguments.join(" "));
     let output = ocr_command(ocr, arguments)
         .output()
@@ -409,7 +418,7 @@ fn ocr_command(ocr: &Ocr, arguments: &[String]) -> Command {
     command
 }
 
-fn parse_preview(text: &str, stderr: &str) -> anyhow::Result<Preview> {
+pub(super) fn parse_preview(text: &str, stderr: &str) -> anyhow::Result<Preview> {
     serde_json::from_str(text).with_context(|| {
         format!("ocr review --preview printed JSON that is not a preview; stderr:\n{stderr}")
     })
@@ -511,13 +520,13 @@ fn sync_command(root: &Path, folder: &Path) -> Command {
     command
 }
 
-fn init_repository(folder: &Path) -> anyhow::Result<()> {
+pub(super) fn init_repository(folder: &Path) -> anyhow::Result<()> {
     git_text(folder, &["init", "-q"])?;
 
     Ok(())
 }
 
-fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<()> {
+pub(super) fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<()> {
     for (relative, contents) in files {
         let path = folder.join(relative);
         let parent = path.parent().expect("a file path has a parent");
@@ -546,10 +555,28 @@ fn git_command(folder: &Path) -> Command {
     command
 }
 
-fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
+pub(super) fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
+    let mut command = git_command(folder);
+
+    git_text_from(command.args(arguments), arguments)
+}
+
+pub(super) fn git_text_with_index(
+    folder: &Path,
+    index: &Path,
+    arguments: &[&str],
+) -> anyhow::Result<String> {
+    let mut command = git_command(folder);
+
+    git_text_from(
+        command.env("GIT_INDEX_FILE", index).args(arguments),
+        arguments,
+    )
+}
+
+fn git_text_from(command: &mut Command, arguments: &[&str]) -> anyhow::Result<String> {
     let description = format!("git {}", arguments.join(" "));
-    let output = git_command(folder)
-        .args(arguments)
+    let output = command
         .output()
         .with_context(|| format!("Could not run {description}"))?;
 
@@ -566,7 +593,7 @@ fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
     Ok(text.trim().to_string())
 }
 
-fn temporary_folder(prefix: &str) -> anyhow::Result<TempDir> {
+pub(super) fn temporary_folder(prefix: &str) -> anyhow::Result<TempDir> {
     tempfile::Builder::new()
         .prefix(prefix)
         .tempdir()

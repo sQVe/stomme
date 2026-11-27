@@ -32,11 +32,13 @@ const REPOSITORY_VARIABLES: &[&str] = &[
     "GIT_WORK_TREE",
 ];
 
-const OCR_PASSED_LINES: [&str; 4] = [
+const OCR_PASSED_LINES: [&str; 6] = [
     "ocr-smoke: repository: admission passed",
     "ocr-smoke: repository: precedence passed",
     "ocr-smoke: typescript consumer: admission passed",
     "ocr-smoke: typescript consumer: precedence passed",
+    "ocr-smoke: scope: admission passed",
+    "ocr-smoke: scope: precedence passed",
 ];
 
 fn git(folder: &Path, arguments: &[&str]) {
