@@ -79,23 +79,29 @@ impl<'a> Resolver<'a> {
 
     pub(super) fn reached_files(
         &self,
-        module: &Module,
+        target: &Module,
+        caller_path: &[String],
         resolved: &[String],
         namespace: Namespace,
     ) -> BTreeSet<String> {
-        let segments = resolved.get(module.path.len()..).unwrap_or_default();
+        let visibility = if caller_path.starts_with(&target.path) {
+            Visibility::All
+        } else {
+            Visibility::Crate
+        };
+        let segments = resolved.get(target.path.len()..).unwrap_or_default();
         let mut reached = BTreeSet::new();
         let Some((last, middle)) = segments.split_last() else {
             return reached;
         };
-        let mut walk = Walk::new(module);
-        let mut places = BTreeSet::from([entry_place(module)]);
+        let mut walk = Walk::new(target);
+        let mut places = BTreeSet::from([entry_place(target)]);
 
         for segment in middle {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.module_places(place, segment, Visibility::Crate, &mut walk);
+                let found = self.module_places(place, segment, visibility, &mut walk);
 
                 if found.is_empty() {
                     reached.extend(place.file.clone());
@@ -108,7 +114,7 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let meanings = self.lookup(place, last, Visibility::Crate, namespace, &mut walk);
+            let meanings = self.lookup(place, last, visibility, namespace, &mut walk);
             reached.extend(terminal_files(place, &meanings));
         }
 
@@ -194,10 +200,9 @@ impl<'a> Resolver<'a> {
             return false;
         };
         let exported = scope.keeps_exports
-            && scope
-                .exports
-                .iter()
-                .any(|export| export.name == name && export.visibility == ExportVisibility::Public);
+            && scope.exports.iter().any(|export| {
+                export.name == name && export.visibility != ExportVisibility::Restricted
+            });
 
         exported || !scope.globs.is_empty() || scope.public_modules.contains(name)
     }
@@ -254,7 +259,7 @@ impl<'a> Resolver<'a> {
                     meanings.extend(self.lookup(
                         &target,
                         name,
-                        Visibility::Public,
+                        Visibility::Crate,
                         Namespace::Type,
                         walk,
                     ));

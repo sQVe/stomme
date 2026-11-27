@@ -1612,7 +1612,11 @@ fn a_use_path_reaches_the_module_of_the_same_name() {
 fn a_restricted_use_does_not_bind_through_a_public_glob() {
     let cases = [
         ("pub(self)", "pub(self) use self::hidden as api;", &[][..]),
-        ("pub(crate)", "pub(crate) use self::hidden as api;", &[][..]),
+        (
+            "pub(crate)",
+            "pub(crate) use self::hidden as api;",
+            &["ticket:src/fact/hidden.rs"][..],
+        ),
         (
             "bare pub",
             "pub use self::hidden as api;",
@@ -2162,4 +2166,129 @@ fn a_missing_package_workspace_falls_back_to_the_ancestors() {
         "ticket:config",
         "missing package workspace",
     );
+}
+
+#[test]
+fn a_package_without_an_edition_is_edition_2015() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"default-edition\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/config.rs", "pub fn read() {}\n"),
+        ("src/ticket.rs", "use ::config::read;\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModuleImports,
+        "ticket:config",
+        "default edition",
+    );
+}
+
+#[test]
+fn a_comparison_before_a_leading_colon_is_checked() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"edition-2015\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/config.rs", "pub fn read() -> i32 { 0 }\n"),
+        ("src/ticket.rs", "fn f() {\n    0 > ::config::read();\n}\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModuleImports,
+        "ticket:config",
+        "comparison before a leading colon",
+    );
+    assert!(problems[0].message.contains("line 2"), "{problems:?}");
+}
+
+#[test]
+fn a_qualified_type_path_is_not_a_leading_colon() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"edition-2015\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/item.rs", "pub fn read() {}\n"),
+        (
+            "src/ticket.rs",
+            "fn f() {\n    <Type as Trait>::item::read();\n}\n",
+        ),
+    ];
+    let table =
+        "[modules.item]\nentry = \"src/item.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
+fn a_pub_self_use_reaches_the_private_file_from_a_child() {
+    let files = [
+        (
+            "src/config.rs",
+            "mod hidden;\npub(self) use self::hidden as api;\npub mod ticket;\n",
+        ),
+        ("src/config/hidden.rs", "pub fn read() {}\n"),
+        ("src/config/ticket.rs", "use super::api::read;\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"src/config.rs\"]\n\n[modules.ticket]\nentry = \"src/config/ticket.rs\"\nimports = [\"config\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/config/ticket.rs",
+        Rule::ModulePrivateFile,
+        "ticket:src/config/hidden.rs",
+        "pub(self) child",
+    );
+}
+
+#[test]
+fn an_alias_into_a_deeper_row_keeps_its_self_target() {
+    let files = [
+        (
+            "src/fact.rs",
+            "pub mod attention;\npub use self::attention as renamed;\n",
+        ),
+        (
+            "src/fact/attention.rs",
+            "pub fn attention() {}\npub fn helper() {}\n",
+        ),
+        ("src/ticket.rs", "use crate::fact::renamed::helper;\n"),
+    ];
+    let cases = [
+        ("without the fact import", "", Some("fact:attention")),
+        ("with the fact import", "imports = [\"attention\"]\n", None),
+    ];
+
+    for (name, fact_imports, key) in cases {
+        let table = format!(
+            "[modules.fact]\nentry = \"src/fact.rs\"\n{fact_imports}\n[modules.attention]\nentry = \"src/fact/attention.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n"
+        );
+        let root = project(&files, &table);
+        let problems = problems(root.path());
+
+        match key {
+            Some(key) => assert_problem(&problems, "src/fact.rs", Rule::ModuleImports, key, name),
+            None => assert!(problems.is_empty(), "{name}: {problems:?}"),
+        }
+    }
 }

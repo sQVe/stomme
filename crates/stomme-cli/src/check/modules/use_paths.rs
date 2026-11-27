@@ -286,18 +286,34 @@ fn is_leading_colon_colon(
         .index
         .checked_sub(1)
         .and_then(|index| all_tokens.get(index));
-    let previous_ends_a_path = previous.is_some_and(|previous| {
-        matches!(
-            previous.kind,
-            TokenKind::Gt | TokenKind::CloseBracket | TokenKind::CloseParen
-        )
-    });
+    let previous_ends_a_path = previous.is_some_and(|previous| ends_a_path(previous, all_tokens));
     let previous_is_identifier = previous.is_some_and(|previous| {
         matches!(previous.kind, TokenKind::Ident | TokenKind::RawIdent)
             && !is_expression_keyword(previous)
     });
 
     !previous_ends_a_path && !previous_is_identifier
+}
+
+fn ends_a_path(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
+    match token.kind {
+        TokenKind::CloseBracket | TokenKind::CloseParen => true,
+        TokenKind::Gt => token
+            .index
+            .checked_sub(1)
+            .and_then(|index| all_tokens.get(index))
+            .is_some_and(|before| {
+                matches!(
+                    before.kind,
+                    TokenKind::Ident
+                        | TokenKind::RawIdent
+                        | TokenKind::Gt
+                        | TokenKind::CloseBracket
+                        | TokenKind::CloseParen
+                )
+            }),
+        _ => false,
+    }
 }
 
 fn is_expression_keyword(token: &Token<'_>) -> bool {

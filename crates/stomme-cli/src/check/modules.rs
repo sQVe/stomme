@@ -174,12 +174,11 @@ fn read_edition(root: &Path, src_folder: &str) -> anyhow::Result<Edition> {
     let Some(manifest) = read_package_manifest(root, package)? else {
         return Ok(Edition::Other);
     };
-    let Some(edition) = manifest
-        .package
-        .as_ref()
-        .and_then(|package| package.edition.as_ref())
-    else {
+    let Some(package_section) = manifest.package.as_ref() else {
         return Ok(Edition::Other);
+    };
+    let Some(edition) = package_section.edition.as_ref() else {
+        return Ok(Edition::Rust2015);
     };
 
     match edition {
@@ -495,7 +494,7 @@ fn private_file_problems(
     resolved: &[String],
     use_path: &UsePath,
 ) -> Vec<Problem> {
-    let reached = resolver.reached_files(found, resolved, use_path.namespace);
+    let reached = resolver.reached_files(found, &module.path, resolved, use_path.namespace);
 
     reached
         .into_iter()
