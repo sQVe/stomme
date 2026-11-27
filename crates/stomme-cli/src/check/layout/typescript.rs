@@ -267,6 +267,7 @@ fn is_family_stem(stem: &str, owner: &str) -> bool {
         return false;
     };
 
+    // A one-letter suffix such as `X` marks a different owner, as in `TicketListX`.
     rest.len() > 1 && is_pascal_case(rest)
 }
 
