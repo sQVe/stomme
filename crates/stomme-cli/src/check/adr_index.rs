@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
-use crate::fence::{Containers, INDENTED_CODE, is_heading, unfenced_lines};
+use crate::fence::{is_heading, split_indent, unfenced_lines};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
@@ -277,8 +277,8 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 
 fn heading_line(text: &str) -> Option<&str> {
     unfenced_lines(text.lines())
-        .find(|line| is_heading(line.view.content))
-        .map(|line| line.view.content)
+        .map(|line| split_indent(line.raw).1)
+        .find(|content| is_heading(content))
 }
 
 fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
@@ -291,27 +291,19 @@ fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
 fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
     let mut entries = Vec::new();
     let mut unparsed = Vec::new();
-    let mut containers = Containers::new();
 
-    for raw_line in section(index, "## Index") {
-        let view = containers.view(raw_line);
-        let line = view.content.trim();
+    for line in unfenced_lines(section(index, "## Index")) {
+        let text = split_indent(line.raw).1.trim_end();
 
-        if line.is_empty() {
+        if text.is_empty() {
             continue;
         }
 
-        if view.relative >= INDENTED_CODE {
-            continue;
-        }
-
-        if let Some(entry) = index_entry(line) {
+        if let Some(entry) = index_entry(text) {
             entries.push(entry);
-        } else if looks_like_a_link(line) {
-            unparsed.push(line);
+        } else if looks_like_a_link(text) {
+            unparsed.push(text);
         }
-
-        containers.open_list_item(&view);
     }
 
     (entries, unparsed)

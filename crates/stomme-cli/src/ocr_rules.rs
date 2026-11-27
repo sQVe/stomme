@@ -437,8 +437,8 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
         let Some((role, content)) = marker(lines[line.index]) else {
             continue;
         };
-        let opens_a_nested_item =
-            line.item_start != line.index && list_marker(lines[line.index].trim_start()).is_some();
+        let opens_a_nested_item = line.item_start != line.index
+            && list_marker(split_indent(lines[line.index]).1).is_some();
         let continues_a_nested_item = line.view.depth > 1;
 
         assert!(
@@ -446,7 +446,7 @@ fn marked_lines<'a>(lines: &[&'a str]) -> Vec<Marker<'a>> {
             "a marked block is a top-level list item, not a nested one"
         );
         assert!(
-            list_marker(lines[line.item_start].trim_start()).is_some(),
+            list_marker(split_indent(lines[line.item_start]).1).is_some(),
             "a marked block is a list item whose marker ends its last line"
         );
         assert!(

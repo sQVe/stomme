@@ -6,7 +6,7 @@ const TAB_WIDTH: usize = 4;
 const MAX_ORDERED_DIGITS: usize = 9;
 
 pub(crate) struct Line<'a> {
-    pub(crate) indent: usize,
+    indent: usize,
     pub(crate) relative: usize,
     pub(crate) depth: usize,
     pub(crate) content: &'a str,
@@ -15,6 +15,7 @@ pub(crate) struct Line<'a> {
 pub(crate) struct UnfencedLine<'a> {
     pub(crate) index: usize,
     pub(crate) item_start: usize,
+    pub(crate) raw: &'a str,
     pub(crate) view: Line<'a>,
 }
 
@@ -27,12 +28,15 @@ pub(crate) fn unfenced_lines<'a>(
     let mut fence: Option<OpenFence> = None;
 
     lines.enumerate().filter_map(move |(index, raw)| {
-        let view = containers.view(raw);
+        let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
+        let (raw_indent, _) = split_indent(raw);
+        let mut quote = split_quote(raw, quote_limit, containers.base_for(raw_indent));
+        let mut view = containers.view(quote.indent, quote.start, quote.content);
 
         if let Some(open) = &fence {
-            let container_ended = view.depth < open.depth;
-            let closes =
-                view.relative <= MAX_BLOCK_INDENT && closes_fence(view.content, &open.fence);
+            let container_ended = view.depth < open.depth || quote.quotes < open.quotes;
+            let closes = view.indent.saturating_sub(open.column) <= MAX_BLOCK_INDENT
+                && closes_fence(view.content, &open.fence);
 
             if container_ended || closes {
                 fence = None;
@@ -41,37 +45,112 @@ pub(crate) fn unfenced_lines<'a>(
             if !container_ended {
                 return None;
             }
+
+            quote = split_quote(raw, usize::MAX, containers.base_for(raw_indent));
+            view = containers.view(quote.indent, quote.start, quote.content);
         }
 
         if view.relative >= INDENTED_CODE {
             return None;
         }
 
-        if let Some(open) = opening_fence(view.content) {
+        let item_column = list_content_column(view.indent, view.content);
+
+        if let Some(open) = opening_fence(content_after_markers(view.content)) {
+            containers.open_list_item(&view, index);
+
             fence = Some(OpenFence {
                 fence: open,
-                depth: view.depth,
+                depth: view.depth + usize::from(item_column.is_some()),
+                quotes: quote.quotes,
+                column: item_column.unwrap_or(view.indent - view.relative),
             });
+
             return None;
         }
 
         let item_start = containers.item_start().unwrap_or(index);
 
-        containers.open_list_item(&view);
+        containers.open_list_item(&view, index);
 
         Some(UnfencedLine {
             index,
             item_start,
+            raw,
             view,
         })
     })
 }
 
+struct Quote<'a> {
+    indent: usize,
+    quotes: usize,
+    start: usize,
+    content: &'a str,
+}
+
+// A block quote marker is transparent to the list items and fences it holds. The marker counts as
+// a column, so the content keeps its position inside the enclosing list item.
+fn split_quote<'a>(raw: &'a str, limit: usize, mut base: usize) -> Quote<'a> {
+    let mut column = 0;
+    let mut quotes = 0;
+    let mut start = 0;
+    let mut rest = raw;
+
+    loop {
+        let content = rest.trim_start_matches([' ', '\t']);
+        let whitespace = &rest[..rest.len() - content.len()];
+
+        column = indentation_from(whitespace, column);
+
+        let has_room = column.saturating_sub(base) <= MAX_BLOCK_INDENT;
+        let is_quote = quotes < limit && has_room && content.starts_with('>');
+
+        if !is_quote {
+            return Quote {
+                indent: column,
+                quotes,
+                start,
+                content,
+            };
+        }
+
+        let after = &content[1..];
+
+        column += 1;
+        quotes += 1;
+
+        if let Some(after) = after.strip_prefix('\t') {
+            column += TAB_WIDTH - column % TAB_WIDTH;
+            rest = after;
+        } else if let Some(after) = after.strip_prefix(' ') {
+            column += 1;
+            rest = after;
+        } else {
+            rest = after;
+        }
+
+        start = column;
+        base = start;
+    }
+}
+
+// The text a fence starts at, after every list marker the line holds.
+fn content_after_markers(mut content: &str) -> &str {
+    while let Some(marker) = list_marker(content) {
+        let rest = &content[marker..];
+        let spacing = list_spacing(rest);
+
+        content = rest.get(spacing..).unwrap_or_default();
+    }
+
+    content
+}
+
 // A list item holds its content at a fixed column. Reading a line against the open items tells
 // indented code and fenced code apart from content, which a count of leading spaces cannot do.
-pub(crate) struct Containers {
+struct Containers {
     items: Vec<Item>,
-    viewed: usize,
 }
 
 struct Item {
@@ -80,20 +159,23 @@ struct Item {
 }
 
 impl Containers {
-    pub(crate) fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            viewed: 0,
-        }
+    fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    // The content column of the innermost open item that holds a line at `indent`.
+    fn base_for(&self, indent: usize) -> usize {
+        self.items
+            .iter()
+            .rev()
+            .find(|item| item.column <= indent)
+            .map(|item| item.column)
+            .unwrap_or(0)
     }
 
     // Reads the line against the open items. A blank line continues every open item, so it closes
     // none of them.
-    pub(crate) fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
-        self.viewed += 1;
-
-        let (indent, content) = split_indent(raw);
-
+    fn view<'a>(&mut self, indent: usize, container_start: usize, content: &'a str) -> Line<'a> {
         if content.is_empty() {
             return Line {
                 indent,
@@ -108,10 +190,11 @@ impl Containers {
         }
 
         let base = self.items.last().map(|item| item.column).unwrap_or(0);
+        let start = container_start.max(base);
 
         Line {
             indent,
-            relative: indent - base,
+            relative: indent - start,
             depth: self.items.len(),
             content,
         }
@@ -119,16 +202,12 @@ impl Containers {
 
     // The line that opened the innermost open item, which is the first line of the item a
     // continuation line belongs to.
-    pub(crate) fn item_start(&self) -> Option<usize> {
+    fn item_start(&self) -> Option<usize> {
         self.items.last().map(|item| item.index)
     }
 
-    // Opens an item at the line `view` read last. The line index counts the lines read so far.
-    pub(crate) fn open_list_item(&mut self, line: &Line) {
-        let Some(index) = self.viewed.checked_sub(1) else {
-            return;
-        };
-
+    // Opens an item at the line `view` read last.
+    fn open_list_item(&mut self, line: &Line, index: usize) {
         if let Some(column) = list_content_column(line.indent, line.content) {
             self.items.push(Item { column, index });
         }
@@ -138,16 +217,24 @@ impl Containers {
 struct OpenFence {
     fence: Fence,
     depth: usize,
+    quotes: usize,
+    column: usize,
+}
+
+fn indentation_from(whitespace: &str, mut column: usize) -> usize {
+    for character in whitespace.chars() {
+        if character == '\t' {
+            column += TAB_WIDTH - column % TAB_WIDTH;
+        } else {
+            column += 1;
+        }
+    }
+
+    column
 }
 
 fn indentation(whitespace: &str) -> usize {
-    whitespace.chars().fold(0, |column, character| {
-        if character == '\t' {
-            column + TAB_WIDTH - column % TAB_WIDTH
-        } else {
-            column + 1
-        }
-    })
+    indentation_from(whitespace, 0)
 }
 
 pub(crate) fn split_indent(line: &str) -> (usize, &str) {
@@ -214,7 +301,7 @@ pub(crate) fn item_content_column(line: &str) -> Option<usize> {
 }
 
 pub(crate) fn list_item_content(line: &str) -> Option<&str> {
-    let content = line.trim_start();
+    let (_, content) = split_indent(line);
     let marker = list_marker(content)?;
     let rest = &content[marker..];
 

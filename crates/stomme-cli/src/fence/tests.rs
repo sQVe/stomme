@@ -85,6 +85,121 @@ fn a_fence_inside_a_list_item_ends_with_the_item() {
 }
 
 #[test]
+fn a_fence_on_a_list_marker_line_hides_the_item_content() {
+    let cases = [
+        ("bullet", "- ```\n  - [entry](./0001-a.md)\n  ```\nafter\n"),
+        ("star", "* ```\n  - [entry](./0001-a.md)\n  ```\nafter\n"),
+        (
+            "ordered",
+            "1. ```\n   - [entry](./0001-a.md)\n   ```\nafter\n",
+        ),
+        (
+            "two markers",
+            "- - ```\n    - [entry](./0001-a.md)\n    ```\nafter\n",
+        ),
+    ];
+
+    for (case, text) in cases {
+        assert_eq!(scanned(text), [(3, 0, "after")], "{case}");
+    }
+}
+
+#[test]
+fn a_quote_inside_a_fence_is_content() {
+    let text = "- Topic\n  ```\n  > quoted\n  ```\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (4, 0, "after")]);
+}
+
+#[test]
+fn a_quoted_fence_ends_with_the_quote() {
+    let text = "> ```\n> hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(2, 0, "after")]);
+}
+
+#[test]
+fn a_quote_inside_a_fence_does_not_close_it() {
+    let text = "- Topic\n  ```\n  > ```\n  still hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (4, 0, "after")]);
+}
+
+#[test]
+fn a_fence_that_leaves_its_item_starts_a_quoted_fence() {
+    let text = "- item\n  ```\n  hidden\n> ```\n> - [entry](./0001-a.md)\n> ```\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- item"), (6, 0, "after")]);
+}
+
+#[test]
+fn a_line_after_a_fence_ends_is_read_as_a_fresh_block() {
+    let text = "- item\n  ```\n  hidden\n> - quoted\n>   continued\nafter\n";
+    let lines: Vec<(usize, usize, usize)> = unfenced_lines(text.lines())
+        .map(|line| (line.index, line.item_start, line.view.depth))
+        .collect();
+
+    assert_eq!(
+        scanned(text),
+        [
+            (0, 0, "- item"),
+            (3, 0, "- quoted"),
+            (4, 0, "continued"),
+            (5, 0, "after"),
+        ]
+    );
+    assert_eq!(lines, [(0, 0, 0), (3, 3, 0), (4, 3, 1), (5, 5, 0)]);
+}
+
+#[test]
+fn an_over_indented_closer_does_not_close_the_fence() {
+    let text = "- Topic\n    ```\n    hidden\n       ```\n    still hidden\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (5, 0, "after")]);
+}
+
+#[test]
+fn a_quote_at_a_list_item_content_column_is_transparent() {
+    let text = "10. Topic\n    > - ```\n    >   - [entry](./0001-a.md)\n    >   ```\nafter\n";
+
+    assert_eq!(scanned(text), [(0, 0, "10. Topic"), (4, 0, "after")]);
+}
+
+#[test]
+fn a_quoted_fence_hides_the_quoted_lines() {
+    let cases = [
+        ("plain", "> ```\n> hidden\n> ```\nafter\n"),
+        (
+            "list item",
+            "> - ```\n>   - [entry](./0001-a.md)\n>   ```\nafter\n",
+        ),
+    ];
+
+    for (case, text) in cases {
+        assert_eq!(scanned(text), [(3, 0, "after")], "{case}");
+    }
+}
+
+#[test]
+fn a_quote_marker_is_read_up_to_three_spaces_of_indent() {
+    let hidden = "   > ```\n   > hidden\n   > ```\nafter\n";
+    let code = "    > hidden\nafter\n";
+
+    assert_eq!(scanned(hidden), [(3, 0, "after")]);
+    assert_eq!(scanned(code), [(1, 0, "after")]);
+}
+
+#[test]
+fn a_no_break_space_does_not_open_a_list_item() {
+    let text = "\u{a0}- ```\n  - [entry](./0001-a.md)\n";
+
+    assert_eq!(
+        scanned(text),
+        [(0, 0, "\u{a0}- ```"), (1, 2, "- [entry](./0001-a.md)")]
+    );
+}
+
+#[test]
 fn a_nested_item_is_measured_from_its_own_content_column() {
     let text = "- Topic\n    - child\n";
 
@@ -113,6 +228,7 @@ fn list_item_content_drops_the_marker_and_its_spacing() {
         ("no content", "- ", Some("")),
         ("not an item", "Topic", None),
         ("no space after the marker", "-Topic", None),
+        ("no-break space", "\u{a0}- Topic", None),
     ];
 
     for (case, line, expected) in cases {
@@ -128,6 +244,7 @@ fn item_content_column_counts_the_marker_its_spacing_and_tabs() {
         ("indented", "  - Topic", Some(4)),
         ("tab", "\t- Topic", Some(6)),
         ("not an item", "Topic", None),
+        ("no-break space", "\u{a0}- Topic", None),
     ];
 
     for (case, line, expected) in cases {
