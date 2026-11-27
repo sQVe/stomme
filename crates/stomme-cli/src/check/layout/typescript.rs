@@ -267,7 +267,7 @@ fn is_family_stem(stem: &str, owner: &str) -> bool {
         return false;
     };
 
-    is_pascal_case(rest)
+    rest.len() > 1 && is_pascal_case(rest)
 }
 
 #[cfg(test)]

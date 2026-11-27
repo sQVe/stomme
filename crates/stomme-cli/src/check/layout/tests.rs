@@ -39,3 +39,22 @@ fn check_passes_unrelated_names() {
         Vec::<Problem>::new()
     );
 }
+
+#[test]
+fn pascal_case_accepts_acronyms_and_rejects_other_stems() {
+    let cases = [
+        ("UI", true),
+        ("HTTP", true),
+        ("TicketList", true),
+        ("Button", true),
+        ("UI2", true),
+        ("ticketList", false),
+        ("ticket_list", false),
+        ("", false),
+        ("1UI", false),
+    ];
+
+    for (stem, expected) in cases {
+        assert_eq!(is_pascal_case(stem), expected, "{stem}");
+    }
+}

@@ -126,14 +126,13 @@ fn tsx_placement_ignores_a_tests_folder_outside_src() {
 }
 
 #[test]
-fn tsx_placement_rejects_an_all_uppercase_component_stem() {
+fn tsx_placement_accepts_an_acronym_component_stem() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
-    write_file(root.path(), "src/TICKETLIST.tsx", "");
+    write_file(root.path(), "src/UI.tsx", "");
+    write_file(root.path(), "src/UI.test.tsx", "");
 
-    let problems = check(&tree(root.path()));
-
-    assert_eq!(rules(&problems), [Rule::ReactComponentFile]);
+    assert_eq!(rules(&check(&tree(root.path()))), Vec::<Rule>::new());
 }
 
 #[test]
