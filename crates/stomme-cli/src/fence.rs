@@ -5,6 +5,9 @@ const MAX_MARKER_SPACING: usize = 4;
 const TAB_WIDTH: usize = 4;
 const MAX_ORDERED_DIGITS: usize = 9;
 
+const COMMENT_START: &str = "<!--";
+const COMMENT_END: &str = "-->";
+
 pub(crate) struct Line<'a> {
     indent: usize,
     pub(crate) relative: usize,
@@ -16,6 +19,7 @@ pub(crate) struct UnfencedLine<'a> {
     pub(crate) index: usize,
     pub(crate) item_start: usize,
     pub(crate) raw: &'a str,
+    pub(crate) in_comment: bool,
     pub(crate) view: Line<'a>,
 }
 
@@ -26,15 +30,18 @@ pub(crate) fn unfenced_lines<'a>(
 ) -> impl Iterator<Item = UnfencedLine<'a>> {
     let mut containers = Containers::new();
     let mut fence: Option<OpenFence> = None;
+    let mut open_comment: Option<Container> = None;
 
     lines.enumerate().filter_map(move |(index, raw)| {
-        let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
+        let quote_limit = fence
+            .as_ref()
+            .map_or(usize::MAX, |open| open.container.quotes);
         let (raw_indent, _) = split_indent(raw);
         let mut quote = split_quote(raw, quote_limit, containers.base_for(raw_indent));
         let mut view = containers.view(quote.indent, quote.start, quote.content);
 
         if let Some(open) = &fence {
-            let container_ended = view.depth < open.depth || quote.quotes < open.quotes;
+            let container_ended = open.container.outside(view.depth, quote.quotes);
             let closes = view.indent.saturating_sub(open.column) <= MAX_BLOCK_INDENT
                 && closes_fence(view.content, &open.fence);
 
@@ -50,19 +57,46 @@ pub(crate) fn unfenced_lines<'a>(
             view = containers.view(quote.indent, quote.start, quote.content);
         }
 
-        if view.relative >= INDENTED_CODE {
+        let leaves_container = open_comment
+            .as_ref()
+            .is_some_and(|container| container.outside(view.depth, quote.quotes));
+
+        if leaves_container {
+            open_comment = None;
+        }
+
+        let is_code = open_comment.is_none() && view.relative >= INDENTED_CODE;
+
+        if is_code {
             return None;
         }
 
         let item_column = list_content_column(view.indent, view.content);
+        let opens_comment = open_comment.is_none()
+            && content_after_markers(view.content).starts_with(COMMENT_START);
+        let in_comment = open_comment.is_some() || opens_comment;
+        let closes = view.content.contains(COMMENT_END);
 
-        if let Some(open) = opening_fence(content_after_markers(view.content)) {
+        if opens_comment {
+            let container = Container {
+                depth: view.depth + usize::from(item_column.is_some()),
+                quotes: quote.quotes,
+            };
+
+            open_comment = (!closes).then_some(container);
+        } else if closes {
+            open_comment = None;
+        }
+
+        if !in_comment && let Some(open) = opening_fence(content_after_markers(view.content)) {
             containers.open_list_item(&view, index);
 
             fence = Some(OpenFence {
                 fence: open,
-                depth: view.depth + usize::from(item_column.is_some()),
-                quotes: quote.quotes,
+                container: Container {
+                    depth: view.depth + usize::from(item_column.is_some()),
+                    quotes: quote.quotes,
+                },
                 column: item_column.unwrap_or(view.indent - view.relative),
             });
 
@@ -77,6 +111,7 @@ pub(crate) fn unfenced_lines<'a>(
             index,
             item_start,
             raw,
+            in_comment,
             view,
         })
     })
@@ -214,10 +249,22 @@ impl Containers {
     }
 }
 
-struct OpenFence {
-    fence: Fence,
+struct Container {
     depth: usize,
     quotes: usize,
+}
+
+impl Container {
+    // A fence or a comment holds a line while the line stays at or inside the opener's depth and
+    // quote count.
+    fn outside(&self, depth: usize, quotes: usize) -> bool {
+        depth < self.depth || quotes < self.quotes
+    }
+}
+
+struct OpenFence {
+    fence: Fence,
+    container: Container,
     column: usize,
 }
 

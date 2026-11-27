@@ -136,6 +136,10 @@ fn check_accepts_a_heading_after_text_and_with_up_to_three_spaces() {
             "#hashtag\n\n# ADR 0001: Documentation scope",
         ),
         (
+            "html comment before the heading",
+            "<!--\n# ADR 0001: Other\n-->\n\n# ADR 0001: Documentation scope",
+        ),
+        (
             "backtick fence",
             "```md\n# ADR 0001: Other\n```\n\n# ADR 0001: Documentation scope",
         ),
@@ -583,6 +587,50 @@ fn check_ignores_an_index_link_inside_a_fenced_block() {
             "{case}"
         );
     }
+}
+
+#[test]
+fn check_ignores_a_heading_inside_a_fence_in_the_index() {
+    let root = complete_project();
+
+    replace_in_index(
+        root.path(),
+        ENTRY,
+        &format!("```\n## Sample\n```\n\n{ENTRY}"),
+    );
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_ignores_a_retired_row_inside_a_fence() {
+    let root = complete_project();
+    let row = "| 0002 | Old choice | 0001 | abc1234 |";
+    let fenced = format!("{row}\n```\n| 0001 | Documentation scope | 0002 | abc1234 |\n```");
+
+    replace_in_index(root.path(), row, &fenced);
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_reads_the_index_past_a_comment_that_holds_a_backtick_line() {
+    let root = complete_project();
+
+    replace_in_index(root.path(), ENTRY, &format!("<!--\n```\n-->\n\n{ENTRY}"));
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_ignores_an_index_entry_inside_an_html_comment() {
+    let root = complete_project();
+
+    replace_in_index(root.path(), ENTRY, &format!("<!--\n{ENTRY}-->\n"));
+
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+    assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexCount)]);
 }
 
 #[test]
