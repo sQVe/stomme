@@ -5,6 +5,9 @@ const MAX_MARKER_SPACING: usize = 4;
 const TAB_WIDTH: usize = 4;
 const MAX_ORDERED_DIGITS: usize = 9;
 
+const COMMENT_START: &str = "<!--";
+const COMMENT_END: &str = "-->";
+
 pub(crate) struct Line<'a> {
     indent: usize,
     pub(crate) relative: usize,
@@ -16,6 +19,7 @@ pub(crate) struct UnfencedLine<'a> {
     pub(crate) index: usize,
     pub(crate) item_start: usize,
     pub(crate) raw: &'a str,
+    pub(crate) in_comment: bool,
     pub(crate) view: Line<'a>,
 }
 
@@ -26,6 +30,7 @@ pub(crate) fn unfenced_lines<'a>(
 ) -> impl Iterator<Item = UnfencedLine<'a>> {
     let mut containers = Containers::new();
     let mut fence: Option<OpenFence> = None;
+    let mut comment = false;
 
     lines.enumerate().filter_map(move |(index, raw)| {
         let quote_limit = fence.as_ref().map_or(usize::MAX, |open| open.quotes);
@@ -50,13 +55,19 @@ pub(crate) fn unfenced_lines<'a>(
             view = containers.view(quote.indent, quote.start, quote.content);
         }
 
-        if view.relative >= INDENTED_CODE {
+        let is_code = !comment && view.relative >= INDENTED_CODE;
+        let opens_comment = !is_code && view.content.starts_with(COMMENT_START);
+        let in_comment = comment || opens_comment;
+
+        if is_code {
             return None;
         }
 
-        let item_column = list_content_column(view.indent, view.content);
+        if in_comment {
+            comment = !view.content.contains(COMMENT_END);
+        } else if let Some(open) = opening_fence(content_after_markers(view.content)) {
+            let item_column = list_content_column(view.indent, view.content);
 
-        if let Some(open) = opening_fence(content_after_markers(view.content)) {
             containers.open_list_item(&view, index);
 
             fence = Some(OpenFence {
@@ -77,6 +88,7 @@ pub(crate) fn unfenced_lines<'a>(
             index,
             item_start,
             raw,
+            in_comment,
             view,
         })
     })

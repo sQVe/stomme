@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
-use crate::fence::{is_heading, split_indent, unfenced_lines};
+use crate::fence::{UnfencedLine, is_heading, split_indent, unfenced_lines};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
@@ -276,23 +276,29 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 }
 
 fn heading_line(text: &str) -> Option<&str> {
-    unfenced_lines(text.lines())
+    content_lines(text)
         .map(|line| split_indent(line.raw).1)
         .find(|content| is_heading(content))
 }
 
-fn section<'a>(text: &'a str, heading: &str) -> impl Iterator<Item = &'a str> {
-    text.lines()
-        .skip_while(move |line| line.trim_end() != heading)
+// The lines a reader sees as document content. A fenced block and an HTML comment are not content,
+// so a heading, an index entry, or a retired row inside one counts for nothing.
+fn content_lines<'a>(text: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
+    unfenced_lines(text.lines()).filter(|line| !line.in_comment)
+}
+
+fn section<'a>(text: &'a str, heading: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
+    content_lines(text)
+        .skip_while(move |line| line.raw.trim_end() != heading)
         .skip(1)
-        .take_while(|line| !line.starts_with("## "))
+        .take_while(|line| !line.raw.starts_with("## "))
 }
 
 fn index_entries(index: &str) -> (Vec<IndexEntry<'_>>, Vec<&str>) {
     let mut entries = Vec::new();
     let mut unparsed = Vec::new();
 
-    for line in unfenced_lines(section(index, "## Index")) {
+    for line in section(index, "## Index") {
         let text = split_indent(line.raw).1.trim_end();
 
         if text.is_empty() {
@@ -341,7 +347,7 @@ fn looks_like_a_link(line: &str) -> bool {
 
 fn retired_numbers(index: &str) -> BTreeSet<&str> {
     section(index, "## Retired")
-        .filter_map(|line| line.trim().strip_prefix('|')?.split('|').next())
+        .filter_map(|line| line.raw.trim().strip_prefix('|')?.split('|').next())
         .map(str::trim)
         .collect()
 }

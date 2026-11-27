@@ -2,7 +2,15 @@ use super::*;
 
 fn scanned(text: &str) -> Vec<(usize, usize, &str)> {
     unfenced_lines(text.lines())
+        .filter(|line| !line.in_comment)
         .map(|line| (line.index, line.view.relative, line.view.content))
+        .collect()
+}
+
+fn comments(text: &str) -> Vec<usize> {
+    unfenced_lines(text.lines())
+        .filter(|line| line.in_comment)
+        .map(|line| line.index)
         .collect()
 }
 
@@ -105,6 +113,70 @@ fn a_fence_on_a_list_marker_line_hides_the_item_content() {
 }
 
 #[test]
+fn an_html_comment_hides_its_lines() {
+    let text = "a\n<!--\nhidden\n-->\nb\n";
+
+    assert_eq!(scanned(text), [(0, 0, "a"), (4, 0, "b")]);
+    assert_eq!(comments(text), [1, 2, 3]);
+}
+
+#[test]
+fn a_single_line_html_comment_hides_only_its_line() {
+    let text = "a\n<!-- note -->\nb\n";
+
+    assert_eq!(scanned(text), [(0, 0, "a"), (2, 0, "b")]);
+    assert_eq!(comments(text), [1]);
+}
+
+#[test]
+fn an_unclosed_html_comment_hides_the_rest() {
+    let text = "a\n<!--\nhidden\nstill hidden\n";
+
+    assert_eq!(scanned(text), [(0, 0, "a")]);
+    assert_eq!(comments(text), [1, 2, 3]);
+}
+
+#[test]
+fn a_backtick_line_inside_an_html_comment_opens_no_fence() {
+    let text = "<!--\n```\n-->\na\n";
+
+    assert_eq!(scanned(text), [(3, 0, "a")]);
+    assert_eq!(comments(text), [0, 1, 2]);
+}
+
+#[test]
+fn an_html_comment_inside_a_fence_is_content() {
+    let text = "```\n<!--\n-->\n```\na\n";
+
+    assert_eq!(scanned(text), [(4, 0, "a")]);
+    assert!(comments(text).is_empty());
+}
+
+#[test]
+fn an_html_comment_after_text_on_a_line_hides_nothing() {
+    let text = "- [0001: A](./0001-a.md) <!-- note -->\nb\n";
+
+    assert_eq!(
+        scanned(text),
+        [
+            (0, 0, "- [0001: A](./0001-a.md) <!-- note -->"),
+            (1, 0, "b")
+        ]
+    );
+    assert!(comments(text).is_empty());
+}
+
+#[test]
+fn an_indented_html_comment_is_code_not_a_comment() {
+    let text = "    <!--\nhidden\n";
+    let lines: Vec<(usize, bool)> = unfenced_lines(text.lines())
+        .map(|line| (line.index, line.in_comment))
+        .collect();
+
+    assert_eq!(lines, [(1, false)]);
+}
+
+#[test]
 fn a_quote_inside_a_fence_is_content() {
     let text = "- Topic\n  ```\n  > quoted\n  ```\nafter\n";
 
@@ -163,6 +235,43 @@ fn a_quote_at_a_list_item_content_column_is_transparent() {
     let text = "10. Topic\n    > - ```\n    >   - [entry](./0001-a.md)\n    >   ```\nafter\n";
 
     assert_eq!(scanned(text), [(0, 0, "10. Topic"), (4, 0, "after")]);
+}
+
+#[test]
+fn a_quote_marker_counts_one_column_before_the_item_content() {
+    let cases = [
+        (
+            "one space below the column",
+            "> - Topic\n continued\n",
+            [(0, 0, "- Topic"), (1, 1, "continued")],
+        ),
+        (
+            "two spaces below the column",
+            "> - Topic\n  continued\n",
+            [(0, 0, "- Topic"), (1, 2, "continued")],
+        ),
+        (
+            "three spaces below the column",
+            "> - Topic\n   continued\n",
+            [(0, 0, "- Topic"), (1, 3, "continued")],
+        ),
+        (
+            "at the column",
+            "> - Topic\n    continued\n",
+            [(0, 0, "- Topic"), (1, 0, "continued")],
+        ),
+    ];
+
+    for (case, text, expected) in cases {
+        assert_eq!(scanned(text), expected, "{case}");
+    }
+}
+
+#[test]
+fn a_tab_after_a_quote_marker_advances_to_the_next_tab_stop() {
+    let text = ">\t- Topic\n      continued\n";
+
+    assert_eq!(scanned(text), [(0, 0, "- Topic"), (1, 0, "continued")]);
 }
 
 #[test]
@@ -282,7 +391,7 @@ fn opens_block_names_each_block_that_interrupts_a_paragraph() {
 #[test]
 fn every_short_line_sequence_keeps_the_scanner_invariants() {
     let alphabet = [
-        "- item", "  text", "    code", "```", "~~~", "", "# head", "1. one",
+        "- item", "  text", "    code", "```", "~~~", "<!--", "-->", "", "# head", "1. one",
     ];
     let mut sequences: Vec<Vec<&str>> = vec![Vec::new()];
 
@@ -322,11 +431,26 @@ fn every_short_line_sequence_keeps_the_scanner_invariants() {
                 assert_eq!(indices, all, "{text:?}: every line is returned");
             }
 
+            let opens_a_comment = sequence
+                .iter()
+                .any(|line| split_indent(line).1.starts_with(COMMENT_START));
+
+            if !opens_a_comment {
+                assert!(
+                    lines.iter().all(|line| !line.in_comment),
+                    "{text:?}: only a comment marks a line as a comment"
+                );
+            }
+
             for line in &lines {
                 assert!(line.item_start <= line.index, "{text:?}: item starts first");
+
+                let content = line.view.content;
+                let is_fence = content.starts_with("```") || content.starts_with("~~~");
+
                 assert!(
-                    !line.view.content.starts_with("```") && !line.view.content.starts_with("~~~"),
-                    "{text:?}: a fence line is never returned"
+                    line.in_comment || !is_fence,
+                    "{text:?}: a fence line is never content"
                 );
             }
         }
