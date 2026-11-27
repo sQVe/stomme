@@ -41,10 +41,25 @@ pub(super) struct Workspace {
 pub(super) enum Dependency {
     Table {
         path: Option<String>,
+        #[serde(rename = "version")]
+        _version: Option<String>,
         #[serde(default)]
         workspace: bool,
     },
-    Version(IgnoredAny),
+    Version(VersionString),
+}
+
+pub(super) struct VersionString;
+
+impl<'de> Deserialize<'de> for VersionString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?;
+
+        Ok(Self)
+    }
 }
 
 pub(super) fn read_root(root: &Path) -> anyhow::Result<Result<RootManifest, Problem>> {
@@ -74,6 +89,9 @@ pub(super) fn read_toml_file<T: DeserializeOwned>(
     let text = match fs::read_to_string(&full_path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+            return Ok(Some(Err("the file is not valid UTF-8".to_string())));
+        }
         Err(error) => {
             return Err(error).with_context(|| format!("Could not read {}", full_path.display()));
         }

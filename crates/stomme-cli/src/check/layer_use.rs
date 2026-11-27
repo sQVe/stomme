@@ -12,7 +12,12 @@ use crate::rule::Rule;
 
 const PACKAGE_JSON: &str = "package.json";
 const LOCK_FILE: &str = "Cargo.lock";
-const DEPENDENCY_FIELDS: &[&str] = &["dependencies", "devDependencies", "peerDependencies"];
+const DEPENDENCY_FIELDS: &[&str] = &[
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+];
 
 pub(super) fn check(
     root: &Path,

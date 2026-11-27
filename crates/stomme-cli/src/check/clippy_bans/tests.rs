@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fs;
 
 use super::*;
 use crate::layer::{self, Catalog, PolicyFile, RUST, RustSource};
@@ -16,6 +17,8 @@ const GPUI_BANS: &str = r#"disallowed-methods = [
 
 const REQUIRED_RUST_BAN: &str =
     r#"{ path = "std::env::set_var", reason = "the environment is shared between threads" }"#;
+
+const DOT_CLIPPY_FILE: &str = ".clippy.toml";
 
 fn policy_catalog() -> Catalog {
     layer::test_policy_catalog(
@@ -149,10 +152,46 @@ fn check_requires_gpui_bans_only_with_the_gpui_layer() {
 }
 
 #[test]
+fn check_reads_the_dot_clippy_toml_first() {
+    let root = complete_project();
+
+    write_file(root.path(), DOT_CLIPPY_FILE, RUST_BANS);
+    write_file(root.path(), CLIPPY_FILE, "disallowed-methods = []\n");
+
+    assert_eq!(check_project(root.path(), &policy_catalog(), &[]), []);
+}
+
+#[test]
+fn check_skips_a_dot_clippy_directory_and_reads_the_plain_file() {
+    let root = complete_project();
+
+    fs::create_dir(root.path().join(DOT_CLIPPY_FILE)).expect("create the directory");
+    write_file(root.path(), CLIPPY_FILE, RUST_BANS);
+
+    assert_eq!(check_project(root.path(), &policy_catalog(), &[]), []);
+}
+
+#[test]
+fn check_reports_the_dot_clippy_toml_it_cannot_read() {
+    let root = complete_project();
+
+    write_file(root.path(), DOT_CLIPPY_FILE, "disallowed-methods = [\n");
+    write_file(root.path(), CLIPPY_FILE, RUST_BANS);
+
+    let problems = check_project(root.path(), &policy_catalog(), &[]);
+
+    assert_eq!(found(&problems), [(DOT_CLIPPY_FILE, Rule::RustConfigFile)]);
+}
+
+#[test]
 fn check_reports_a_clippy_toml_it_cannot_read() {
     let cases = [
         ("invalid TOML", "disallowed-methods = [\n"),
         ("entry of the wrong type", "disallowed-methods = [3]\n"),
+        (
+            "replacement of the wrong type",
+            "disallowed-methods = [{ path = \"std::process::exit\", replacement = 42 }]\n",
+        ),
     ];
 
     for (case, text) in cases {

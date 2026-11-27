@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::Problem;
-use crate::fence::{Containers, INDENTED_CODE, unfenced_lines};
+use crate::fence::{Containers, INDENTED_CODE, is_heading, unfenced_lines};
 use crate::rule::Rule;
 
 const INDEX_FILE: &str = "README.md";
@@ -51,11 +51,13 @@ fn read_adrs(root: &Path, folder: &str) -> anyhow::Result<(Vec<AdrFile>, Vec<Pro
         let entry = entry.with_context(|| format!("Could not list {}", directory.display()))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         let file_path = entry.path();
-        let Some(number) = adr_number(&name) else {
-            if file_path.is_file() {
-                problems.extend(file_name_problem(folder, &name));
-            }
 
+        if !file_path.is_file() {
+            continue;
+        }
+
+        let Some(number) = adr_number(&name) else {
+            problems.extend(file_name_problem(folder, &name));
             continue;
         };
         let number = number.to_string();
@@ -81,6 +83,7 @@ fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
     let mut problems = duplicate_numbers(adrs);
     let retired = retired_numbers(index);
     let (entries, unparsed) = index_entries(index);
+    let entries_by_file = group_by_file(&entries);
 
     for adr in adrs {
         let title = heading_title(&adr.text, &adr.number);
@@ -107,10 +110,10 @@ fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
             ));
         }
 
-        let listed: Vec<&IndexEntry> = entries
-            .iter()
-            .filter(|entry| entry.file == adr.name)
-            .collect();
+        let listed = entries_by_file
+            .get(adr.name.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
 
         if listed.len() != 1 {
             problems.push(index_problem(
@@ -150,6 +153,18 @@ fn find_problems(folder: &str, adrs: &[AdrFile], index: &str) -> Vec<Problem> {
     }
 
     problems
+}
+
+fn group_by_file<'a, 'b>(
+    entries: &'b [IndexEntry<'a>],
+) -> BTreeMap<&'a str, Vec<&'b IndexEntry<'a>>> {
+    let mut grouped: BTreeMap<&'a str, Vec<&'b IndexEntry<'a>>> = BTreeMap::new();
+
+    for entry in entries {
+        grouped.entry(entry.file).or_default().push(entry);
+    }
+
+    grouped
 }
 
 fn adr_problem(adr: &AdrFile, rule: Rule, message: String) -> Problem {
@@ -262,7 +277,7 @@ fn heading_title<'a>(text: &'a str, number: &str) -> Option<&'a str> {
 
 fn heading_line(text: &str) -> Option<&str> {
     unfenced_lines(text.lines())
-        .find(|line| line.view.content.starts_with('#'))
+        .find(|line| is_heading(line.view.content))
         .map(|line| line.view.content)
 }
 

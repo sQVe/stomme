@@ -1,7 +1,8 @@
 # dist writes the reusable workflow call with GitHub's self-repository syntax, which actionlint
-# does not know yet, and its generated shell scripts trigger shellcheck's informational checks.
+# does not know yet, and its generated shell scripts trigger shellcheck's informational and style
+# checks.
 paths:
   .github/workflows/release.yml:
     ignore:
       - 'reusable workflow call "\$/.github/workflows/.+" at "uses" is not following'
-      - 'shellcheck reported issue in this script: .+'
+      - 'shellcheck reported issue in this script: SC[0-9]+:(info|style):.+'

@@ -349,7 +349,7 @@ rules! {
     },
     RustConfigFile => Metadata {
         id: "rust-config-file",
-        summary: "The root `Cargo.toml` exists, and every Cargo manifest and `clippy.toml` the checks read is valid.",
+        summary: "The root `Cargo.toml` exists, and every Cargo manifest and `.clippy.toml` or `clippy.toml` the checks read is valid.",
         owner: Owner::Language(Language::Rust),
         applies: "always",
         fields: &[],
@@ -382,7 +382,7 @@ rules! {
     },
     RustRequiredBan => Metadata {
         id: "rust-required-ban",
-        summary: "`clippy.toml` holds each shared Rust `disallowed-methods` ban with its reason.",
+        summary: "`.clippy.toml` or `clippy.toml` holds each shared Rust `disallowed-methods` ban with its reason; `.clippy.toml` wins when both exist.",
         owner: Owner::Language(Language::Rust),
         applies: "always",
         fields: &[],
@@ -434,7 +434,7 @@ rules! {
     },
     GpuiRequiredBan => Metadata {
         id: "gpui-required-ban",
-        summary: "`clippy.toml` holds each GPUI `disallowed-methods` ban with its reason.",
+        summary: "`.clippy.toml` or `clippy.toml` holds each GPUI `disallowed-methods` ban with its reason; `.clippy.toml` wins when both exist.",
         owner: Owner::Layer("gpui"),
         applies: "always",
         fields: &[],

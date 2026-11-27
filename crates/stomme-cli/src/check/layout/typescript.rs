@@ -266,12 +266,9 @@ fn is_family_stem(stem: &str, owner: &str) -> bool {
     let Some(rest) = stem.strip_prefix(owner) else {
         return false;
     };
-    let mut characters = rest.chars();
-    let Some(first) = characters.next() else {
-        return false;
-    };
 
-    first.is_ascii_uppercase() && characters.next().is_some()
+    // A one-letter suffix such as `X` marks a different owner, as in `TicketListX`.
+    rest.len() > 1 && is_pascal_case(rest)
 }
 
 #[cfg(test)]

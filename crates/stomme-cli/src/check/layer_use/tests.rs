@@ -57,7 +57,12 @@ fn rust_project_with_gpui_component_and_no_gpui_component_layer_is_reported() {
 
 #[test]
 fn typescript_project_with_react_and_no_react_layer_is_reported() {
-    for field in ["dependencies", "devDependencies", "peerDependencies"] {
+    for field in [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ] {
         let package = format!("{{\"{field}\": {{\"react\": \"19.0.0\"}}}}");
         let root = project_with_language("typescript", &[("package.json", &package)], "");
 
@@ -84,7 +89,12 @@ fn each_framework_passes_once_its_layer_is_listed() {
 
     assert_eq!(layer_problems(component.path()), []);
 
-    for field in ["dependencies", "devDependencies", "peerDependencies"] {
+    for field in [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ] {
         let package = format!("{{\"{field}\": {{\"react\": \"19.0.0\"}}}}");
         let root = project_with_language(
             "typescript",

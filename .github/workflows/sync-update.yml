@@ -19,6 +19,7 @@ jobs:
   sync:
     name: Sync
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       changed: ${{ steps.commit.outputs.changed }}
       commit: ${{ steps.commit.outputs.commit }}
@@ -220,6 +221,7 @@ jobs:
     needs: sync
     if: needs.sync.outputs.changed == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
@@ -306,6 +308,7 @@ jobs:
         with:
           app-id: ${{ secrets['app-id'] }}
           private-key: ${{ secrets['app-private-key'] }}
+          permission-contents: write
       - name: Push the sync
         env:
           WORK: ${{ steps.artifact.outputs.directory }}

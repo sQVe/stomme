@@ -67,11 +67,17 @@ fn check_ignores_files_that_are_not_numbered_adrs() {
 
 #[test]
 fn check_ignores_a_directory_named_like_an_adr_file() {
-    let root = complete_project();
+    for name in ["0001-.md", "0002-other.md"] {
+        let root = complete_project();
 
-    fs::create_dir(root.path().join("docs/adr/0001-.md")).expect("create the directory");
+        fs::create_dir(root.path().join(format!("docs/adr/{name}"))).expect("create the directory");
 
-    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+        assert_eq!(
+            check(root.path(), "docs/adr").expect("read the ADRs"),
+            [],
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -123,6 +129,10 @@ fn check_accepts_a_heading_after_text_and_with_up_to_three_spaces() {
         (
             "after text",
             "Draft notes\n\n# ADR 0001: Documentation scope",
+        ),
+        (
+            "hashtag before the heading",
+            "#hashtag\n\n# ADR 0001: Documentation scope",
         ),
         (
             "backtick fence",
@@ -368,6 +378,30 @@ fn check_reports_a_label_that_does_not_match_the_heading() {
 
         assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexLabel)], "{label}");
     }
+}
+
+#[test]
+fn check_groups_index_entries_by_file() {
+    let root = complete_project();
+
+    write_file(root.path(), "docs/adr/0003-three.md", "# ADR 0003: Three\n");
+    replace_in_index(
+        root.path(),
+        ENTRY,
+        &format!(
+            "{ENTRY}- [0001: Documentation scope](./0001-documentation-scope.md)\n- [0003: Three](./0003-three.md)\n- [0009: Gone](./0009-gone.md)\n"
+        ),
+    );
+
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+    assert_eq!(
+        found(&problems),
+        [
+            (INDEX, Rule::AdrIndexCount),
+            (INDEX, Rule::AdrIndexMissingFile),
+        ]
+    );
 }
 
 #[test]

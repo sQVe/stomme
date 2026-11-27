@@ -44,6 +44,18 @@ fn tsx_test_placement_accepts_an_owner_of_either_extension() {
             Some(Rule::ReactTestPlacement),
         ),
         (
+            "multi-word family suffix",
+            &["src/Button.tsx"][..],
+            "src/ButtonClick.extra.test.tsx",
+            Some(Rule::ReactTestPlacement),
+        ),
+        (
+            "pascal case family suffix",
+            &["src/Button.tsx"][..],
+            "src/ButtonClick.test.tsx",
+            None,
+        ),
+        (
             "no owner",
             &[][..],
             "src/missing.test.tsx",
@@ -109,6 +121,16 @@ fn tsx_placement_ignores_a_tests_folder_outside_src() {
     let root = tempfile::tempdir().expect("create a temporary directory");
 
     write_file(root.path(), "e2e/__tests__/login.test.tsx", "");
+
+    assert_eq!(rules(&check(&tree(root.path()))), Vec::<Rule>::new());
+}
+
+#[test]
+fn tsx_placement_accepts_an_acronym_component_stem() {
+    let root = tempfile::tempdir().expect("create a temporary directory");
+
+    write_file(root.path(), "src/UI.tsx", "");
+    write_file(root.path(), "src/UI.test.tsx", "");
 
     assert_eq!(rules(&check(&tree(root.path()))), Vec::<Rule>::new());
 }
