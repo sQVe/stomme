@@ -242,18 +242,95 @@ fn check_passes_on_the_current_tree() {
     assert_eq!(outcomes.len(), 3);
     for outcome in &outcomes {
         assert!(outcome.admission.is_empty(), "{}", outcome.name);
-        assert!(
-            outcome.precedence.as_ref().is_none_or(Vec::is_empty),
-            "{}",
-            outcome.name
-        );
-    }
 
-    let scope = outcomes
-        .iter()
-        .find(|outcome| outcome.name == "scope")
-        .expect("the scope case runs");
-    assert_eq!(scope.precedence, None);
+        if outcome.name == "scope" {
+            assert_eq!(outcome.precedence, None, "{}", outcome.name);
+        } else {
+            assert_eq!(outcome.precedence, Some(Vec::new()), "{}", outcome.name);
+        }
+    }
+}
+
+#[test]
+fn version_failure_reports_every_mismatch() {
+    let mismatch = Some(
+        "node_modules/.bin/ocr is version 1.14.1, but package.json pins 1.14.2; run pnpm install --frozen-lockfile"
+            .to_string(),
+    );
+    let cases = [
+        ("the pinned release", "1.14.2", None),
+        ("another release", "1.14.1", mismatch),
+    ];
+
+    for (name, installed, expected) in cases {
+        assert_eq!(version_failure(installed, "1.14.2"), expected, "{name}");
+    }
+}
+
+#[test]
+fn version_in_reads_the_first_version_token() {
+    let cases = [
+        (
+            "a version banner",
+            "open-code-review v1.14.2 (e74f2c6) linux/amd64\nbuilt at: today",
+            Some("1.14.2".to_string()),
+        ),
+        ("a banner without a version", "open-code-review\n", None),
+    ];
+
+    for (name, text, expected) in cases {
+        assert_eq!(version_in(text), expected, "{name}");
+    }
+}
+
+#[test]
+fn pinned_ocr_version_reads_the_manifest() {
+    let root = temporary_directory();
+
+    fs::write(
+        root.path().join(PACKAGE_JSON),
+        format!(r#"{{"devDependencies":{{"{OCR_PACKAGE}":"9.8.7"}}}}"#),
+    )
+    .expect("write the manifest");
+
+    let version = pinned_ocr_version(root.path()).expect("read the pinned version");
+
+    assert_eq!(version, "9.8.7");
+}
+
+#[cfg(unix)]
+#[test]
+fn check_refuses_an_installed_ocr_that_differs_from_the_pin() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = temporary_directory();
+    let binary = root.path().join(OCR_BINARY);
+    let parent = binary.parent().expect("the binary has a parent");
+
+    fs::create_dir_all(parent).expect("create the binary folder");
+    fs::write(
+        &binary,
+        "#!/bin/sh\necho 'open-code-review v9.9.9 (deadbee) linux/amd64'\n",
+    )
+    .expect("write the fake OCR binary");
+    let mut permissions = fs::metadata(&binary)
+        .expect("read the fake binary mode")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&binary, permissions).expect("make the fake binary executable");
+    fs::write(
+        root.path().join(PACKAGE_JSON),
+        format!(r#"{{"devDependencies":{{"{OCR_PACKAGE}":"1.14.2"}}}}"#),
+    )
+    .expect("write the manifest");
+
+    let Err(error) = check(root.path()) else {
+        panic!("expected the version check to refuse another release");
+    };
+    let message = format!("{error:#}");
+
+    assert!(message.contains("is version 9.9.9"), "{message}");
+    assert!(message.contains("pins 1.14.2"), "{message}");
 }
 
 #[test]

@@ -3,8 +3,8 @@ use std::path::Path;
 use anyhow::Context as _;
 
 use super::{
-    CaseOutcome, Ocr, Preview, RULES, admission_failures, git_text, init_repository, parse_preview,
-    preview_arguments, run_ocr, stage_tree, stomme_command, stomme_output, temporary_folder,
+    CaseOutcome, Ocr, Preview, RULES, git_text, init_repository, parse_preview, preview_arguments,
+    run_ocr, stage_tree, stomme_command, stomme_output, temporary_folder,
 };
 
 const CASE: &str = "scope";
@@ -106,12 +106,7 @@ pub(super) fn run_scope_case(ocr: &Ocr) -> anyhow::Result<CaseOutcome> {
         &preview_arguments(path, &rules, &history.scoped_base, &history.head),
     )?;
     let preview = parse_preview(&preview_output.stdout, &preview_output.stderr)?;
-    let mut admission = admission_failures(CASE, &preview, &["src/changed.rs"], &[]);
-
-    admission.extend(absence_failures(
-        &preview,
-        &["src/kept.rs", "src/main_only.rs"],
-    ));
+    let admission = selection_failures(&preview, &["src/changed.rs"]);
 
     Ok(CaseOutcome {
         name: CASE,
@@ -120,12 +115,20 @@ pub(super) fn run_scope_case(ocr: &Ocr) -> anyhow::Result<CaseOutcome> {
     })
 }
 
-fn absence_failures(preview: &Preview, paths: &[&str]) -> Vec<String> {
-    paths
-        .iter()
-        .filter(|path| preview.file(path).is_some())
-        .map(|path| format!("ocr-smoke: {CASE}: admission failed: {path} is in the preview"))
-        .collect()
+fn selection_failures(preview: &Preview, expected: &[&str]) -> Vec<String> {
+    let mut selected = preview.reviewed_paths();
+    let mut expected = expected.to_vec();
+
+    selected.sort_unstable();
+    expected.sort_unstable();
+
+    if selected == expected {
+        return Vec::new();
+    }
+
+    vec![format!(
+        "ocr-smoke: {CASE}: admission failed: the preview selected {selected:?}, expected {expected:?}"
+    )]
 }
 
 fn build_history(path: &Path, root: &Path) -> anyhow::Result<History> {
