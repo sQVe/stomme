@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::patch::Hunk;
+use super::patch::{Hunk, RowKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CoveredLine {
@@ -83,7 +83,7 @@ pub(crate) fn added_lines(hunks: &[Hunk]) -> Vec<usize> {
     hunks
         .iter()
         .flat_map(|hunk| &hunk.rows)
-        .filter(|row| row.old_line.is_none())
+        .filter(|row| row.kind == RowKind::Added)
         .filter_map(|row| row.new_line)
         .collect()
 }
@@ -99,7 +99,7 @@ pub(crate) fn scoped_removed_lines(hunks: &[Hunk], removal: &Removal) -> Vec<Ins
         };
 
         for row in &hunk.rows {
-            if row.new_line.is_some() || row.old_line.is_none() {
+            if row.kind != RowKind::Removed {
                 continue;
             }
 
@@ -120,7 +120,7 @@ impl Removal {
         let texts = hunks
             .iter()
             .flat_map(|hunk| &hunk.rows)
-            .filter(|row| row.new_line.is_none() && row.old_line.is_some())
+            .filter(|row| row.kind == RowKind::Removed)
             .map(|row| row.text.clone())
             .collect();
 

@@ -15,7 +15,7 @@ use mapping::{
     CoveredLine, HeadToHeadFile, InsertedLine, Removal, added_lines, claimed_positions,
     map_covered_lines, scoped_removed_lines, uncovered_added_lines,
 };
-use patch::parse_hunks;
+use patch::{RowKind, parse_hunks};
 
 #[derive(Debug)]
 pub(crate) struct Request {
@@ -65,7 +65,8 @@ pub(crate) fn run(root: &Path, request: &Request) -> Result<Outcome, OcrScopeErr
 
     let covered = coverage(&git, &reviewed_base, &reviewed)?;
     let head_changes = head_to_head_changes(&git, &reviewed, &head)?;
-    let head_lines = read_head_lines(&git, &head, &head_changes)?;
+    let head_tree = tree_entries(&git, &head)?;
+    let head_lines = read_head_lines(&git, &head_tree, &head_changes)?;
     let mapped = map_covered_lines(&covered, &head_changes, &head_lines);
     let claimed = claimed_positions(&mapped);
     let removals = removals_by_head_path(&head_changes);
@@ -78,7 +79,7 @@ pub(crate) fn run(root: &Path, request: &Request) -> Result<Outcome, OcrScopeErr
     }
 
     let (files, added, removed) = counts(&scoped);
-    let commit = build_base_commit(&git, &head, &scoped)?;
+    let commit = build_base_commit(&git, &head, &head_tree, &scoped)?;
 
     graft(&git, &head, &commit)?;
 
@@ -514,13 +515,13 @@ fn coverage(git: &Git<'_>, base: &str, reviewed: &str) -> Result<Vec<CoveredLine
 
         for hunk in &hunks {
             for row in &hunk.rows {
+                if row.kind != RowKind::Added {
+                    continue;
+                }
+
                 let Some(line) = row.new_line else {
                     continue;
                 };
-
-                if row.old_line.is_some() {
-                    continue;
-                }
 
                 covered.push(CoveredLine {
                     path: change.new_path.clone(),
@@ -599,10 +600,9 @@ fn file_patch(
 
 fn read_head_lines(
     git: &Git<'_>,
-    head: &str,
+    tree: &BTreeMap<String, TreeEntry>,
     changes: &BTreeMap<String, HeadToHeadFile>,
 ) -> Result<BTreeMap<String, Vec<Vec<u8>>>, OcrScopeError> {
-    let tree = tree_entries(git, head)?;
     let mut lines = BTreeMap::new();
 
     for change in changes.values() {
@@ -773,9 +773,9 @@ fn counts(scoped: &BTreeMap<String, ScopedFile>) -> (usize, usize, usize) {
 fn build_base_commit(
     git: &Git<'_>,
     head: &str,
+    tree: &BTreeMap<String, TreeEntry>,
     scoped: &BTreeMap<String, ScopedFile>,
 ) -> Result<String, OcrScopeError> {
-    let tree = tree_entries(git, head)?;
     let mut writes = Vec::new();
     let mut drops = Vec::new();
 

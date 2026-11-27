@@ -1,5 +1,13 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RowKind {
+    Added,
+    Removed,
+    Context,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Row {
+    pub(crate) kind: RowKind,
     pub(crate) old_line: Option<usize>,
     pub(crate) new_line: Option<usize>,
     pub(crate) text: String,
@@ -87,6 +95,7 @@ fn row_for(text: &str, old_line: &mut usize, new_line: &mut usize) -> Option<Row
         '-' => {
             *old_line += 1;
             Some(Row {
+                kind: RowKind::Removed,
                 old_line: Some(*old_line - 1),
                 new_line: None,
                 text,
@@ -95,6 +104,7 @@ fn row_for(text: &str, old_line: &mut usize, new_line: &mut usize) -> Option<Row
         '+' => {
             *new_line += 1;
             Some(Row {
+                kind: RowKind::Added,
                 old_line: None,
                 new_line: Some(*new_line - 1),
                 text,
@@ -104,6 +114,7 @@ fn row_for(text: &str, old_line: &mut usize, new_line: &mut usize) -> Option<Row
             *old_line += 1;
             *new_line += 1;
             Some(Row {
+                kind: RowKind::Context,
                 old_line: Some(*old_line - 1),
                 new_line: Some(*new_line - 1),
                 text,

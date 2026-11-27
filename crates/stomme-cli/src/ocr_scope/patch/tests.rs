@@ -12,6 +12,7 @@ fn parses_a_hunk_header_with_omitted_counts() {
             new_start: 83,
             new_count: 1,
             rows: vec![Row {
+                kind: RowKind::Added,
                 old_line: None,
                 new_line: Some(83),
                 text: "inserted".to_string(),
@@ -33,16 +34,19 @@ fn reads_removed_added_and_context_rows() {
         hunks[0].rows,
         [
             Row {
+                kind: RowKind::Removed,
                 old_line: Some(1),
                 new_line: None,
                 text: "a".to_string(),
             },
             Row {
+                kind: RowKind::Context,
                 old_line: Some(2),
                 new_line: Some(1),
                 text: "b".to_string(),
             },
             Row {
+                kind: RowKind::Added,
                 old_line: None,
                 new_line: Some(2),
                 text: "c".to_string(),
