@@ -551,6 +551,61 @@ fn check_reports_an_index_link_inside_indented_code_in_a_list() {
 }
 
 #[test]
+fn check_ignores_a_fenced_link_on_a_list_marker_line() {
+    let root = complete_project();
+    let sample = "- ```\n  - [0001: Documentation scope](./0001-documentation-scope.md)\n  ```\n";
+
+    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_ignores_a_fenced_link_after_two_list_markers() {
+    let root = complete_project();
+    let sample = "- - ```\n  - [0001: Documentation scope](./0001-documentation-scope.md)\n  ```\n";
+
+    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_ignores_a_fenced_link_in_a_quoted_list_item() {
+    let root = complete_project();
+    let sample =
+        "> - ```\n>   - [0001: Documentation scope](./0001-documentation-scope.md)\n>   ```\n";
+
+    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_ignores_a_fenced_link_in_the_index() {
+    let root = complete_project();
+    let sample = "```\n- [0001: Documentation scope](./0001-documentation-scope.md)\n```\n";
+
+    replace_in_index(root.path(), ENTRY, &format!("{sample}{ENTRY}"));
+
+    assert_eq!(check(root.path(), "docs/adr").expect("read the ADRs"), []);
+}
+
+#[test]
+fn check_reports_a_no_break_space_index_line_as_not_a_list_entry() {
+    let root = complete_project();
+
+    add_index_line(
+        root.path(),
+        "\u{a0}- [0001: Documentation scope](./0001-documentation-scope.md)",
+    );
+
+    let problems = check(root.path(), "docs/adr").expect("read the ADRs");
+
+    assert_eq!(found(&problems), [(INDEX, Rule::AdrIndexEntry)]);
+}
+
+#[test]
 fn check_reports_an_index_line_that_is_not_a_plain_entry() {
     let cases = [
         "- [0001: Documentation scope](./0001-documentation-scope.md) (see also 0002)",

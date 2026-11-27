@@ -6,7 +6,7 @@ const TAB_WIDTH: usize = 4;
 const MAX_ORDERED_DIGITS: usize = 9;
 
 pub(crate) struct Line<'a> {
-    pub(crate) indent: usize,
+    indent: usize,
     pub(crate) relative: usize,
     pub(crate) depth: usize,
     pub(crate) content: &'a str,
@@ -27,7 +27,7 @@ pub(crate) fn unfenced_lines<'a>(
     let mut fence: Option<OpenFence> = None;
 
     lines.enumerate().filter_map(move |(index, raw)| {
-        let view = containers.view(raw);
+        let view = containers.view(without_quote(raw));
 
         if let Some(open) = &fence {
             let container_ended = view.depth < open.depth;
@@ -47,11 +47,16 @@ pub(crate) fn unfenced_lines<'a>(
             return None;
         }
 
-        if let Some(open) = opening_fence(view.content) {
+        let opens_item = list_marker(view.content).is_some();
+
+        if let Some(open) = opening_fence(content_after_markers(view.content)) {
+            containers.open_list_item(&view);
+
             fence = Some(OpenFence {
                 fence: open,
-                depth: view.depth,
+                depth: view.depth + usize::from(opens_item),
             });
+
             return None;
         }
 
@@ -67,9 +72,37 @@ pub(crate) fn unfenced_lines<'a>(
     })
 }
 
+// A block quote marker is transparent to the list items and fences it holds.
+fn without_quote(raw: &str) -> &str {
+    let (indent, content) = split_indent(raw);
+    let Some(rest) = content.strip_prefix('>') else {
+        return raw;
+    };
+
+    if indent > MAX_BLOCK_INDENT {
+        return raw;
+    }
+
+    let rest = rest.strip_prefix([' ', '\t']).unwrap_or(rest);
+
+    without_quote(rest)
+}
+
+// The text a fence starts at, after every list marker the line holds.
+fn content_after_markers(mut content: &str) -> &str {
+    while let Some(marker) = list_marker(content) {
+        let rest = &content[marker..];
+        let spacing = list_spacing(rest);
+
+        content = rest.get(spacing..).unwrap_or_default();
+    }
+
+    content
+}
+
 // A list item holds its content at a fixed column. Reading a line against the open items tells
 // indented code and fenced code apart from content, which a count of leading spaces cannot do.
-pub(crate) struct Containers {
+struct Containers {
     items: Vec<Item>,
     viewed: usize,
 }
@@ -80,7 +113,7 @@ struct Item {
 }
 
 impl Containers {
-    pub(crate) fn new() -> Self {
+    fn new() -> Self {
         Self {
             items: Vec::new(),
             viewed: 0,
@@ -89,7 +122,7 @@ impl Containers {
 
     // Reads the line against the open items. A blank line continues every open item, so it closes
     // none of them.
-    pub(crate) fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
+    fn view<'a>(&mut self, raw: &'a str) -> Line<'a> {
         self.viewed += 1;
 
         let (indent, content) = split_indent(raw);
@@ -119,12 +152,12 @@ impl Containers {
 
     // The line that opened the innermost open item, which is the first line of the item a
     // continuation line belongs to.
-    pub(crate) fn item_start(&self) -> Option<usize> {
+    fn item_start(&self) -> Option<usize> {
         self.items.last().map(|item| item.index)
     }
 
     // Opens an item at the line `view` read last. The line index counts the lines read so far.
-    pub(crate) fn open_list_item(&mut self, line: &Line) {
+    fn open_list_item(&mut self, line: &Line) {
         let Some(index) = self.viewed.checked_sub(1) else {
             return;
         };
@@ -214,7 +247,7 @@ pub(crate) fn item_content_column(line: &str) -> Option<usize> {
 }
 
 pub(crate) fn list_item_content(line: &str) -> Option<&str> {
-    let content = line.trim_start();
+    let (_, content) = split_indent(line);
     let marker = list_marker(content)?;
     let rest = &content[marker..];
 

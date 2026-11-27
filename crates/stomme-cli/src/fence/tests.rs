@@ -85,6 +85,63 @@ fn a_fence_inside_a_list_item_ends_with_the_item() {
 }
 
 #[test]
+fn a_fence_on_a_list_marker_line_hides_the_item_content() {
+    let cases = [
+        ("bullet", "- ```\n  - [entry](./0001-a.md)\n  ```\nafter\n"),
+        ("star", "* ```\n  - [entry](./0001-a.md)\n  ```\nafter\n"),
+        (
+            "ordered",
+            "1. ```\n   - [entry](./0001-a.md)\n   ```\nafter\n",
+        ),
+    ];
+
+    for (case, text) in cases {
+        assert_eq!(scanned(text), [(3, 0, "after")], "{case}");
+    }
+}
+
+#[test]
+fn a_fence_after_two_list_markers_on_one_line_hides_the_item_content() {
+    let text = "- - ```\n  - [entry](./0001-a.md)\n  ```\nafter\n";
+
+    assert_eq!(scanned(text), [(3, 0, "after")]);
+}
+
+#[test]
+fn a_quoted_fence_hides_the_quoted_lines() {
+    let cases = [
+        ("plain", "> ```\n> hidden\n> ```\nafter\n"),
+        (
+            "list item",
+            "> - ```\n>   - [entry](./0001-a.md)\n>   ```\nafter\n",
+        ),
+    ];
+
+    for (case, text) in cases {
+        assert_eq!(scanned(text), [(3, 0, "after")], "{case}");
+    }
+}
+
+#[test]
+fn a_quote_marker_is_read_up_to_three_spaces_of_indent() {
+    let hidden = "   > ```\n   > hidden\n   > ```\nafter\n";
+    let code = "    > hidden\nafter\n";
+
+    assert_eq!(scanned(hidden), [(3, 0, "after")]);
+    assert_eq!(scanned(code), [(1, 0, "after")]);
+}
+
+#[test]
+fn a_no_break_space_does_not_open_a_list_item() {
+    let text = "\u{a0}- ```\n  - [entry](./0001-a.md)\n";
+
+    assert_eq!(
+        scanned(text),
+        [(0, 0, "\u{a0}- ```"), (1, 2, "- [entry](./0001-a.md)")]
+    );
+}
+
+#[test]
 fn a_nested_item_is_measured_from_its_own_content_column() {
     let text = "- Topic\n    - child\n";
 
@@ -113,6 +170,7 @@ fn list_item_content_drops_the_marker_and_its_spacing() {
         ("no content", "- ", Some("")),
         ("not an item", "Topic", None),
         ("no space after the marker", "-Topic", None),
+        ("no-break space", "\u{a0}- Topic", None),
     ];
 
     for (case, line, expected) in cases {
@@ -128,6 +186,7 @@ fn item_content_column_counts_the_marker_its_spacing_and_tabs() {
         ("indented", "  - Topic", Some(4)),
         ("tab", "\t- Topic", Some(6)),
         ("not an item", "Topic", None),
+        ("no-break space", "\u{a0}- Topic", None),
     ];
 
     for (case, line, expected) in cases {
