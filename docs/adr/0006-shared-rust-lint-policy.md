@@ -11,8 +11,11 @@ Every Rust project that uses stomme kept its own copy of the same `[workspace.li
 copies drift when one project changes a level and the others do not. A project can also weaken the
 block, or add a crate that does not inherit it, without anyone noticing.
 
-Clippy reads one `clippy.toml` per project. That file holds the project's own bans and settings
-next to any shared bans, so no single owner can write it.
+Clippy reads one config file per crate. It starts at the crate manifest directory, or at
+`CLIPPY_CONF_DIR` when that is set, and walks up to the nearest directory that holds `.clippy.toml`
+or `clippy.toml`. A nearer member or parent config wins, but an ancestor above the workspace does
+not override a workspace config on the same search path. That file holds the project's own bans
+and settings next to any shared bans, so no single owner can write it.
 
 ## Decision
 
@@ -31,9 +34,13 @@ workspace root and are not excluded.
 
 ### Required bans
 
-`check` requires a set of `disallowed-methods` bans in `clippy.toml`, each with its reason. A
-project may add its own bans and settings. stomme never overwrites the file, so the project's own
-entries stay under its owner's control.
+`check` requires a set of `disallowed-methods` bans in the project's root Clippy config, each with
+its reason. It reads `.clippy.toml` in the project root before `clippy.toml`, so a project with
+both files must put the bans in `.clippy.toml`. A directory named `.clippy.toml` is not a config
+file, so the check falls back to `clippy.toml`. Clippy may instead read a `CLIPPY_CONF_DIR`,
+member, or parent config, and `check` reads none of those. A project may add its own bans and
+settings. stomme never overwrites the file, so the project's own entries stay under its owner's
+control.
 
 The Rust base owns general bans. A framework layer owns the bans for its framework, such as GPUI
 bans in the `gpui` layer, and they apply only when the project selects that layer. Each lint rule
@@ -57,7 +64,7 @@ has one ID and one owner, as ADR 0005 requires.
 
 ### Sync and overwrite the files
 
-Write the lint block and `clippy.toml` into each project on every update. Rejected because Clippy
+Write the lint block and Clippy config into each project on every update. Rejected because Clippy
 reads one file that also holds the project's own bans and settings, and overwriting it would erase
 them.
 
