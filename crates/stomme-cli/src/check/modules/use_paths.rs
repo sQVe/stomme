@@ -300,7 +300,6 @@ fn is_leading_colon_colon(
     !previous_ends_a_path && !previous_is_identifier
 }
 
-// The lexer reports keywords as identifiers, so a leading `::` can follow one.
 fn is_expression_keyword(token: &Token<'_>) -> bool {
     token.kind == TokenKind::Ident
         && matches!(
