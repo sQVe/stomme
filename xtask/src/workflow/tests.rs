@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
+use thiserror::Error;
 
 use super::*;
 use crate::git_isolation::isolate_git;
@@ -1598,31 +1599,21 @@ fn workflow_files(directory: &Path) -> Vec<(String, String)> {
 fn release_workflows(extra: &[(&str, &str)]) -> TempDir {
     let directory = temporary_directory();
 
-    fs::write(directory.path().join(RELEASE_TAG.0), RELEASE_TRIGGER)
-        .expect("write the release workflow");
+    write_file(directory.path(), RELEASE_TAG.0, RELEASE_TRIGGER);
 
     for (name, workflow) in extra {
-        fs::write(directory.path().join(name), workflow).expect("write a workflow");
+        write_file(directory.path(), name, workflow);
     }
 
     directory
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq)]
 enum TriggerError {
+    #[error("the workflow declares no on: trigger")]
     NoTrigger,
+    #[error("the guard cannot read the trigger line `{0}`")]
     Unreadable(String),
-}
-
-impl std::fmt::Display for TriggerError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NoTrigger => formatter.write_str("the workflow declares no on: trigger"),
-            Self::Unreadable(line) => {
-                write!(formatter, "the guard cannot read the trigger line `{line}`")
-            }
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
