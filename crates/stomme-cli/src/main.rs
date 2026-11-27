@@ -233,20 +233,23 @@ fn run_init(arguments: &[OsString]) -> ExitCode {
 }
 
 fn run_ocr_scope(reviewed: &OsStr, reviewed_base: &OsStr, base: &OsStr, head: &OsStr) -> ExitCode {
-    let mut values = Vec::new();
-
-    for value in [reviewed, reviewed_base, base, head] {
-        match value.to_str() {
-            Some(text) => values.push(text.to_string()),
-            None => return refuse_non_text(value),
-        }
-    }
-
+    let Some(reviewed) = reviewed.to_str() else {
+        return refuse_non_text(reviewed);
+    };
+    let Some(reviewed_base) = reviewed_base.to_str() else {
+        return refuse_non_text(reviewed_base);
+    };
+    let Some(base) = base.to_str() else {
+        return refuse_non_text(base);
+    };
+    let Some(head) = head.to_str() else {
+        return refuse_non_text(head);
+    };
     let request = ocr_scope::Request {
-        reviewed: values.remove(0),
-        reviewed_base: values.remove(0),
-        base: values.remove(0),
-        head: values.remove(0),
+        reviewed: reviewed.to_string(),
+        reviewed_base: reviewed_base.to_string(),
+        base: base.to_string(),
+        head: head.to_string(),
     };
     let root = match env::current_dir().context("Could not read the current directory") {
         Ok(root) => root,
@@ -254,10 +257,9 @@ fn run_ocr_scope(reviewed: &OsStr, reviewed_base: &OsStr, base: &OsStr, head: &O
     };
 
     match ocr_scope::run(&root, &request) {
-        Ok(ocr_scope::Outcome::Empty) => report_scope(
-            "empty",
-            Some("scope: 0 files, 0 added lines, 0 removed lines"),
-        ),
+        Ok(ocr_scope::Outcome::Empty) => {
+            report_scope("empty", "scope: 0 files, 0 added lines, 0 removed lines")
+        }
         Ok(ocr_scope::Outcome::Base {
             commit,
             files,
@@ -267,20 +269,18 @@ fn run_ocr_scope(reviewed: &OsStr, reviewed_base: &OsStr, base: &OsStr, head: &O
             let status =
                 format!("scope: {files} files, {added} added lines, {removed} removed lines");
 
-            report_scope(&commit, Some(&status))
+            report_scope(&commit, &status)
         }
         Err(error) => fail(&format!("stomme: {error}")),
     }
 }
 
-fn report_scope(base: &str, status: Option<&str>) -> ExitCode {
+fn report_scope(base: &str, status: &str) -> ExitCode {
     if let Err(error) = write_stdout(&format!("{base}\n")) {
         return fail(&format!("stomme: could not write the scope base: {error}"));
     }
 
-    if let Some(status) = status
-        && let Err(error) = write_stderr(&format!("stomme: {status}\n"))
-    {
+    if let Err(error) = write_stderr(&format!("stomme: {status}\n")) {
         return fail(&format!(
             "stomme: could not write the scope status: {error}"
         ));
