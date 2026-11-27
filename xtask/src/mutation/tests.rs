@@ -153,7 +153,7 @@ fn report_reads_the_exit_code_of_the_mutants_run() {
 #[test]
 fn report_builds_mutants_in_an_empty_scratch_folder_on_disk() {
     let fixture = Fixture::new();
-    let scratch = fixture.folder.path().join(SCRATCH_DIRECTORY);
+    let scratch = fixture.folder.path().join("target/mutants/scratch");
     let leftover = scratch.join("cargo-mutants-leftover");
 
     fs::create_dir_all(&leftover).expect("create a leftover build folder");
@@ -388,7 +388,6 @@ fn job_counts_keep_the_whole_run_within_the_cores() {
 
         assert_eq!(jobs, expected_jobs, "{cores} cores");
         assert_eq!(threads, expected_threads, "{cores} cores");
-        assert!(jobs * threads <= cores.get(), "{cores} cores");
     }
 }
 
@@ -401,11 +400,8 @@ fn mutants_command_caps_the_test_threads_of_each_job() {
         diff: None,
         files: strings(&["a.rs"]),
     };
-    let cores = std::thread::available_parallelism()
-        .expect("the machine reports its core count")
-        .get();
-    let jobs = cores.min(MAX_JOBS);
-    let threads = (cores / jobs).to_string();
+    let cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    let (jobs, threads) = job_counts(cores);
     let command = mutants_command("cargo", root, &output, &scope);
     let environment: Vec<(&OsStr, Option<&OsStr>)> = command.get_envs().collect();
     let arguments: Vec<&OsStr> = command.get_args().collect();
@@ -420,11 +416,24 @@ fn mutants_command_caps_the_test_threads_of_each_job() {
         .map(|pair| pair[1])
         .expect("--jobs is passed to the child");
 
-    assert_eq!(received_threads, OsStr::new(&threads));
+    assert_eq!(received_threads, OsStr::new(&threads.to_string()));
     assert_eq!(received_jobs, OsStr::new(&jobs.to_string()));
+
+    let received_jobs: usize = received_jobs
+        .to_str()
+        .expect("--jobs is UTF-8")
+        .parse()
+        .expect("--jobs is a number");
+    let received_threads: usize = received_threads
+        .to_str()
+        .expect("NEXTEST_TEST_THREADS is UTF-8")
+        .parse()
+        .expect("NEXTEST_TEST_THREADS is a number");
+
     assert!(
-        jobs * (cores / jobs) <= cores,
-        "{jobs} jobs x {threads} threads on {cores} cores"
+        received_jobs * received_threads <= cores.get(),
+        "{received_jobs} jobs x {received_threads} threads on {} cores",
+        cores.get()
     );
 }
 
