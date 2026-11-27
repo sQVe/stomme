@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
@@ -194,14 +195,23 @@ fn apply_cap(
     (selected, unmutated)
 }
 
-fn job_count() -> usize {
-    let available = std::thread::available_parallelism().map_or(1, |count| count.get());
-
-    available.min(MAX_JOBS)
+fn available_cores() -> NonZeroUsize {
+    std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
 }
 
-fn empty_scratch(root: &Path) -> anyhow::Result<PathBuf> {
-    let scratch = root.join(SCRATCH_DIRECTORY);
+fn job_counts(cores: NonZeroUsize) -> (usize, usize) {
+    let jobs = cores.get().min(MAX_JOBS);
+    let threads = cores.get() / jobs;
+
+    (jobs, threads)
+}
+
+fn scratch_directory(root: &Path) -> PathBuf {
+    root.join(SCRATCH_DIRECTORY)
+}
+
+fn empty_scratch(root: &Path) -> anyhow::Result<()> {
+    let scratch = scratch_directory(root);
 
     if scratch.exists() {
         fs::remove_dir_all(&scratch)
@@ -211,20 +221,33 @@ fn empty_scratch(root: &Path) -> anyhow::Result<PathBuf> {
     fs::create_dir_all(&scratch)
         .with_context(|| format!("Could not create {}", scratch.display()))?;
 
-    Ok(scratch)
+    Ok(())
 }
 
-fn run_mutants(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> anyhow::Result<()> {
-    let scratch = empty_scratch(root)?;
-    let status = Command::new(cargo)
-        .env("TMPDIR", &scratch)
+fn mutants_command(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> Command {
+    let (jobs, threads) = job_counts(available_cores());
+    // Each job's nextest run defaults to one test process per core, so the jobs together would
+    // start jobs times cores test processes. Cap the test threads so the jobs together keep to
+    // the core count.
+    let mut command = Command::new(cargo);
+
+    command
+        .env("TMPDIR", scratch_directory(root))
+        .env("NEXTEST_TEST_THREADS", threads.to_string())
         .args(["mutants", "--workspace", "--no-shuffle", "--jobs"])
-        .arg(job_count().to_string())
+        .arg(jobs.to_string())
         .arg("--output")
         .arg(output)
         .args(scope.arguments())
         .current_dir(root)
-        .stdout(std::io::stderr())
+        .stdout(std::io::stderr());
+
+    command
+}
+
+fn run_mutants(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> anyhow::Result<()> {
+    empty_scratch(root)?;
+    let status = mutants_command(cargo, root, output, scope)
         .status()
         .context("Could not start cargo mutants")?;
 
