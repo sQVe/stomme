@@ -561,19 +561,6 @@ pub(super) fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<Stri
     git_text_from(command.args(arguments), arguments)
 }
 
-pub(super) fn git_text_with_index(
-    folder: &Path,
-    index: &Path,
-    arguments: &[&str],
-) -> anyhow::Result<String> {
-    let mut command = git_command(folder);
-
-    git_text_from(
-        command.env("GIT_INDEX_FILE", index).args(arguments),
-        arguments,
-    )
-}
-
 fn git_text_from(command: &mut Command, arguments: &[&str]) -> anyhow::Result<String> {
     let description = format!("git {}", arguments.join(" "));
     let output = command

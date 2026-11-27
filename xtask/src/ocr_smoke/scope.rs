@@ -1,12 +1,13 @@
-use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::Context as _;
 
 use super::{
-    CaseOutcome, Ocr, Preview, RULES, admission_failures, git_text, git_text_with_index,
-    init_repository, parse_preview, preview_arguments, run_ocr, temporary_folder, write_files,
+    CaseOutcome, Ocr, Preview, RULES, admission_failures, git_text, init_repository, parse_preview,
+    preview_arguments, run_ocr, temporary_folder, write_files,
 };
+use crate::git_isolation::isolate_git;
 
 const CASE: &str = "scope";
 
@@ -99,7 +100,7 @@ pub(super) fn run_scope_case(ocr: &Ocr) -> anyhow::Result<CaseOutcome> {
     let folder = temporary_folder("stomme-ocr-smoke-scope-")?;
     let path = folder.path();
     init_repository(path)?;
-    let history = build_history(path)?;
+    let history = build_history(path, &ocr.root)?;
     check_graft(path, &history)?;
     let rules = ocr.root.join(RULES);
     let preview_output = run_ocr(
@@ -129,7 +130,7 @@ fn absence_failures(preview: &Preview, paths: &[&str]) -> Vec<String> {
         .collect()
 }
 
-fn build_history(path: &Path) -> anyhow::Result<History> {
+fn build_history(path: &Path, root: &Path) -> anyhow::Result<History> {
     write_files(path, BASE_FILES)?;
     git_text(path, &["add", "-A"])?;
     let base_tree = git_text(path, &["write-tree"])?;
@@ -138,7 +139,7 @@ fn build_history(path: &Path) -> anyhow::Result<History> {
     write_files(path, REVIEWED_FILES)?;
     git_text(path, &["add", "-A"])?;
     let reviewed_tree = git_text(path, &["write-tree"])?;
-    git_text(
+    let reviewed = git_text(
         path,
         &["commit-tree", &reviewed_tree, "-p", &base, "-m", "reviewed"],
     )?;
@@ -166,25 +167,59 @@ fn build_history(path: &Path) -> anyhow::Result<History> {
         &["commit-tree", &head_tree, "-p", &moved_base, "-m", "head"],
     )?;
 
-    let scoped_base = build_scoped_base(path, &head)?;
-    git_text(path, &["replace", "--graft", &head, &scoped_base])?;
+    let scoped_base = run_scope_command(path, root, &reviewed, &base, &moved_base, &head)?;
 
     Ok(History { head, scoped_base })
 }
 
-fn build_scoped_base(path: &Path, head: &str) -> anyhow::Result<String> {
-    let index = path.join("scoped-base-index");
-    let changed = path.join("scoped-changed.rs");
-    fs::write(&changed, REVIEWED_CHANGED)
-        .with_context(|| format!("Could not write {}", changed.display()))?;
-    let blob = git_text(path, &["hash-object", "-w", &display_path(&changed)])?;
-    git_text_with_index(path, &index, &["read-tree", head])?;
-    let entry = format!("100644,{blob},src/changed.rs");
-    git_text_with_index(path, &index, &["update-index", "--cacheinfo", &entry])?;
-    let tree = git_text_with_index(path, &index, &["write-tree"])?;
-    let commit = git_text(path, &["commit-tree", &tree, "-m", "scoped_base"])?;
+fn run_scope_command(
+    folder: &Path,
+    root: &Path,
+    reviewed: &str,
+    reviewed_base: &str,
+    base: &str,
+    head: &str,
+) -> anyhow::Result<String> {
+    let output = scope_command(folder, root, reviewed, reviewed_base, base, head)
+        .output()
+        .context("Could not run cargo run -p stomme -- ocr-scope")?;
 
-    Ok(commit)
+    if !output.status.success() {
+        anyhow::bail!(
+            "cargo run -p stomme -- ocr-scope failed with {}:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let text = String::from_utf8(output.stdout)
+        .context("ocr-scope printed a base commit that is not UTF-8")?;
+
+    Ok(text.trim().to_string())
+}
+
+fn scope_command(
+    folder: &Path,
+    root: &Path,
+    reviewed: &str,
+    reviewed_base: &str,
+    base: &str,
+    head: &str,
+) -> Command {
+    let mut command = Command::new("cargo");
+
+    command
+        .args(["run", "--locked", "--quiet", "--manifest-path"])
+        .arg(root.join("Cargo.toml"))
+        .args(["-p", "stomme", "--", "ocr-scope"])
+        .args(["--reviewed", reviewed])
+        .args(["--reviewed-base", reviewed_base])
+        .args(["--base", base])
+        .args(["--head", head])
+        .current_dir(folder);
+    isolate_git(&mut command);
+
+    command
 }
 
 fn check_graft(path: &Path, history: &History) -> anyhow::Result<()> {
@@ -204,10 +239,6 @@ fn check_graft(path: &Path, history: &History) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn display_path(path: &Path) -> String {
-    path.display().to_string()
 }
 
 #[cfg(test)]
