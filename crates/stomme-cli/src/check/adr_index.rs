@@ -281,8 +281,6 @@ fn heading_line(text: &str) -> Option<&str> {
         .find(|content| is_heading(content))
 }
 
-// The lines a reader sees as document content. A fenced block and an HTML comment are not content,
-// so a heading, an index entry, or a retired row inside one counts for nothing.
 fn content_lines<'a>(text: &'a str) -> impl Iterator<Item = UnfencedLine<'a>> {
     unfenced_lines(text.lines()).filter(|line| !line.in_comment)
 }
