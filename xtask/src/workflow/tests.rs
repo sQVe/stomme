@@ -3,6 +3,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use tempfile::TempDir;
+
 use super::*;
 use crate::git_isolation::isolate_git;
 use crate::test_support::temporary_directory;
@@ -247,46 +249,36 @@ fn release_gate_token_steps_request_read_only_contents() {
 fn release_workflow_starts_only_on_v_tags() {
     let directory = crate::workspace_root().join(".github/workflows");
 
-    assert!(
-        !directory.join("release.yml").exists(),
-        "the Release workflow is .github/workflows/v-release.yml"
-    );
+    assert_eq!(release_tag_problems(&directory), Vec::<String>::new());
+}
 
-    let mut files: Vec<PathBuf> = fs::read_dir(&directory)
-        .expect("read the workflows folder")
-        .map(|entry| entry.expect("read a workflow entry").path())
-        .filter(|path| is_workflow(path))
-        .collect();
-
-    files.sort();
-
-    let mut patterns = Vec::new();
-
-    for path in files {
-        let name = path
-            .file_name()
-            .expect("a workflow file has a name")
-            .to_string_lossy()
-            .into_owned();
-        let workflow = fs::read_to_string(&path).expect("read a workflow");
-
-        for pattern in tag_push_patterns(&workflow) {
-            patterns.push((name.clone(), pattern));
-        }
-    }
+#[test]
+fn release_tag_guard_reads_a_yaml_workflow() {
+    let directory = release_workflows(&[("extra.yaml", "on: push\n")]);
+    let problems = release_tag_problems(directory.path());
 
     assert_eq!(
-        patterns,
-        [(
-            "v-release.yml".to_string(),
-            "v**[0-9]+.[0-9]+.[0-9]+*".to_string()
+        problems,
+        [format!(
+            "extra.yaml can start on a tag push matching '{ANY_TAG}'"
         )]
     );
 }
 
 #[test]
+fn release_tag_guard_reports_a_leftover_release_workflow() {
+    let directory = release_workflows(&[("release.yml", "on:\n  pull_request:\n")]);
+    let problems = release_tag_problems(directory.path());
+
+    assert_eq!(
+        problems,
+        ["release.yml still exists; the Release workflow is v-release.yml"]
+    );
+}
+
+#[test]
 fn tag_push_patterns_reads_each_trigger_form() {
-    let cases: [(&str, &str, Vec<&str>); 10] = [
+    let cases: [(&str, &str, Vec<&str>); 20] = [
         (
             "a block list",
             "on:\n  push:\n    tags:\n      - 'v1.0.0'\n",
@@ -302,7 +294,33 @@ fn tag_push_patterns_reads_each_trigger_form() {
             "on:\n  push:\n    tags: ['v1.0.0', \"v2.0.0\"]\n",
             vec!["v1.0.0", "v2.0.0"],
         ),
+        (
+            "a single tag value",
+            "on:\n  push:\n    tags: v1.0.0\n",
+            vec!["v1.0.0"],
+        ),
         ("a single-line push", "on: push\n", vec![ANY_TAG]),
+        (
+            "a commented single-line push",
+            "on: push # why\n",
+            vec![ANY_TAG],
+        ),
+        ("a quoted single-line push", "on: 'push'\n", vec![ANY_TAG]),
+        (
+            "a flow list of events with a push",
+            "on: [push, pull_request]\n",
+            vec![ANY_TAG],
+        ),
+        (
+            "a flow list of events without a push",
+            "on: [pull_request]\n",
+            Vec::new(),
+        ),
+        (
+            "a scalar event that is not a push",
+            "on: workflow_dispatch\n",
+            Vec::new(),
+        ),
         ("a push without a filter", "on:\n  push:\n", vec![ANY_TAG]),
         (
             "blank lines and comments",
@@ -321,17 +339,75 @@ fn tag_push_patterns_reads_each_trigger_form() {
             Vec::new(),
         ),
         (
+            "a branch exclusion without a tag filter",
+            "on:\n  push:\n    branches-ignore: [main]\n",
+            Vec::new(),
+        ),
+        (
+            "a path filter alone",
+            "on:\n  push:\n    paths: ['src/**']\n",
+            vec![ANY_TAG],
+        ),
+        (
+            "a tag exclusion",
+            "on:\n  push:\n    tags-ignore: ['v*']\n",
+            vec![ANY_TAG],
+        ),
+        (
             "a deeper tag list",
             "on:\n  push:\n      tags:\n          - 'v1.0.0'\n",
             vec!["v1.0.0"],
         ),
+        (
+            "a flow mapping of filters",
+            "on:\n  push: {tags: ['v1.0.0', 'v2.0.0']}\n",
+            vec!["v1.0.0", "v2.0.0"],
+        ),
     ];
 
     for (name, workflow, expected) in cases {
-        let patterns = tag_push_patterns(workflow);
+        let patterns = tag_push_patterns(workflow).expect("the guard reads the trigger form");
         let actual: Vec<&str> = patterns.iter().map(String::as_str).collect();
 
         assert_eq!(actual, expected, "{name}");
+    }
+}
+
+#[test]
+fn tag_push_patterns_reports_a_trigger_it_cannot_read() {
+    let cases = [
+        (
+            "a flow mapping of events",
+            "on: {push: {tags: ['v1.0.0']}}\n",
+            TriggerError::Unreadable("on: {push: {tags: ['v1.0.0']}}".to_string()),
+        ),
+        (
+            "an event block sequence",
+            "on:\n  - push\n",
+            TriggerError::Unreadable("- push".to_string()),
+        ),
+        (
+            "a nested filter mapping",
+            "on:\n  push:\n    tags:\n      v1: x\n",
+            TriggerError::Unreadable("v1: x".to_string()),
+        ),
+        (
+            "an unknown push filter",
+            "on:\n  push:\n    labels: [x]\n",
+            TriggerError::Unreadable("labels: [x]".to_string()),
+        ),
+        (
+            "a malformed tag list",
+            "on:\n  push:\n    tags: ['v1.0.0'\n",
+            TriggerError::Unreadable("tags: ['v1.0.0'".to_string()),
+        ),
+        ("no trigger", "name: Release\n", TriggerError::NoTrigger),
+    ];
+
+    for (name, workflow, expected) in cases {
+        let scan = tag_push_patterns(workflow);
+
+        assert_eq!(scan, Err(expected), "{name}");
     }
 }
 
@@ -1445,121 +1521,402 @@ fn input_entry<'a>(inputs: &'a str, name: &str) -> Vec<&'a str> {
 }
 
 const ANY_TAG: &str = "*";
+const RELEASE_TAG: (&str, &str) = ("v-release.yml", "v**[0-9]+.[0-9]+.[0-9]+*");
+const RELEASE_TRIGGER: &str =
+    "on:\n  pull_request:\n  push:\n    tags:\n      - 'v**[0-9]+.[0-9]+.[0-9]+*'\n";
 
 fn is_workflow(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension == "yml" || extension == "yaml")
 }
 
-fn tag_push_patterns(workflow: &str) -> Vec<String> {
-    let mut patterns = Vec::new();
-    let mut trigger = false;
-    let mut push_indent: Option<usize> = None;
-    let mut filter_indent: Option<usize> = None;
-    let mut filtered = false;
-    let mut tags = false;
+fn release_tag_problems(directory: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
 
-    for line in workflow.lines() {
-        let trimmed = line.trim();
+    if directory.join("release.yml").exists() {
+        problems
+            .push("release.yml still exists; the Release workflow is v-release.yml".to_string());
+    }
 
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
+    let (release_file, release_pattern) = RELEASE_TAG;
+    let mut starts_on_the_release_tag = false;
 
-        let indent = indentation(line);
-
-        if indent == 0 {
-            finish_push(push_indent.is_some(), filtered, &mut patterns);
-            trigger = false;
-            push_indent = None;
-            filter_indent = None;
-            filtered = false;
-            tags = false;
-
-            let Some(event) = trimmed.strip_prefix("on:") else {
+    for (name, workflow) in workflow_files(directory) {
+        let patterns = match tag_push_patterns(&workflow) {
+            Ok(patterns) => patterns,
+            Err(error) => {
+                problems.push(format!("{name}: {error}"));
                 continue;
-            };
-            let event = event.trim();
-
-            trigger = event.is_empty() || event == "push";
-
-            if event == "push" {
-                patterns.push(ANY_TAG.to_string());
             }
-
-            continue;
-        }
-
-        if !trigger {
-            continue;
-        }
-
-        if push_indent.is_some_and(|push| indent <= push) {
-            finish_push(push_indent.is_some(), filtered, &mut patterns);
-            push_indent = None;
-            filter_indent = None;
-            filtered = false;
-            tags = false;
-        }
-
-        if push_indent.is_none() {
-            push_indent = (trimmed == "push:").then_some(indent);
-            continue;
-        }
-
-        if let Some(pattern) = trimmed.strip_prefix("- ") {
-            if tags {
-                patterns.push(strip_quotes(strip_comment(pattern)).to_string());
-            }
-
-            continue;
-        }
-
-        let starts_filter = match filter_indent {
-            Some(filter) => indent <= filter,
-            None => true,
         };
 
-        if starts_filter {
-            filtered = true;
-            filter_indent = Some(indent);
-            tags = trimmed.starts_with("tags:");
-
-            if tags {
-                let values = trimmed
-                    .strip_prefix("tags:")
-                    .expect("tags: starts with tags:");
-
-                patterns.extend(inline_list(strip_comment(values.trim())));
+        for pattern in patterns {
+            if name == release_file && pattern == release_pattern {
+                starts_on_the_release_tag = true;
+                continue;
             }
+
+            problems.push(format!(
+                "{name} can start on a tag push matching '{pattern}'"
+            ));
         }
     }
 
-    finish_push(push_indent.is_some(), filtered, &mut patterns);
+    if !starts_on_the_release_tag {
+        problems.push(format!(
+            "{release_file} has no '{release_pattern}' tag push"
+        ));
+    }
 
-    patterns
+    problems
 }
 
-fn finish_push(push: bool, filtered: bool, patterns: &mut Vec<String>) {
-    if push && !filtered {
-        patterns.push(ANY_TAG.to_string());
+fn workflow_files(directory: &Path) -> Vec<(String, String)> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(directory)
+        .expect("read the workflows folder")
+        .map(|entry| entry.expect("read a workflow entry").path())
+        .filter(|path| is_workflow(path))
+        .collect();
+
+    paths.sort();
+
+    paths
+        .into_iter()
+        .map(|path| {
+            let name = path
+                .file_name()
+                .expect("a workflow file has a name")
+                .to_string_lossy()
+                .into_owned();
+            let workflow = fs::read_to_string(&path).expect("read a workflow");
+
+            (name, workflow)
+        })
+        .collect()
+}
+
+fn release_workflows(extra: &[(&str, &str)]) -> TempDir {
+    let directory = temporary_directory();
+
+    fs::write(directory.path().join(RELEASE_TAG.0), RELEASE_TRIGGER)
+        .expect("write the release workflow");
+
+    for (name, workflow) in extra {
+        fs::write(directory.path().join(name), workflow).expect("write a workflow");
+    }
+
+    directory
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TriggerError {
+    NoTrigger,
+    Unreadable(String),
+}
+
+impl std::fmt::Display for TriggerError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoTrigger => formatter.write_str("the workflow declares no on: trigger"),
+            Self::Unreadable(line) => {
+                write!(formatter, "the guard cannot read the trigger line `{line}`")
+            }
+        }
     }
 }
 
-fn inline_list(text: &str) -> Vec<String> {
-    let Some(inner) = text
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-    else {
-        return Vec::new();
+#[derive(Clone, Copy)]
+struct TriggerLine<'a> {
+    indent: usize,
+    text: &'a str,
+}
+
+struct PushFilter<'a> {
+    key: &'a str,
+    values: Vec<String>,
+    line: &'a str,
+}
+
+fn tag_push_patterns(workflow: &str) -> Result<Vec<String>, TriggerError> {
+    let lines = trigger_lines(workflow);
+    let trigger = lines
+        .iter()
+        .position(|line| line.indent == 0 && line.text.starts_with("on:"));
+
+    let Some(index) = trigger else {
+        return Err(TriggerError::NoTrigger);
     };
 
-    inner
-        .split(',')
+    let line = lines[index];
+    let value = line
+        .text
+        .strip_prefix("on:")
+        .expect("the line starts with on:");
+    let value = strip_comment(value).trim();
+
+    if value.is_empty() {
+        return trigger_block_patterns(block_after(&lines, index));
+    }
+
+    event_patterns(value).ok_or_else(|| TriggerError::Unreadable(line.text.to_string()))
+}
+
+fn trigger_block_patterns(lines: &[TriggerLine<'_>]) -> Result<Vec<String>, TriggerError> {
+    let mut patterns = Vec::new();
+    let mut index = 0;
+
+    while index < lines.len() {
+        let line = lines[index];
+        let children = block_after(lines, index);
+
+        let Some((key, _)) = line.text.split_once(':') else {
+            return Err(TriggerError::Unreadable(line.text.to_string()));
+        };
+
+        if strip_quotes(key.trim()) == "push" {
+            patterns.extend(push_patterns(line.text, children)?);
+        }
+
+        index += 1 + children.len();
+    }
+
+    Ok(patterns)
+}
+
+fn block_after<'a>(lines: &'a [TriggerLine<'a>], index: usize) -> &'a [TriggerLine<'a>] {
+    let parent = lines[index].indent;
+    let rest = &lines[index + 1..];
+    let length = rest
+        .iter()
+        .position(|line| line.indent <= parent)
+        .unwrap_or(rest.len());
+
+    &rest[..length]
+}
+
+fn push_patterns(line: &str, children: &[TriggerLine<'_>]) -> Result<Vec<String>, TriggerError> {
+    let (_, value) = line
+        .split_once(':')
+        .expect("a push trigger line has a key and a value");
+    let value = strip_comment(value).trim();
+
+    if value.is_empty() {
+        return filter_patterns(&block_filters(children)?);
+    }
+
+    let filters = flow_filters(line).ok_or_else(|| TriggerError::Unreadable(line.to_string()))?;
+
+    filter_patterns(&filters)
+}
+
+fn block_filters<'a>(lines: &'a [TriggerLine<'a>]) -> Result<Vec<PushFilter<'a>>, TriggerError> {
+    let mut filters: Vec<PushFilter<'a>> = Vec::new();
+    let mut key_indent = None;
+
+    for line in lines {
+        if let Some(item) = list_item(line.text) {
+            let Some(filter) = filters.last_mut() else {
+                return Err(TriggerError::Unreadable(line.text.to_string()));
+            };
+
+            filter
+                .values
+                .push(strip_quotes(strip_comment(item)).to_string());
+            continue;
+        }
+
+        let indent = *key_indent.get_or_insert(line.indent);
+
+        if line.indent != indent {
+            return Err(TriggerError::Unreadable(line.text.to_string()));
+        }
+
+        let Some((key, value)) = line.text.split_once(':') else {
+            return Err(TriggerError::Unreadable(line.text.to_string()));
+        };
+
+        let Some(values) = filter_values(value) else {
+            return Err(TriggerError::Unreadable(line.text.to_string()));
+        };
+
+        filters.push(PushFilter {
+            key: strip_quotes(key.trim()),
+            values,
+            line: line.text,
+        });
+    }
+
+    Ok(filters)
+}
+
+fn flow_filters(line: &str) -> Option<Vec<PushFilter<'_>>> {
+    let (_, value) = line.split_once(':')?;
+    let inner = strip_comment(value)
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?;
+    let mut filters = Vec::new();
+
+    for entry in split_flow(inner) {
+        let (key, value) = entry.split_once(':')?;
+
+        filters.push(PushFilter {
+            key: strip_quotes(key.trim()),
+            values: filter_values(value)?,
+            line,
+        });
+    }
+
+    Some(filters)
+}
+
+fn filter_values(value: &str) -> Option<Vec<String>> {
+    let value = strip_comment(value).trim();
+
+    if value.is_empty() {
+        return Some(Vec::new());
+    }
+
+    if value.starts_with('{') {
+        return None;
+    }
+
+    if value.starts_with('[') {
+        return inline_list(value);
+    }
+
+    Some(vec![strip_quotes(value).to_string()])
+}
+
+fn filter_patterns(filters: &[PushFilter<'_>]) -> Result<Vec<String>, TriggerError> {
+    let mut tags: Option<&[String]> = None;
+    let mut ignores_tags = false;
+    let mut restricts_branches = false;
+
+    for filter in filters {
+        match filter.key {
+            "tags" => tags = Some(&filter.values),
+            "tags-ignore" => ignores_tags = true,
+            "branches" | "branches-ignore" => restricts_branches = true,
+            "paths" | "paths-ignore" => {}
+            _ => return Err(TriggerError::Unreadable(filter.line.to_string())),
+        }
+    }
+
+    if let Some(tags) = tags {
+        return Ok(tags.to_vec());
+    }
+
+    if ignores_tags {
+        return Ok(vec![ANY_TAG.to_string()]);
+    }
+
+    if restricts_branches {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![ANY_TAG.to_string()])
+}
+
+fn event_patterns(value: &str) -> Option<Vec<String>> {
+    let value = strip_quotes(value);
+
+    if value == "push" {
+        return Some(vec![ANY_TAG.to_string()]);
+    }
+
+    if let Some(events) = inline_list(value) {
+        let starts_on_push = events.iter().any(|event| event == "push");
+
+        return Some(if starts_on_push {
+            vec![ANY_TAG.to_string()]
+        } else {
+            Vec::new()
+        });
+    }
+
+    let is_event_name = value
+        .chars()
+        .all(|character| character.is_ascii_lowercase() || character == '_');
+
+    if is_event_name {
+        return Some(Vec::new());
+    }
+
+    None
+}
+
+fn split_flow(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+
+    for (index, character) in text.char_indices() {
+        match character {
+            '[' | '{' => depth += 1,
+            ']' | '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&text[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    parts.push(&text[start..]);
+
+    parts
+        .into_iter()
         .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .map(|item| strip_quotes(item).to_string())
+        .filter(|part| !part.is_empty())
         .collect()
+}
+
+fn trigger_lines(workflow: &str) -> Vec<TriggerLine<'_>> {
+    workflow
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+
+            if trimmed.starts_with('#') {
+                return None;
+            }
+
+            let text = strip_comment(trimmed).trim();
+
+            if text.is_empty() {
+                return None;
+            }
+
+            Some(TriggerLine {
+                indent: indentation(line),
+                text,
+            })
+        })
+        .collect()
+}
+
+fn list_item(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix('-')?;
+
+    if rest.starts_with(char::is_whitespace) {
+        return Some(rest.trim());
+    }
+
+    None
+}
+
+fn inline_list(text: &str) -> Option<Vec<String>> {
+    let inner = text.strip_prefix('[')?.strip_suffix(']')?;
+
+    Some(
+        inner
+            .split(',')
+            .map(|item| strip_quotes(strip_comment(item.trim())))
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 fn indentation(line: &str) -> usize {
