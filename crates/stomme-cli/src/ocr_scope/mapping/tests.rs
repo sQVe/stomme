@@ -1,0 +1,135 @@
+use std::collections::{BTreeMap, BTreeSet};
+
+use super::*;
+use crate::ocr_scope::patch::parse_hunks;
+
+#[test]
+fn maps_a_moved_block_onto_its_new_position() {
+    let patch = "@@ -1,4 +1,4 @@\n-alpha\n-beta\n gamma\n delta\n+alpha\n+beta";
+    let covered = vec![
+        covered_line("src/a.ts", 1, "alpha"),
+        covered_line("src/a.ts", 2, "beta"),
+    ];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "gamma\ndelta\nalpha\nbeta\n"),
+    );
+
+    assert_eq!(
+        mapped,
+        [
+            covered_line("src/a.ts", 3, "alpha"),
+            covered_line("src/a.ts", 4, "beta"),
+        ]
+    );
+    assert!(uncovered_added_lines("src/a.ts", &[3, 4], &claimed_positions(&mapped)).is_empty());
+}
+
+#[test]
+fn maps_a_line_below_an_insertion_that_no_hunk_names() {
+    let patch = "@@ -1 +1,2 @@\n-a\n+a\n+extra";
+    let covered = vec![covered_line("src/a.ts", 3, "c")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "a\nextra\nb\nc\nd\n"),
+    );
+
+    assert_eq!(mapped, [covered_line("src/a.ts", 4, "c")]);
+    assert_eq!(
+        uncovered_added_lines("src/a.ts", &[1, 2, 4], &claimed_positions(&mapped)),
+        BTreeSet::from([1, 2])
+    );
+}
+
+#[test]
+fn shifts_a_covered_line_up_when_a_line_above_it_is_deleted() {
+    let patch = "@@ -1,3 +1,2 @@\n-a\n b\n c";
+    let covered = vec![covered_line("src/a.ts", 3, "c")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "b\nc\n"),
+    );
+
+    assert_eq!(mapped, [covered_line("src/a.ts", 2, "c")]);
+}
+
+#[test]
+fn keeps_a_covered_line_before_a_hunk_unshifted() {
+    let patch = "@@ -2,2 +2,3 @@\n b\n+inserted\n c";
+    let covered = vec![covered_line("src/a.ts", 1, "a")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "a\nb\ninserted\nc\n"),
+    );
+
+    assert_eq!(mapped, [covered_line("src/a.ts", 1, "a")]);
+}
+
+#[test]
+fn counts_both_copies_as_new_when_a_removed_line_matches_two_added_copies() {
+    let patch = "@@ -1,2 +1,3 @@\n-beta\n gamma\n+beta\n+beta";
+    let covered = vec![covered_line("src/a.ts", 1, "beta")];
+
+    let mapped = map_covered_lines(
+        &covered,
+        &changes("src/a.ts", patch),
+        &head_lines("src/a.ts", "gamma\nbeta\nbeta\n"),
+    );
+
+    assert!(mapped.is_empty());
+    assert_eq!(
+        uncovered_added_lines("src/a.ts", &[2, 3], &claimed_positions(&mapped)),
+        BTreeSet::from([2, 3])
+    );
+}
+
+#[test]
+fn gives_every_added_line_in_scope_when_there_is_no_coverage() {
+    assert_eq!(
+        uncovered_added_lines("src/a.ts", &[1, 2], &BTreeSet::new()),
+        BTreeSet::from([1, 2])
+    );
+}
+
+#[test]
+fn maps_a_line_below_an_insertion_after_it() {
+    let hunks = parse_hunks("@@ -82,0 +83 @@\n+inserted").expect("parse the hunk");
+
+    assert_eq!(map_old_line(&hunks, 82), Some(82));
+    assert_eq!(map_old_line(&hunks, 83), Some(84));
+}
+
+fn covered_line(path: &str, line: usize, text: &str) -> CoveredLine {
+    CoveredLine {
+        path: path.to_string(),
+        line,
+        text: text.to_string(),
+    }
+}
+
+fn changes(path: &str, patch: &str) -> BTreeMap<String, HeadToHeadFile> {
+    let hunks = parse_hunks(patch);
+    let change = HeadToHeadFile {
+        head_path: path.to_string(),
+        hunks,
+    };
+
+    BTreeMap::from([(path.to_string(), change)])
+}
+
+fn head_lines(path: &str, text: &str) -> BTreeMap<String, Vec<Vec<u8>>> {
+    let lines = text
+        .split('\n')
+        .map(|line| line.as_bytes().to_vec())
+        .collect();
+
+    BTreeMap::from([(path.to_string(), lines)])
+}

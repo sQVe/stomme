@@ -1,0 +1,689 @@
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+
+use tempfile::TempDir;
+
+use super::*;
+use crate::test_support::{commit, git};
+
+const BASE_KEPT: &str = "\
+kept first
+kept second
+kept third
+kept fourth
+kept fifth
+";
+
+const REVIEWED_KEPT: &str = "\
+kept first
+kept second reviewed
+kept third
+kept fourth
+kept fifth
+";
+
+const BASE_CHANGED: &str = "\
+changed first
+changed second
+changed third
+changed fourth
+changed fifth
+";
+
+const REVIEWED_CHANGED: &str = "\
+changed first
+changed second reviewed
+changed third
+changed fourth
+changed fifth
+";
+
+const HEAD_CHANGED: &str = "\
+changed first
+changed second reviewed
+changed third
+changed fourth added
+changed fourth
+changed fifth
+";
+
+const BASE_MAIN_ONLY: &str = "\
+main first
+main second
+main third
+main fourth
+main fifth
+";
+
+const MOVED_MAIN_ONLY: &str = "\
+main first
+main second
+main third
+main fourth moved
+main fifth
+";
+
+const BASE_FILES: &[(&str, &str)] = &[
+    ("src/kept.rs", BASE_KEPT),
+    ("src/changed.rs", BASE_CHANGED),
+    ("src/main_only.rs", BASE_MAIN_ONLY),
+];
+
+const REVIEWED_FILES: &[(&str, &str)] = &[
+    ("src/kept.rs", REVIEWED_KEPT),
+    ("src/changed.rs", REVIEWED_CHANGED),
+];
+
+const MOVED_BASE_FILES: &[(&str, &str)] = &[
+    ("src/kept.rs", BASE_KEPT),
+    ("src/changed.rs", BASE_CHANGED),
+    ("src/main_only.rs", MOVED_MAIN_ONLY),
+];
+
+const HEAD_FILES: &[(&str, &str)] = &[
+    ("src/kept.rs", REVIEWED_KEPT),
+    ("src/changed.rs", HEAD_CHANGED),
+    ("src/main_only.rs", MOVED_MAIN_ONLY),
+];
+
+struct History {
+    base: String,
+    reviewed: String,
+    moved_base: String,
+    head: String,
+}
+
+#[test]
+fn scopes_only_the_amended_line_after_a_rebase() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, BASE_FILES),
+        |folder| write_files(folder, REVIEWED_FILES),
+        |folder| write_files(folder, MOVED_BASE_FILES),
+        |folder| write_files(folder, HEAD_FILES),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        added_texts(folder.path(), &base, &history.head),
+        ["changed fourth added"]
+    );
+    assert!(removed_texts(folder.path(), &base, &history.head).is_empty());
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/changed.rs"]
+    );
+}
+
+#[test]
+fn scopes_every_added_line_on_an_amend_force_push() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo\nthree\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo reviewed\nthree\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo\nthree\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo amended\nthree\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        added_texts(folder.path(), &base, &history.head),
+        ["two amended"]
+    );
+    assert!(removed_texts(folder.path(), &base, &history.head).is_empty());
+}
+
+#[test]
+fn covers_a_moved_block() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo\nthree\nfour\n")]),
+        |folder| {
+            write_files(
+                folder,
+                &[(
+                    "src/file.rs",
+                    "block one\nblock two\nblock three\none\ntwo\nthree\nfour\n",
+                )],
+            )
+        },
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo\nthree\nfour\n")]),
+        |folder| {
+            write_files(
+                folder,
+                &[(
+                    "src/file.rs",
+                    "one\ntwo\nthree\nfour\nblock one\nblock two\nblock three\n",
+                )],
+            )
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+
+    assert_eq!(outcome, Outcome::Empty);
+    assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn scopes_an_inserted_duplicate_of_a_covered_line() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\nbeta\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\nbeta\ncovered\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\nbeta\n")]),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "alpha\nbeta\ncovered\ncovered\n")],
+            )
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        added_texts(folder.path(), &base, &history.head),
+        ["covered"]
+    );
+    assert_eq!(
+        numstat_text(folder.path(), &base, &history.head),
+        "1\t0\tsrc/file.rs"
+    );
+}
+
+#[test]
+fn follows_a_renamed_file() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/old.rs", "one\ntwo\nthree\nfour\nfive\n")]),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/old.rs", "one\ntwo reviewed\nthree\nfour\nfive\n")],
+            )
+        },
+        |folder| write_files(folder, &[("src/old.rs", "one\ntwo\nthree\nfour\nfive\n")]),
+        |folder| {
+            remove_files(folder, &["src/old.rs"]);
+            write_files(
+                folder,
+                &[("src/new.rs", "one\ntwo reviewed\nthree\nfour\nfive\n")],
+            );
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+
+    assert_eq!(outcome, Outcome::Empty);
+    assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn scopes_a_line_removed_since_the_review() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "keep first\nremove me\nkeep last\n")],
+            )
+        },
+        |folder| {
+            write_files(
+                folder,
+                &[(
+                    "src/file.rs",
+                    "keep first\nremove me\nkeep last\nreviewed addition\n",
+                )],
+            )
+        },
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "keep first\nremove me\nkeep last\n")],
+            )
+        },
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "keep first\nkeep last\nreviewed addition\n")],
+            )
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 0, 1));
+    assert!(added_texts(folder.path(), &base, &history.head).is_empty());
+    assert_eq!(
+        removed_texts(folder.path(), &base, &history.head),
+        ["remove me"]
+    );
+}
+
+#[test]
+fn leaves_out_a_file_deleted_since_the_review() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(
+                folder,
+                &[
+                    ("src/a.txt", "alpha\nbeta\n"),
+                    ("src/b.txt", "b first\nb second\n"),
+                ],
+            )
+        },
+        |folder| {
+            write_files(
+                folder,
+                &[
+                    ("src/a.txt", "alpha\nbeta\n"),
+                    ("src/b.txt", "b first\nb second reviewed\n"),
+                ],
+            )
+        },
+        |folder| {
+            write_files(
+                folder,
+                &[
+                    ("src/a.txt", "alpha\nbeta\n"),
+                    ("src/b.txt", "b first\nb second\n"),
+                ],
+            )
+        },
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_files(
+                folder,
+                &[("src/b.txt", "b first\nb second reviewed\nb new line\n")],
+            );
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        added_texts(folder.path(), &base, &history.head),
+        ["b new line"]
+    );
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/b.txt"]
+    );
+}
+
+#[test]
+fn returns_empty_when_a_rebase_brings_no_new_lines() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "one\ntwo\nthree\n")]),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "one\ntwo\nreviewed line\nthree\n")],
+            )
+        },
+        |folder| write_files(folder, &[("src/file.rs", "zero\none\ntwo\nthree\n")]),
+        |folder| {
+            write_files(
+                folder,
+                &[("src/file.rs", "zero\none\ntwo\nreviewed line\nthree\n")],
+            )
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+
+    assert_eq!(outcome, Outcome::Empty);
+    assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn counts_a_whitespace_only_edit_as_new() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\nbeta\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\n")]),
+        |folder| write_files(folder, &[("src/file.rs", "alpha\n beta\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(added_texts(folder.path(), &base, &history.head), [" beta"]);
+}
+
+#[test]
+fn keeps_the_head_entry_of_a_binary_file() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            write_file(folder, "assets/logo.bin", &[0, 1, 2, 3]);
+        },
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\ntwo reviewed\n")]);
+            write_file(folder, "assets/logo.bin", &[0, 1, 2, 3]);
+        },
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            write_file(folder, "assets/logo.bin", &[0, 1, 2, 3]);
+        },
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\ntwo reviewed\nthree new\n")]);
+            write_file(folder, "assets/logo.bin", &[0, 1, 2, 4]);
+        },
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/file.rs"]
+    );
+    assert_eq!(
+        object_id(folder.path(), &format!("{base}:assets/logo.bin")),
+        object_id(folder.path(), &format!("{}:assets/logo.bin", history.head))
+    );
+}
+
+#[test]
+fn refuses_a_reviewed_head_that_is_not_in_the_clone() {
+    let folder = repository_folder();
+    write_files(folder.path(), &[("src/file.rs", "one\n")]);
+    commit(folder.path(), "base");
+    let head = head_commit(folder.path());
+    let missing = "0".repeat(40);
+    let request = Request {
+        reviewed: missing.clone(),
+        reviewed_base: head.clone(),
+        base: head.clone(),
+        head,
+    };
+
+    let error = run(folder.path(), &request).expect_err("refuse a missing commit");
+
+    assert!(matches!(
+        error,
+        OcrScopeError::NotACommit { flag: "--reviewed", ref value } if value == &missing
+    ));
+    assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn gives_the_same_base_for_the_same_input() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, BASE_FILES),
+        |folder| write_files(folder, REVIEWED_FILES),
+        |folder| write_files(folder, MOVED_BASE_FILES),
+        |folder| write_files(folder, HEAD_FILES),
+    );
+
+    let first = run_scope(folder.path(), &history).expect("build the first base");
+    let second = run_scope(folder.path(), &history).expect("build the second base");
+
+    assert_eq!(first, second);
+}
+
+fn run_scope(folder: &Path, history: &History) -> Result<Outcome, OcrScopeError> {
+    let request = Request {
+        reviewed: history.reviewed.clone(),
+        reviewed_base: history.base.clone(),
+        base: history.moved_base.clone(),
+        head: history.head.clone(),
+    };
+
+    run(folder, &request)
+}
+
+fn repository_folder() -> TempDir {
+    let folder = tempfile::Builder::new()
+        .prefix("stomme-ocr-scope-")
+        .tempdir()
+        .expect("create a temporary folder");
+    git(folder.path(), &["init", "-q"]);
+
+    folder
+}
+
+fn build_history(
+    folder: &Path,
+    base: impl FnOnce(&Path),
+    reviewed: impl FnOnce(&Path),
+    moved_base: impl FnOnce(&Path),
+    head: impl FnOnce(&Path),
+) -> History {
+    base(folder);
+    commit_step(folder, "base");
+    let base = head_commit(folder);
+
+    git(folder, &["checkout", "-q", "-B", "reviewed", &base]);
+    reviewed(folder);
+    commit_step(folder, "reviewed");
+    let reviewed = head_commit(folder);
+
+    git(folder, &["checkout", "-q", "-B", "moved-base", &base]);
+    moved_base(folder);
+    commit_step(folder, "moved base");
+    let moved_base = head_commit(folder);
+
+    git(folder, &["checkout", "-q", "-B", "head", &moved_base]);
+    head(folder);
+    commit_step(folder, "head");
+    let head = head_commit(folder);
+
+    History {
+        base,
+        reviewed,
+        moved_base,
+        head,
+    }
+}
+
+fn commit_step(folder: &Path, message: &str) {
+    let output = git_output(folder, &["status", "--porcelain"]);
+
+    if output.stdout.is_empty() {
+        return;
+    }
+
+    commit(folder, message);
+}
+
+fn write_files(folder: &Path, files: &[(&str, &str)]) {
+    for (path, text) in files {
+        write_file(folder, path, text.as_bytes());
+    }
+}
+
+fn write_file(folder: &Path, path: &str, bytes: &[u8]) {
+    let path = folder.join(path);
+    let parent = path.parent().expect("a fixture file has a parent");
+    fs::create_dir_all(parent).expect("create the fixture folder");
+    fs::write(&path, bytes).expect("write the fixture file");
+}
+
+fn remove_files(folder: &Path, paths: &[&str]) {
+    for path in paths {
+        fs::remove_file(folder.join(path)).expect("remove the fixture file");
+    }
+}
+
+fn head_commit(folder: &Path) -> String {
+    let output = git_output(folder, &["rev-parse", "HEAD"]);
+
+    String::from_utf8(output.stdout)
+        .expect("git prints UTF-8")
+        .trim()
+        .to_string()
+}
+
+fn added_texts(folder: &Path, base: &str, head: &str) -> Vec<String> {
+    diff_texts(folder, base, head).0
+}
+
+fn removed_texts(folder: &Path, base: &str, head: &str) -> Vec<String> {
+    diff_texts(folder, base, head).1
+}
+
+fn diff_texts(folder: &Path, base: &str, head: &str) -> (Vec<String>, Vec<String>) {
+    let output = git_output(folder, &["diff", "-U0", "--find-renames", base, head]);
+    let text = String::from_utf8(output.stdout).expect("the diff is UTF-8");
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+
+    for line in text.lines() {
+        if line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+
+        if let Some(text) = line.strip_prefix('+') {
+            added.push(text.to_string());
+        } else if let Some(text) = line.strip_prefix('-') {
+            removed.push(text.to_string());
+        }
+    }
+
+    added.sort();
+    removed.sort();
+
+    (added, removed)
+}
+
+fn changed_paths(folder: &Path, base: &str, head: &str) -> Vec<String> {
+    let output = git_output(folder, &["diff", "--name-only", "-z", base, head]);
+    let mut paths: Vec<String> = output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty())
+        .map(|field| String::from_utf8(field.to_vec()).expect("a path is UTF-8"))
+        .collect();
+
+    paths.sort();
+
+    paths
+}
+
+fn numstat_text(folder: &Path, base: &str, head: &str) -> String {
+    let output = git_output(folder, &["diff", "--numstat", base, head]);
+
+    String::from_utf8(output.stdout)
+        .expect("the numstat output is UTF-8")
+        .trim()
+        .to_string()
+}
+
+fn replace_refs(folder: &Path) -> String {
+    let output = git_output(folder, &["replace", "-l"]);
+
+    String::from_utf8(output.stdout)
+        .expect("the replace list is UTF-8")
+        .trim()
+        .to_string()
+}
+
+fn object_id(folder: &Path, revision: &str) -> String {
+    let output = git_output(folder, &["rev-parse", revision]);
+
+    String::from_utf8(output.stdout)
+        .expect("the object identifier is UTF-8")
+        .trim()
+        .to_string()
+}
+
+fn git_output(folder: &Path, arguments: &[&str]) -> std::process::Output {
+    let output = Command::new("git")
+        .args(arguments)
+        .current_dir(folder)
+        .output()
+        .expect("run git");
+    assert!(output.status.success(), "{arguments:?}: {output:?}");
+
+    output
+}
