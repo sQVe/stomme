@@ -114,7 +114,7 @@ const TYPESCRIPT_CASE: Case = Case {
 pub(super) struct CaseOutcome {
     name: &'static str,
     admission: Vec<String>,
-    precedence: Vec<String>,
+    precedence: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -252,7 +252,7 @@ fn run_case(
     Ok(CaseOutcome {
         name: case.name,
         admission,
-        precedence,
+        precedence: Some(precedence),
     })
 }
 
@@ -334,13 +334,15 @@ fn report(outcomes: &[CaseOutcome]) -> bool {
             }
         }
 
-        if outcome.precedence.is_empty() {
-            eprintln!("ocr-smoke: {}: precedence passed", outcome.name);
-        } else {
-            passed = false;
+        if let Some(precedence) = &outcome.precedence {
+            if precedence.is_empty() {
+                eprintln!("ocr-smoke: {}: precedence passed", outcome.name);
+            } else {
+                passed = false;
 
-            for failure in &outcome.precedence {
-                eprintln!("{failure}");
+                for failure in precedence {
+                    eprintln!("{failure}");
+                }
             }
         }
     }

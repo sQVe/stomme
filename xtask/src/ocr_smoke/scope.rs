@@ -116,7 +116,7 @@ pub(super) fn run_scope_case(ocr: &Ocr) -> anyhow::Result<CaseOutcome> {
     Ok(CaseOutcome {
         name: CASE,
         admission,
-        precedence: Vec::new(),
+        precedence: None,
     })
 }
 

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::git_isolation::REPOSITORY_VARIABLES;
-use crate::test_support::temporary_directory;
+use crate::test_support::{strings, temporary_directory};
 
 fn ocr(root: &Path, home: &Path) -> Ocr {
     Ocr {
@@ -96,7 +96,7 @@ fn repository_case_passes_on_the_current_rules() {
     let outcome = run_repository_case(&root, home.path(), &repository, &root.join(RULES));
 
     assert_eq!(outcome.admission, Vec::<String>::new());
-    assert_eq!(outcome.precedence, Vec::<String>::new());
+    assert_eq!(outcome.precedence, Some(Vec::<String>::new()));
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn repository_case_fails_admission_without_include() {
             "ocr-smoke: repository: admission failed: packages/demo/src/add.test.ts expected reviewed, got excluded (default_path)"
         ]
     );
-    assert_eq!(outcome.precedence, Vec::<String>::new());
+    assert_eq!(outcome.precedence, Some(Vec::<String>::new()));
 }
 
 #[test]
@@ -132,9 +132,9 @@ fn repository_case_fails_precedence_on_a_catch_all_language_rule() {
     assert_eq!(outcome.admission, Vec::<String>::new());
     assert_eq!(
         outcome.precedence,
-        [
+        Some(strings(&[
             "ocr-smoke: repository: precedence failed: crates/demo/tests/add.rs expected Custom (--rule) pattern **/*.rs, got Custom (--rule) pattern **/*"
-        ]
+        ]))
     );
 }
 
@@ -157,10 +157,10 @@ fn repository_case_fails_precedence_on_a_wrong_package_rule() {
     assert_eq!(outcome.admission, Vec::<String>::new());
     assert_eq!(
         outcome.precedence,
-        [
+        Some(strings(&[
             "ocr-smoke: repository: precedence failed: packages/demo/tests/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts",
             "ocr-smoke: repository: precedence failed: packages/demo/src/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts"
-        ]
+        ]))
     );
 }
 
@@ -186,11 +186,11 @@ fn repository_case_reports_both_wrong_precedence_rows() {
     assert_eq!(outcome.admission, Vec::<String>::new());
     assert_eq!(
         outcome.precedence,
-        [
+        Some(strings(&[
             "ocr-smoke: repository: precedence failed: crates/demo/tests/add.rs expected Custom (--rule) pattern **/*.rs, got Custom (--rule) pattern **/*",
             "ocr-smoke: repository: precedence failed: packages/demo/tests/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts",
             "ocr-smoke: repository: precedence failed: packages/demo/src/add.test.ts expected Custom (--rule) pattern packages/**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts}, got Custom (--rule) pattern packages/**/*.ts"
-        ]
+        ]))
     );
 }
 
@@ -213,7 +213,7 @@ fn typescript_consumer_case_passes_and_fails_without_include() {
     .expect("run the TypeScript consumer case");
 
     assert_eq!(outcome.admission, Vec::<String>::new());
-    assert_eq!(outcome.precedence, Vec::<String>::new());
+    assert_eq!(outcome.precedence, Some(Vec::<String>::new()));
 
     let without_include = rules_without_include(&rules, home.path());
     let failing = run_case(
@@ -232,7 +232,7 @@ fn typescript_consumer_case_passes_and_fails_without_include() {
             "ocr-smoke: typescript consumer: admission failed: packages/demo/tests/add.test.ts expected reviewed, got excluded (default_path)"
         ]
     );
-    assert_eq!(failing.precedence, Vec::<String>::new());
+    assert_eq!(failing.precedence, Some(Vec::<String>::new()));
 }
 
 #[test]
@@ -242,8 +242,18 @@ fn check_passes_on_the_current_tree() {
     assert_eq!(outcomes.len(), 3);
     for outcome in &outcomes {
         assert!(outcome.admission.is_empty(), "{}", outcome.name);
-        assert!(outcome.precedence.is_empty(), "{}", outcome.name);
+        assert!(
+            outcome.precedence.as_ref().is_none_or(Vec::is_empty),
+            "{}",
+            outcome.name
+        );
     }
+
+    let scope = outcomes
+        .iter()
+        .find(|outcome| outcome.name == "scope")
+        .expect("the scope case runs");
+    assert_eq!(scope.precedence, None);
 }
 
 #[test]
@@ -627,17 +637,17 @@ fn exit_code_fails_on_a_failing_assertion() {
     let passing = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: Vec::new(),
+        precedence: Some(Vec::new()),
     };
     let failing_admission = CaseOutcome {
         name: "case",
         admission: vec!["failure".to_string()],
-        precedence: Vec::new(),
+        precedence: Some(Vec::new()),
     };
     let failing_precedence = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: vec!["failure".to_string()],
+        precedence: Some(vec!["failure".to_string()]),
     };
 
     assert_eq!(exit_code(&[passing]), ExitCode::SUCCESS);
@@ -650,22 +660,33 @@ fn report_fails_when_an_assertion_fails() {
     let passing = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: Vec::new(),
+        precedence: Some(Vec::new()),
     };
     let failing_admission = CaseOutcome {
         name: "case",
         admission: vec!["failure".to_string()],
-        precedence: Vec::new(),
+        precedence: Some(Vec::new()),
     };
     let failing_precedence = CaseOutcome {
         name: "case",
         admission: Vec::new(),
-        precedence: vec!["failure".to_string()],
+        precedence: Some(vec!["failure".to_string()]),
     };
 
     assert!(report(std::slice::from_ref(&passing)));
     assert!(!report(std::slice::from_ref(&failing_admission)));
     assert!(!report(std::slice::from_ref(&failing_precedence)));
+}
+
+#[test]
+fn report_passes_a_case_without_a_precedence_check() {
+    let outcome = CaseOutcome {
+        name: "scope",
+        admission: Vec::new(),
+        precedence: None,
+    };
+
+    assert!(report(std::slice::from_ref(&outcome)));
 }
 
 #[test]
