@@ -302,16 +302,15 @@ fn path_text(bytes: &[u8]) -> Result<String, OcrScopeError> {
 }
 
 struct RawChange {
+    status: char,
+    old_path: String,
+    new_path: String,
     old_mode: String,
     new_mode: String,
     old_object: String,
 }
 
-fn raw_changes(
-    git: &Git<'_>,
-    base: &str,
-    head: &str,
-) -> Result<BTreeMap<String, RawChange>, OcrScopeError> {
+fn raw_changes(git: &Git<'_>, base: &str, head: &str) -> Result<Vec<RawChange>, OcrScopeError> {
     let arguments = [
         "diff",
         "--raw",
@@ -330,12 +329,12 @@ fn raw_changes(
     parse_raw_changes(&output.stdout)
 }
 
-fn parse_raw_changes(bytes: &[u8]) -> Result<BTreeMap<String, RawChange>, OcrScopeError> {
+fn parse_raw_changes(bytes: &[u8]) -> Result<Vec<RawChange>, OcrScopeError> {
     let fields: Vec<&[u8]> = bytes
         .split(|byte| *byte == 0)
         .filter(|field| !field.is_empty())
         .collect();
-    let mut changes = BTreeMap::new();
+    let mut changes = Vec::new();
     let mut index = 0;
 
     while index < fields.len() {
@@ -355,25 +354,25 @@ fn parse_raw_changes(bytes: &[u8]) -> Result<BTreeMap<String, RawChange>, OcrSco
         let old_path = path_text(fields[index + 1])?;
 
         if is_rename(status) {
-            path_text(fields[index + 2])?;
-            changes.insert(
+            let new_path = path_text(fields[index + 2])?;
+            changes.push(RawChange {
+                status,
                 old_path,
-                RawChange {
-                    old_mode: old_mode.to_string(),
-                    new_mode: new_mode.to_string(),
-                    old_object: old_object.to_string(),
-                },
-            );
+                new_path,
+                old_mode: old_mode.to_string(),
+                new_mode: new_mode.to_string(),
+                old_object: old_object.to_string(),
+            });
             index += 3;
         } else {
-            changes.insert(
+            changes.push(RawChange {
+                status,
+                new_path: old_path.clone(),
                 old_path,
-                RawChange {
-                    old_mode: old_mode.to_string(),
-                    new_mode: new_mode.to_string(),
-                    old_object: old_object.to_string(),
-                },
-            );
+                old_mode: old_mode.to_string(),
+                new_mode: new_mode.to_string(),
+                old_object: old_object.to_string(),
+            });
             index += 2;
         }
     }
@@ -382,17 +381,16 @@ fn parse_raw_changes(bytes: &[u8]) -> Result<BTreeMap<String, RawChange>, OcrSco
 }
 
 #[derive(Clone, Copy)]
-struct Numstat {
-    added: Option<usize>,
-    removed: Option<usize>,
-    binary: bool,
+enum Counts {
+    Binary,
+    Text { added: usize, removed: usize },
 }
 
 fn numstat(
     git: &Git<'_>,
     base: &str,
     head: &str,
-) -> Result<BTreeMap<String, Numstat>, OcrScopeError> {
+) -> Result<BTreeMap<String, Counts>, OcrScopeError> {
     let arguments = [
         "diff",
         "--numstat",
@@ -411,7 +409,7 @@ fn numstat(
     parse_numstat(&output.stdout)
 }
 
-fn parse_numstat(bytes: &[u8]) -> Result<BTreeMap<String, Numstat>, OcrScopeError> {
+fn parse_numstat(bytes: &[u8]) -> Result<BTreeMap<String, Counts>, OcrScopeError> {
     let fields: Vec<&[u8]> = bytes
         .split(|byte| *byte == 0)
         .filter(|field| !field.is_empty())
@@ -439,19 +437,14 @@ fn parse_numstat(bytes: &[u8]) -> Result<BTreeMap<String, Numstat>, OcrScopeErro
     Ok(stats)
 }
 
-fn numstat_record(added: &str, removed: &str) -> Numstat {
+fn numstat_record(added: &str, removed: &str) -> Counts {
     if added == "-" {
-        return Numstat {
-            added: None,
-            removed: None,
-            binary: true,
-        };
+        return Counts::Binary;
     }
 
-    Numstat {
-        added: added.parse().ok(),
-        removed: removed.parse().ok(),
-        binary: false,
+    Counts::Text {
+        added: added.parse().unwrap_or(0),
+        removed: removed.parse().unwrap_or(0),
     }
 }
 
@@ -462,37 +455,31 @@ struct Change {
     old_mode: String,
     new_mode: String,
     old_object: String,
-    added: usize,
-    removed: usize,
-    binary: bool,
+    counts: Counts,
 }
 
 fn detailed_changes(git: &Git<'_>, base: &str, head: &str) -> Result<Vec<Change>, OcrScopeError> {
-    let statuses = name_status(git, base, head)?;
     let raw = raw_changes(git, base, head)?;
     let stats = numstat(git, base, head)?;
     let mut changes = Vec::new();
 
-    for status in statuses {
-        let raw = raw
-            .get(&status.old_path)
-            .ok_or_else(|| malformed("diff --raw"))?;
-        let stat = stats.get(&status.new_path).copied().unwrap_or(Numstat {
-            added: Some(0),
-            removed: Some(0),
-            binary: false,
-        });
+    for change in raw {
+        let counts = stats
+            .get(&change.new_path)
+            .copied()
+            .unwrap_or(Counts::Text {
+                added: 0,
+                removed: 0,
+            });
 
         changes.push(Change {
-            status: status.status,
-            old_path: status.old_path,
-            new_path: status.new_path,
-            old_mode: raw.old_mode.clone(),
-            new_mode: raw.new_mode.clone(),
-            old_object: raw.old_object.clone(),
-            added: stat.added.unwrap_or(0),
-            removed: stat.removed.unwrap_or(0),
-            binary: stat.binary,
+            status: change.status,
+            old_path: change.old_path,
+            new_path: change.new_path,
+            old_mode: change.old_mode,
+            new_mode: change.new_mode,
+            old_object: change.old_object,
+            counts,
         });
     }
 
@@ -694,14 +681,17 @@ fn scope_changes(
         let base_present = !is_zero_object(&change.old_object);
 
         let Some(hunks) = parse_hunks(&patch) else {
+            let Counts::Text { added, removed } = change.counts else {
+                continue;
+            };
             let base_object = base_present.then(|| change.old_object.clone());
             scoped.insert(
                 change.new_path.clone(),
                 ScopedFile::Whole {
                     base_object,
                     base_mode: change.old_mode.clone(),
-                    added: change.added,
-                    removed: change.removed,
+                    added,
+                    removed,
                 },
             );
             continue;
@@ -731,7 +721,9 @@ fn scope_changes(
 }
 
 fn is_skipped(change: &Change) -> bool {
-    change.status == 'D' || change.binary || is_non_regular(&change.new_mode)
+    change.status == 'D'
+        || matches!(change.counts, Counts::Binary)
+        || is_non_regular(&change.new_mode)
 }
 
 fn is_non_regular(mode: &str) -> bool {
