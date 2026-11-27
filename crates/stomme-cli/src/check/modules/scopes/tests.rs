@@ -1,5 +1,9 @@
 use super::*;
 
+fn scopes(source: &str) -> Vec<Scope> {
+    super::scopes(source, Edition::Other)
+}
+
 fn strings(segments: &[&str]) -> Vec<String> {
     segments.iter().map(|segment| segment.to_string()).collect()
 }
@@ -134,6 +138,7 @@ fn inline_modules_get_their_own_scope() {
         [Export {
             name: "renamed".to_string(),
             target: relative(1, &["attention"]),
+            visibility: ExportVisibility::Public,
         }]
     );
 }
@@ -296,4 +301,61 @@ fn globs_and_public_modules_inside_functions_are_skipped() {
         assert_eq!(scope.globs, []);
         assert_eq!(scope.public_modules, names(&[]));
     }
+}
+
+#[test]
+fn value_items_are_recorded_at_item_level() {
+    let scope = file_scope(
+        "fn a() {}\n\
+         const B: u8 = 0;\n\
+         static mut C: u8 = 0;\n\
+         static D: u8 = 0;\n\
+         const fn d() {}\n\
+         struct E;\n\
+         trait T { fn f(); }\n\
+         impl E { fn g() {} }\n\
+         fn h() { fn i() {} static J: u8 = 0; }\n",
+    );
+
+    assert_eq!(scope.value_items, names(&["a", "B", "C", "D", "d", "h"]));
+}
+
+#[test]
+fn an_export_records_its_visibility() {
+    let exports: Vec<(String, ExportVisibility)> = file_scope(
+        "pub use a as public;\n\
+         pub(self) use a as private;\n\
+         pub(crate) use a as crate_wide;\n\
+         pub(in crate::x) use a as in_crate;\n\
+         use a as plain;\n",
+    )
+    .exports
+    .into_iter()
+    .map(|export| (export.name, export.visibility))
+    .collect();
+
+    assert_eq!(
+        exports,
+        [
+            ("public".to_string(), ExportVisibility::Public),
+            ("private".to_string(), ExportVisibility::Restricted),
+            ("crate_wide".to_string(), ExportVisibility::Crate),
+            ("in_crate".to_string(), ExportVisibility::Crate),
+        ]
+    );
+}
+
+#[test]
+fn a_leading_colon_target_is_a_crate_target_in_edition_2015() {
+    let mut scopes = super::scopes("pub use ::std::mem as a;", Edition::Rust2015);
+    let exports = scopes.remove(0).exports;
+
+    assert_eq!(
+        exports,
+        [Export {
+            name: "a".to_string(),
+            target: Target::Crate(strings(&["std", "mem"])),
+            visibility: ExportVisibility::Public,
+        }]
+    );
 }

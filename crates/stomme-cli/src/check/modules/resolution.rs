@@ -4,7 +4,8 @@ use std::cell::RefCell;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::scopes::{self, Scope, Target};
+use super::scopes::{self, ExportVisibility, Scope, Target};
+use super::use_paths::Namespace;
 use super::{Module, is_crate_root, is_under_bin, keeps_exports, module_path, owner_module};
 use crate::check::source_files::{SourceFile, Tree};
 use walk::Walk;
@@ -28,6 +29,7 @@ enum Meaning {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Visibility {
     All,
+    Crate,
     Public,
 }
 
@@ -75,7 +77,12 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    pub(super) fn reached_files(&self, module: &Module, resolved: &[String]) -> BTreeSet<String> {
+    pub(super) fn reached_files(
+        &self,
+        module: &Module,
+        resolved: &[String],
+        namespace: Namespace,
+    ) -> BTreeSet<String> {
         let segments = resolved.get(module.path.len()..).unwrap_or_default();
         let mut reached = BTreeSet::new();
         let Some((last, middle)) = segments.split_last() else {
@@ -88,7 +95,7 @@ impl<'a> Resolver<'a> {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.module_places(place, segment, &mut walk);
+                let found = self.module_places(place, segment, Visibility::Crate, &mut walk);
 
                 if found.is_empty() {
                     reached.extend(place.file.clone());
@@ -101,7 +108,7 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let meanings = self.lookup(place, last, Visibility::All, &mut walk);
+            let meanings = self.lookup(place, last, Visibility::Crate, namespace, &mut walk);
             reached.extend(terminal_files(place, &meanings));
         }
 
@@ -117,6 +124,7 @@ impl<'a> Resolver<'a> {
         place: &Place,
         name: &str,
         visibility: Visibility,
+        namespace: Namespace,
         walk: &mut Walk,
     ) -> BTreeSet<Meaning> {
         if !walk.spend() {
@@ -129,6 +137,14 @@ impl<'a> Resolver<'a> {
             return ancestor_step(module, place, name);
         }
 
+        let scope = self.scope(module, &place.path);
+        let names_value = namespace == Namespace::Value
+            && scope.is_some_and(|scope| scope.value_items.contains(name));
+
+        if names_value {
+            return BTreeSet::from([Meaning::Item]);
+        }
+
         let memo_key = (place.clone(), name.to_string(), visibility);
         let remembered = self.memo.borrow().get(&memo_key).cloned();
 
@@ -137,10 +153,10 @@ impl<'a> Resolver<'a> {
         }
 
         let children = self.child_meanings(module, place, name);
-        let Some(scope) = self.scope(module, &place.path) else {
+        let Some(scope) = scope else {
             return match visibility {
-                Visibility::All => children,
                 Visibility::Public => BTreeSet::new(),
+                Visibility::All | Visibility::Crate => children,
             };
         };
         let pair = (place.path.clone(), name.to_string());
@@ -150,7 +166,8 @@ impl<'a> Resolver<'a> {
         }
 
         let open = walk.enter(pair);
-        let (mut meanings, shadows_glob) = self.export_meanings(place, scope, name, walk);
+        let (mut meanings, shadows_glob) =
+            self.export_meanings(place, scope, name, visibility, walk);
 
         // A value and a module share a name in separate namespaces, so only an export that may
         // name the module hides the module a glob binds.
@@ -176,8 +193,11 @@ impl<'a> Resolver<'a> {
         let Some(scope) = self.scope(module, &place.path) else {
             return false;
         };
-        let exported =
-            scope.keeps_exports && scope.exports.iter().any(|export| export.name == name);
+        let exported = scope.keeps_exports
+            && scope
+                .exports
+                .iter()
+                .any(|export| export.name == name && export.visibility == ExportVisibility::Public);
 
         exported || !scope.globs.is_empty() || scope.public_modules.contains(name)
     }
@@ -187,12 +207,23 @@ impl<'a> Resolver<'a> {
         place: &Place,
         scope: &Scope,
         name: &str,
+        visibility: Visibility,
         walk: &mut Walk,
     ) -> (BTreeSet<Meaning>, bool) {
         let mut meanings = BTreeSet::new();
         let mut shadows_glob = false;
 
         for export in scope.exports.iter().filter(|export| export.name == name) {
+            let visible = match visibility {
+                Visibility::All => true,
+                Visibility::Crate => export.visibility != ExportVisibility::Restricted,
+                Visibility::Public => export.visibility == ExportVisibility::Public,
+            };
+
+            if !visible {
+                continue;
+            }
+
             let found = self.resolve_target(place, &export.target, walk);
             shadows_glob |= may_name_module(&found);
 
@@ -220,7 +251,13 @@ impl<'a> Resolver<'a> {
                 };
 
                 if self.binds_publicly(walk.module, &target, name) {
-                    meanings.extend(self.lookup(&target, name, Visibility::Public, walk));
+                    meanings.extend(self.lookup(
+                        &target,
+                        name,
+                        Visibility::Public,
+                        Namespace::Type,
+                        walk,
+                    ));
                 }
             }
         }
@@ -263,6 +300,11 @@ impl<'a> Resolver<'a> {
         self.scopes.get(&module.src_folder)?.get(path)
     }
 
+    pub(super) fn declares_value_item(&self, module: &Module, path: &[String], name: &str) -> bool {
+        self.scope(module, path)
+            .is_some_and(|scope| scope.value_items.contains(name))
+    }
+
     fn in_deeper_row(&self, module: &Module, path: &[String]) -> bool {
         self.modules.iter().any(|other| {
             other.src_folder == module.src_folder
@@ -271,8 +313,14 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    fn module_places(&self, place: &Place, segment: &str, walk: &mut Walk) -> BTreeSet<Place> {
-        let meanings = self.lookup(place, segment, Visibility::All, walk);
+    fn module_places(
+        &self,
+        place: &Place,
+        segment: &str,
+        visibility: Visibility,
+        walk: &mut Walk,
+    ) -> BTreeSet<Place> {
+        let meanings = self.lookup(place, segment, visibility, Namespace::Type, walk);
 
         meanings
             .into_iter()
@@ -340,7 +388,7 @@ impl<'a> Resolver<'a> {
             let mut next = BTreeSet::new();
 
             for place in &places {
-                let found = self.module_places(place, segment, walk);
+                let found = self.module_places(place, segment, Visibility::All, walk);
 
                 if found.is_empty() {
                     meanings.insert(Meaning::Unresolved);
@@ -353,7 +401,7 @@ impl<'a> Resolver<'a> {
         }
 
         for place in &places {
-            let found = self.lookup(place, last, Visibility::All, walk);
+            let found = self.lookup(place, last, Visibility::All, Namespace::Type, walk);
 
             if found.is_empty() {
                 meanings.insert(Meaning::Item);
@@ -375,7 +423,7 @@ fn read_scopes(
 ) {
     let file_path = module_path(&file.path, &module.src_folder);
 
-    for mut scope in scopes::scopes(source) {
+    for mut scope in scopes::scopes(source, module.edition) {
         // A glob in a private file still binds names inside it, and the walk needs those names
         // to reach the module a use names. Its explicit exports only hide its own globs.
         scope.keeps_exports = keep_exports;
@@ -394,6 +442,8 @@ fn read_scopes(
                 stored.globs.append(&mut scope.globs);
                 stored.inline_modules.append(&mut scope.inline_modules);
                 stored.public_modules.append(&mut scope.public_modules);
+                stored.value_items.append(&mut scope.value_items);
+                stored.bindings.append(&mut scope.bindings);
             }
         }
     }

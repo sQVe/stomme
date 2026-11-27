@@ -1,5 +1,9 @@
 use super::*;
 
+fn paths(source: &str) -> Vec<UsePath> {
+    super::paths(source, Edition::Other)
+}
+
 fn segments(source: &str) -> Vec<Vec<String>> {
     paths(source)
         .into_iter()
@@ -218,4 +222,90 @@ fn in_test_module_follows_cfg_test_attributes_and_nesting() {
     assert_eq!(paths.len(), 2);
     assert!(paths[0].in_test_module);
     assert!(!paths[1].in_test_module);
+}
+
+#[test]
+fn a_use_alias_prefixes_a_later_value_path() {
+    let paths = paths("use crate::config as cfg;\ncfg::parse::read();\n");
+
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[0].segments, expected(&[&["crate", "config"]])[0]);
+    assert_eq!(paths[0].namespace, Namespace::Type);
+    assert_eq!(
+        paths[1].segments,
+        expected(&[&["crate", "config", "parse", "read"]])[0]
+    );
+    assert_eq!(paths[1].namespace, Namespace::Value);
+    assert_eq!(paths[1].line, 2);
+}
+
+#[test]
+fn crate_and_parent_aliases_prefix_later_paths() {
+    let paths = paths(
+        "use crate as root;\nroot::store::read();\nuse super as parent;\nparent::other::read();\n",
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(
+        segments,
+        expected(&[&["crate", "store", "read"], &["super", "other", "read"]])
+    );
+}
+
+#[test]
+fn a_use_alias_binds_only_inside_its_inline_module() {
+    let paths = paths("mod a {\n    use crate::config as cfg;\n}\ncfg::parse();\n");
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config"]]));
+}
+
+#[test]
+fn a_glob_is_not_bound_as_a_prefix() {
+    let paths = paths("use crate::config::*;\nconfig::parse();\n");
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "*"]]));
+}
+
+#[test]
+fn a_value_path_is_a_value_namespace_path() {
+    let paths = paths("crate::store::read();\n");
+
+    assert_eq!(paths[0].namespace, Namespace::Value);
+}
+
+#[test]
+fn edition_2015_emits_a_leading_colon_path_inside_the_crate() {
+    let paths = super::paths("use ::config::parse::read;\n", Edition::Rust2015);
+
+    assert_eq!(paths.len(), 1);
+    assert_eq!(
+        paths[0].segments,
+        expected(&[&["crate", "config", "parse", "read"]])[0]
+    );
+}
+
+#[test]
+fn a_leading_colon_path_is_skipped_without_edition_2015() {
+    assert!(super::paths("use ::config::parse::read;\n", Edition::Other).is_empty());
+}
+
+#[test]
+fn a_multiline_value_path_reports_the_line_of_its_first_segment_after_the_root() {
+    assert_eq!(lines("crate::\n    store::read();\n"), [2]);
+}
+
+#[test]
+fn edition_2015_binds_a_leading_colon_alias() {
+    let paths = super::paths(
+        "use ::config as cfg;\ncfg::parse::read();\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(
+        segments,
+        expected(&[&["crate", "config"], &["crate", "config", "parse", "read"],])
+    );
 }

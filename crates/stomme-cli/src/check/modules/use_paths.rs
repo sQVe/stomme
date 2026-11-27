@@ -1,8 +1,11 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter::Peekable;
 use std::slice::Iter;
 
 use ra_ap_rustc_lexer::{FrontmatterAllowed, TokenKind, strip_shebang, tokenize};
 
+use super::Edition;
+use super::scopes::{self, Binding, Scope};
 use super::test_code::{InlineModules, test_modules};
 
 pub(super) type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
@@ -19,6 +22,13 @@ pub(super) struct UsePath {
     pub(super) line: usize,
     pub(super) inline_modules: Vec<String>,
     pub(super) in_test_module: bool,
+    pub(super) namespace: Namespace,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Namespace {
+    Type,
+    Value,
 }
 
 pub(super) struct Declaration<'source> {
@@ -30,6 +40,8 @@ pub(super) struct UseLeaf {
     pub(super) absolute: bool,
     pub(super) segments: Vec<String>,
     pub(super) alias: Option<String>,
+    pub(super) line: usize,
+    pub(super) has_separator: bool,
 }
 
 struct Leaf {
@@ -37,6 +49,7 @@ struct Leaf {
     segments: Vec<String>,
     alias: Option<String>,
     line: usize,
+    has_separator: bool,
 }
 
 struct Parser<'tokens, 'source> {
@@ -86,14 +99,19 @@ pub(super) fn read_use_tree(tokens: &mut TokenStream<'_>) -> Vec<UseLeaf> {
             absolute: leaf.absolute,
             segments: leaf.segments,
             alias: leaf.alias,
+            line: leaf.line,
+            has_separator: leaf.has_separator,
         })
         .collect()
 }
 
-pub(super) fn paths(source: &str) -> Vec<UsePath> {
-    let tokens = code_tokens(source);
-    let test_modules = test_modules(&tokens);
-    let mut tokens = tokens.iter().peekable();
+type BindingTable = BTreeMap<Vec<String>, BTreeMap<String, Binding>>;
+
+pub(super) fn paths(source: &str, edition: Edition) -> Vec<UsePath> {
+    let all_tokens = code_tokens(source);
+    let test_modules = test_modules(&all_tokens);
+    let table = binding_table(scopes::scopes(source, edition));
+    let mut tokens = all_tokens.iter().peekable();
     let mut paths = Vec::new();
     let mut inline_modules = InlineModules::default();
 
@@ -106,34 +124,320 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
 
         inline_modules.advance(token);
 
-        if is_path_start(token, &tokens) {
-            let modules = inline_modules.names();
-            let in_test_module = inline_modules.in_test();
-            tokens
-                .next()
-                .expect("a checked path start has its first colon");
-            tokens
-                .next()
-                .expect("a checked path start has its second colon");
-            let mut parser = Parser {
-                tokens: &mut tokens,
-            };
-            let leaves = parser.parse_segments();
-
-            for leaf in leaves {
-                let mut segments = vec![token.text.to_string()];
-                segments.extend(leaf.segments);
-                paths.push(UsePath {
-                    segments,
-                    line: leaf.line,
-                    inline_modules: modules.clone(),
-                    in_test_module,
-                });
-            }
+        if is_use_keyword(token) {
+            read_use_declaration(&mut tokens, &mut paths, &inline_modules, &table, edition);
+            continue;
         }
+
+        if is_leading_colon_colon(token, &tokens, &all_tokens) {
+            push_leading_colon_paths(&mut tokens, &mut paths, &inline_modules, edition);
+            continue;
+        }
+
+        if previous_is_colon_colon(token, &all_tokens) {
+            continue;
+        }
+
+        push_value_path(
+            token,
+            &mut tokens,
+            &mut paths,
+            &inline_modules,
+            &table,
+            edition,
+        );
     }
 
     paths
+}
+
+fn push_leading_colon_paths(
+    tokens: &mut TokenStream<'_>,
+    paths: &mut Vec<UsePath>,
+    inline_modules: &InlineModules,
+    edition: Edition,
+) {
+    tokens.next().expect("a leading path has its second colon");
+
+    if !edition.is_2015() {
+        return;
+    }
+
+    let modules = inline_modules.names();
+    let in_test_module = inline_modules.in_test();
+    let mut parser = Parser { tokens };
+    let leaves = parser.parse_segments();
+
+    for leaf in leaves {
+        let mut segments = vec!["crate".to_string()];
+        segments.extend(leaf.segments);
+        paths.push(UsePath {
+            segments,
+            line: leaf.line,
+            inline_modules: modules.clone(),
+            in_test_module,
+            namespace: Namespace::Value,
+        });
+    }
+}
+
+fn push_value_path(
+    token: &Token<'_>,
+    tokens: &mut TokenStream<'_>,
+    paths: &mut Vec<UsePath>,
+    inline_modules: &InlineModules,
+    table: &BindingTable,
+    edition: Edition,
+) {
+    let inline_path = inline_modules.names();
+    let Some(root) = path_root(token, tokens, &inline_path, table, edition) else {
+        return;
+    };
+    let from_binding = !is_root_segment(token);
+    let in_test_module = inline_modules.in_test();
+    tokens
+        .next()
+        .expect("a checked path start has its first colon");
+    tokens
+        .next()
+        .expect("a checked path start has its second colon");
+    let mut parser = Parser { tokens };
+    let leaves = parser.parse_segments();
+
+    for leaf in leaves {
+        let mut segments = root.clone();
+        segments.extend(leaf.segments);
+        let line = if from_binding { token.line } else { leaf.line };
+        paths.push(UsePath {
+            segments,
+            line,
+            inline_modules: inline_path.clone(),
+            in_test_module,
+            namespace: Namespace::Value,
+        });
+    }
+}
+
+fn binding_table(scopes: Vec<Scope>) -> BindingTable {
+    let mut table = BindingTable::new();
+
+    for scope in scopes {
+        let bindings = table.entry(scope.inline_path).or_default();
+
+        for binding in scope.bindings {
+            bindings.insert(binding.name.clone(), binding);
+        }
+    }
+
+    table
+}
+
+fn read_use_declaration(
+    tokens: &mut TokenStream<'_>,
+    paths: &mut Vec<UsePath>,
+    inline_modules: &InlineModules,
+    table: &BindingTable,
+    edition: Edition,
+) {
+    let modules = inline_modules.names();
+    let in_test_module = inline_modules.in_test();
+
+    for leaf in read_use_tree(tokens) {
+        let Some(segments) = use_path_segments(&leaf, edition, &modules, table) else {
+            continue;
+        };
+        paths.push(UsePath {
+            segments,
+            line: leaf.line,
+            inline_modules: modules.clone(),
+            in_test_module,
+            namespace: Namespace::Type,
+        });
+    }
+}
+
+fn is_use_keyword(token: &Token<'_>) -> bool {
+    token.kind == TokenKind::Ident && token.text == "use"
+}
+
+fn is_root_segment(token: &Token<'_>) -> bool {
+    token.kind == TokenKind::Ident && matches!(token.text, "crate" | "self" | "super")
+}
+
+fn is_leading_colon_colon(
+    token: &Token<'_>,
+    tokens: &TokenStream<'_>,
+    all_tokens: &[Token<'_>],
+) -> bool {
+    if token.kind != TokenKind::Colon {
+        return false;
+    }
+
+    let mut lookahead = tokens.clone();
+    let next_is_colon = lookahead
+        .peek()
+        .is_some_and(|next| next.kind == TokenKind::Colon);
+
+    if !next_is_colon {
+        return false;
+    }
+
+    let previous = token
+        .index
+        .checked_sub(1)
+        .and_then(|index| all_tokens.get(index));
+    let previous_ends_a_path = previous.is_some_and(|previous| {
+        matches!(
+            previous.kind,
+            TokenKind::Gt | TokenKind::CloseBracket | TokenKind::CloseParen
+        )
+    });
+    let previous_is_identifier = previous.is_some_and(|previous| {
+        matches!(previous.kind, TokenKind::Ident | TokenKind::RawIdent)
+            && !is_expression_keyword(previous)
+    });
+
+    !previous_ends_a_path && !previous_is_identifier
+}
+
+// The lexer reports keywords as identifiers, so a leading `::` can follow one.
+fn is_expression_keyword(token: &Token<'_>) -> bool {
+    token.kind == TokenKind::Ident
+        && matches!(
+            token.text,
+            "break" | "continue" | "else" | "if" | "in" | "match" | "return" | "while" | "yield"
+        )
+}
+
+fn previous_is_colon_colon(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
+    let Some(index) = token.index.checked_sub(2) else {
+        return false;
+    };
+    let Some(first) = all_tokens.get(index) else {
+        return false;
+    };
+    let Some(second) = all_tokens.get(index + 1) else {
+        return false;
+    };
+
+    first.kind == TokenKind::Colon && second.kind == TokenKind::Colon
+}
+
+fn path_root(
+    token: &Token<'_>,
+    tokens: &TokenStream<'_>,
+    inline_path: &[String],
+    table: &BindingTable,
+    edition: Edition,
+) -> Option<Vec<String>> {
+    if !followed_by_colon_colon(tokens) {
+        return None;
+    }
+
+    if is_root_segment(token) {
+        return Some(vec![token.text.to_string()]);
+    }
+
+    expand_root(item_name(token)?, inline_path, table, edition)
+}
+
+fn use_path_segments(
+    leaf: &UseLeaf,
+    edition: Edition,
+    inline_path: &[String],
+    table: &BindingTable,
+) -> Option<Vec<String>> {
+    if leaf.absolute {
+        if !edition.is_2015() {
+            return None;
+        }
+
+        let mut segments = vec!["crate".to_string()];
+        segments.extend(leaf.segments.iter().cloned());
+
+        return Some(segments);
+    }
+
+    if !leaf.has_separator {
+        return None;
+    }
+
+    let first = leaf.segments.first()?;
+
+    if is_root_name(first) {
+        return Some(leaf.segments.clone());
+    }
+
+    let mut segments = expand_root(first, inline_path, table, edition)?;
+    segments.extend(leaf.segments[1..].iter().cloned());
+
+    Some(segments)
+}
+
+fn is_root_name(name: &str) -> bool {
+    matches!(name, "crate" | "self" | "super")
+}
+
+fn expand_root(
+    name: &str,
+    inline_path: &[String],
+    table: &BindingTable,
+    edition: Edition,
+) -> Option<Vec<String>> {
+    let mut visited = BTreeSet::new();
+    let scope = inline_path.to_vec();
+    let mut current = name.to_string();
+    let mut suffix: Vec<String> = Vec::new();
+
+    loop {
+        let binding = lookup_binding(table, &scope, &current)?;
+        let key = (scope.clone(), current.clone());
+
+        if !visited.insert(key) {
+            return None;
+        }
+
+        let mut segments = binding.segments.clone();
+        segments.extend(suffix.iter().cloned());
+
+        if binding.absolute {
+            if !edition.is_2015() {
+                return None;
+            }
+
+            segments.insert(0, "crate".to_string());
+            return Some(segments);
+        }
+
+        let first = segments.first()?.clone();
+
+        if is_root_name(&first) {
+            return Some(segments);
+        }
+
+        suffix = segments[1..].to_vec();
+        current = first;
+    }
+}
+
+fn lookup_binding<'a>(
+    table: &'a BindingTable,
+    inline_path: &[String],
+    name: &str,
+) -> Option<&'a Binding> {
+    table.get(inline_path)?.get(name)
+}
+
+fn followed_by_colon_colon(tokens: &TokenStream<'_>) -> bool {
+    let mut lookahead = tokens.clone();
+    let Some(first_colon) = lookahead.next() else {
+        return false;
+    };
+    let Some(second_colon) = lookahead.next() else {
+        return false;
+    };
+
+    first_colon.kind == TokenKind::Colon && second_colon.kind == TokenKind::Colon
 }
 
 pub(super) fn module_declaration<'source>(
@@ -165,25 +469,6 @@ pub(super) fn module_declaration<'source>(
     })
 }
 
-fn is_path_start<'source>(token: &Token<'source>, tokens: &TokenStream<'source>) -> bool {
-    let starts_path =
-        token.kind == TokenKind::Ident && (token.text == "crate" || token.text == "super");
-
-    if !starts_path {
-        return false;
-    }
-
-    let mut lookahead = tokens.clone();
-    let Some(first_colon) = lookahead.next() else {
-        return false;
-    };
-    let Some(second_colon) = lookahead.next() else {
-        return false;
-    };
-
-    first_colon.kind == TokenKind::Colon && second_colon.kind == TokenKind::Colon
-}
-
 impl Parser<'_, '_> {
     fn parse_segments(&mut self) -> Vec<Leaf> {
         let mut leaves = vec![Leaf {
@@ -191,6 +476,7 @@ impl Parser<'_, '_> {
             segments: Vec::new(),
             alias: None,
             line: 0,
+            has_separator: false,
         }];
 
         while let Some(kind) = self.tokens.peek().map(|token| token.kind) {
@@ -215,6 +501,10 @@ impl Parser<'_, '_> {
             }
 
             if self.colon_colon() {
+                for leaf in &mut leaves {
+                    leaf.has_separator = true;
+                }
+
                 self.tokens.next().expect("a peeked token is present");
                 self.tokens.next().expect("a peeked token is present");
             } else {
@@ -278,6 +568,10 @@ impl Parser<'_, '_> {
 
         for leaf in &mut leaves {
             leaf.absolute |= absolute;
+
+            if absolute {
+                leaf.has_separator = true;
+            }
 
             if alias.is_some() {
                 leaf.alias.clone_from(&alias);
@@ -354,6 +648,7 @@ fn combine(prefixes: Vec<Leaf>, alternatives: Vec<Leaf>) -> Vec<Leaf> {
                 segments,
                 alias: alternative.alias.clone(),
                 line,
+                has_separator: prefix.has_separator || alternative.has_separator,
             });
         }
     }

@@ -4,16 +4,31 @@ mod test_code;
 mod use_paths;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Component, Path};
+
+use serde::Deserialize;
 
 use super::Problem;
+use super::cargo_manifest;
 use super::source_files::{self, SourceFile, Tree};
 use crate::config::ModuleRow;
 use crate::layer::Language;
 use crate::rule::Rule;
 use resolution::Resolver;
 use test_code::test_files;
-use use_paths::{UsePath, paths};
+use use_paths::{Namespace, UsePath, paths};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Edition {
+    Rust2015,
+    Other,
+}
+
+impl Edition {
+    pub(super) fn is_2015(self) -> bool {
+        matches!(self, Self::Rust2015)
+    }
+}
 
 struct Module {
     name: String,
@@ -23,6 +38,29 @@ struct Module {
     owner_folder: String,
     public: BTreeSet<String>,
     imports: BTreeSet<String>,
+    edition: Edition,
+}
+
+#[derive(Deserialize)]
+struct PackageManifest {
+    package: Option<PackageSection>,
+    workspace: Option<WorkspaceSection>,
+}
+
+#[derive(Deserialize)]
+struct PackageSection {
+    edition: Option<toml::Value>,
+    workspace: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WorkspaceSection {
+    package: Option<WorkspacePackage>,
+}
+
+#[derive(Deserialize)]
+struct WorkspacePackage {
+    edition: Option<toml::Value>,
 }
 
 pub(super) fn check(
@@ -34,7 +72,7 @@ pub(super) fn check(
     }
 
     let tree = source_files::walk(root, Language::Rust)?;
-    let modules = read_modules(modules);
+    let modules = read_modules(root, modules)?;
     let src_folders: BTreeSet<String> = modules
         .iter()
         .map(|module| module.src_folder.clone())
@@ -95,28 +133,177 @@ fn read_sources<'tree>(
     Ok(sources)
 }
 
-fn read_modules(rows: &BTreeMap<String, ModuleRow>) -> Vec<Module> {
-    rows.iter()
-        .map(|(name, row)| {
-            let src_folder = src_folder(&row.entry).expect("config checked the `src` part");
-            let path = module_path(&row.entry, &src_folder);
-            let owner_folder = row
-                .entry
-                .strip_suffix(".rs")
-                .unwrap_or(&row.entry)
-                .to_string();
+fn read_modules(root: &Path, rows: &BTreeMap<String, ModuleRow>) -> anyhow::Result<Vec<Module>> {
+    let mut modules = Vec::new();
+    let mut editions = BTreeMap::new();
 
-            Module {
-                name: name.clone(),
-                entry: row.entry.clone(),
-                path,
-                src_folder,
-                owner_folder,
-                public: row.public.iter().cloned().collect(),
-                imports: row.imports.iter().cloned().collect(),
+    for (name, row) in rows {
+        let src_folder = src_folder(&row.entry).expect("config checked the `src` part");
+        let path = module_path(&row.entry, &src_folder);
+        let owner_folder = row
+            .entry
+            .strip_suffix(".rs")
+            .unwrap_or(&row.entry)
+            .to_string();
+        let edition = match editions.get(&src_folder) {
+            Some(edition) => *edition,
+            None => {
+                let edition = read_edition(root, &src_folder)?;
+                editions.insert(src_folder.clone(), edition);
+                edition
             }
-        })
-        .collect()
+        };
+
+        modules.push(Module {
+            name: name.clone(),
+            entry: row.entry.clone(),
+            path,
+            src_folder,
+            owner_folder,
+            public: row.public.iter().cloned().collect(),
+            imports: row.imports.iter().cloned().collect(),
+            edition,
+        });
+    }
+
+    Ok(modules)
+}
+
+fn read_edition(root: &Path, src_folder: &str) -> anyhow::Result<Edition> {
+    let package = package_folder(src_folder);
+    let Some(manifest) = read_package_manifest(root, package)? else {
+        return Ok(Edition::Other);
+    };
+    let Some(edition) = manifest
+        .package
+        .as_ref()
+        .and_then(|package| package.edition.as_ref())
+    else {
+        return Ok(Edition::Other);
+    };
+
+    match edition {
+        toml::Value::String(edition) if edition == "2015" => Ok(Edition::Rust2015),
+        toml::Value::Table(table) if inherits_workspace(table) => {
+            read_workspace_edition(root, package, &manifest)
+        }
+        _ => Ok(Edition::Other),
+    }
+}
+
+fn read_workspace_edition(
+    root: &Path,
+    package: &str,
+    manifest: &PackageManifest,
+) -> anyhow::Result<Edition> {
+    if let Some(folder) = explicit_workspace_folder(package, manifest)
+        && let Some(workspace_manifest) = read_package_manifest(root, &folder)?
+        && let Some(workspace) = workspace_manifest.workspace.as_ref()
+        && let Some(edition) = workspace
+            .package
+            .as_ref()
+            .and_then(|package| package.edition.as_ref())
+    {
+        return Ok(edition_from_value(edition));
+    }
+
+    if let Some(workspace) = manifest.workspace.as_ref() {
+        return Ok(workspace_edition(workspace));
+    }
+
+    let mut folder = package;
+
+    while let Some(parent) = parent_folder(folder) {
+        folder = parent;
+
+        let Some(manifest) = read_package_manifest(root, folder)? else {
+            continue;
+        };
+
+        if let Some(workspace) = manifest.workspace.as_ref() {
+            return Ok(workspace_edition(workspace));
+        }
+    }
+
+    Ok(Edition::Other)
+}
+
+fn explicit_workspace_folder(package: &str, manifest: &PackageManifest) -> Option<String> {
+    let workspace = manifest.package.as_ref()?.workspace.as_deref()?;
+
+    workspace_folder(package, workspace)
+}
+
+fn workspace_folder(package: &str, workspace: &str) -> Option<String> {
+    let workspace = Path::new(workspace);
+
+    if workspace.is_absolute() {
+        return None;
+    }
+
+    let mut folder = Path::new(package).to_path_buf();
+
+    for component in workspace.components() {
+        match component {
+            Component::Normal(part) => folder.push(part),
+            Component::ParentDir => {
+                if !folder.pop() {
+                    return None;
+                }
+            }
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+
+    Some(folder.to_string_lossy().into_owned())
+}
+
+fn workspace_edition(workspace: &WorkspaceSection) -> Edition {
+    workspace
+        .package
+        .as_ref()
+        .and_then(|package| package.edition.as_ref())
+        .map_or(Edition::Other, edition_from_value)
+}
+
+fn edition_from_value(value: &toml::Value) -> Edition {
+    match value {
+        toml::Value::String(edition) if edition == "2015" => Edition::Rust2015,
+        _ => Edition::Other,
+    }
+}
+
+fn inherits_workspace(table: &toml::Table) -> bool {
+    table
+        .get("workspace")
+        .and_then(toml::Value::as_bool)
+        .is_some_and(|workspace| workspace)
+}
+
+fn read_package_manifest(root: &Path, folder: &str) -> anyhow::Result<Option<PackageManifest>> {
+    let path = if folder.is_empty() {
+        cargo_manifest::ROOT_MANIFEST.to_string()
+    } else {
+        format!("{folder}/{}", cargo_manifest::ROOT_MANIFEST)
+    };
+
+    match cargo_manifest::read_toml_file::<PackageManifest>(root, &path)? {
+        Some(Ok(manifest)) => Ok(Some(manifest)),
+        Some(Err(_)) | None => Ok(None),
+    }
+}
+
+fn package_folder(src_folder: &str) -> &str {
+    src_folder.strip_suffix("/src").unwrap_or_default()
+}
+
+fn parent_folder(folder: &str) -> Option<&str> {
+    if folder.is_empty() {
+        return None;
+    }
+
+    Some(folder.rsplit_once('/').map_or("", |(parent, _)| parent))
 }
 
 fn src_folder(path: &str) -> Option<String> {
@@ -186,7 +373,7 @@ fn check_file(
     let mut problems = Vec::new();
     let mut seen = BTreeSet::new();
 
-    for use_path in paths(source) {
+    for use_path in paths(source, module.edition) {
         let mut current = file_path.clone();
         current.extend(use_path.inline_modules.iter().cloned());
         let in_test_module = file_is_test || use_path.in_test_module;
@@ -209,12 +396,9 @@ fn check_file(
 
 fn resolve(use_path: &UsePath, file_path: &[String]) -> Option<Vec<String>> {
     let mut current = file_path.to_vec();
-    let is_relative = use_path
-        .segments
-        .first()
-        .is_some_and(|segment| segment == "super");
+    let first = use_path.segments.first().map(String::as_str);
 
-    if is_relative {
+    if first == Some("super") {
         let supers = use_path
             .segments
             .iter()
@@ -227,6 +411,8 @@ fn resolve(use_path: &UsePath, file_path: &[String]) -> Option<Vec<String>> {
 
         current.truncate(current.len() - supers);
         current.extend(use_path.segments[supers..].iter().cloned());
+    } else if first == Some("self") {
+        current.extend(use_path.segments[1..].iter().cloned());
     } else {
         current.clear();
         current.extend(use_path.segments[1..].iter().cloned());
@@ -243,8 +429,10 @@ fn classify(
     use_path: &UsePath,
     in_test_module: bool,
 ) -> Vec<Problem> {
-    let Some(found) = longest_prefix(resolver.modules, module, resolved) else {
-        let unlisted = classify_unlisted(resolver.tree, module, file, resolved, use_path);
+    let resolved = value_path_parent(resolver, module, resolved, use_path)
+        .unwrap_or_else(|| resolved.to_vec());
+    let Some(found) = longest_prefix(resolver.modules, module, &resolved) else {
+        let unlisted = classify_unlisted(resolver.tree, module, file, &resolved, use_path);
 
         return unlisted.into_iter().collect();
     };
@@ -267,7 +455,36 @@ fn classify(
         return Vec::new();
     }
 
-    private_file_problems(resolver, module, found, file, resolved, use_path)
+    private_file_problems(resolver, module, found, file, &resolved, use_path)
+}
+
+fn value_path_parent(
+    resolver: &Resolver,
+    module: &Module,
+    resolved: &[String],
+    use_path: &UsePath,
+) -> Option<Vec<String>> {
+    if use_path.namespace != Namespace::Value {
+        return None;
+    }
+
+    let is_row = resolver
+        .modules
+        .iter()
+        .any(|row| row.src_folder == module.src_folder && row.path.as_slice() == resolved);
+
+    if !is_row {
+        return None;
+    }
+
+    let (last, parent_path) = resolved.split_last()?;
+    let parent = longest_prefix(resolver.modules, module, parent_path)?;
+
+    if !resolver.declares_value_item(parent, parent_path, last) {
+        return None;
+    }
+
+    Some(parent_path.to_vec())
 }
 
 fn private_file_problems(
@@ -278,7 +495,7 @@ fn private_file_problems(
     resolved: &[String],
     use_path: &UsePath,
 ) -> Vec<Problem> {
-    let reached = resolver.reached_files(found, resolved);
+    let reached = resolver.reached_files(found, resolved, use_path.namespace);
 
     reached
         .into_iter()
