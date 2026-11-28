@@ -55,7 +55,6 @@ jobs:
           persist-credentials: false
 
       - name: Resolve the review refs
-        id: refs
         env:
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -81,10 +80,6 @@ jobs:
             echo "PR_NUMBER=$PR_NUMBER"
             echo "MERGE_BASE=$MERGE_BASE"
           } >> "$GITHUB_ENV"
-          {
-            echo "base_ref=$BASE_REF"
-            echo "merge_base=$MERGE_BASE"
-          } >> "$GITHUB_OUTPUT"
           echo "Reviewing ${HEAD_SHA} from merge-base ${MERGE_BASE} (base origin/${BASE_REF})"
 
       - name: Resolve the review range
@@ -240,10 +235,15 @@ jobs:
             exit 0
           fi
 
+          if [ -n "$counts" ]; then
+            note="Scope since the last complete review: $counts"
+          else
+            note="Scope since the last complete review (counts unavailable)"
+          fi
           {
             echo "mode=scoped"
             echo "base=$base"
-            echo "note=Scope since the last complete review: ${counts:-no new lines}"
+            echo "note=$note"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install the pinned OpenCodeReview

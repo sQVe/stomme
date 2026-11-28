@@ -89,7 +89,8 @@ required check whose findings are advice.
 - A budget resume reviews the same synthetic base, because OCR seals the range into its session and
   a rebuilt base is a new commit.
 - The range note names the scope, in files and lines, in the coverage section. It never names the
-  synthetic base, which exists only in the runner's clone.
+  synthetic base, which exists only in the runner's clone. When the count line cannot be read, the
+  note says the counts are unavailable instead of claiming the scope was empty.
 
 ### The rule file
 

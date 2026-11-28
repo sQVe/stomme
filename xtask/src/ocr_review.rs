@@ -1043,6 +1043,16 @@ fn report_decides_the_check_result() {
             expected_line_count: Some(1),
         },
         Case {
+            name: "an empty scope",
+            report: Report {
+                scope_mode: "empty",
+                ..Report::default()
+            },
+            expected_exit: 0,
+            expected_fragments: &["holds no new lines, so this run reviewed nothing"],
+            expected_line_count: Some(1),
+        },
+        Case {
             name: "an unreviewed run",
             report: Report {
                 status: "2",
@@ -2135,6 +2145,23 @@ fn scope_reviews_from_the_built_base() {
 }
 
 #[test]
+fn scope_notes_an_unreadable_count_without_claiming_zero() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun {
+        base: SCOPED_BASE,
+        stderr: "stomme: a message the count parser does not know",
+        ..ScopeRun::default()
+    });
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.output("mode"), "scoped");
+    assert_eq!(
+        observation.output("note"),
+        "Scope since the last complete review (counts unavailable)"
+    );
+}
+
+#[test]
 fn scope_reviews_the_whole_pull_request_when_the_marker_head_is_unfetchable() {
     let scope = Scope::new();
     let observation = scope.run(ScopeRun {
@@ -2359,10 +2386,6 @@ fn review_runs_from_the_merge_base_without_a_scope() {
     assert!(
         arguments.contains(&format!("--from {MERGE_BASE}")),
         "{arguments}"
-    );
-    assert!(
-        !arguments.contains("--from ") || arguments.contains(&format!("--from {MERGE_BASE}")),
-        "a full review starts at the merge base"
     );
 }
 
