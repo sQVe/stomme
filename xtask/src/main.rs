@@ -20,8 +20,8 @@ use std::process::ExitCode;
 const USAGE: &str = "\
 Usage:
   cargo xtask check [tidy|build]
-  cargo xtask mutation changed <base> [--max-mutants N]
-  cargo xtask mutation audit <file>... [--max-mutants N]
+  cargo xtask mutation changed <base> [--max-mutants N] [--shard K/N]
+  cargo xtask mutation audit <file>... [--max-mutants N] [--shard K/N]
   cargo xtask ocr-smoke
   cargo xtask release-gate --stomme <binary> --version <candidate> --commit <sha> <project-folder>
   cargo xtask release-pin --stomme <binary> --version <candidate> --commit <sha> <empty-folder>";
