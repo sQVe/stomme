@@ -123,12 +123,34 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SHARD: ${{ matrix.shard }}
+        shell: bash
         run: |
           # Log memory and disk at both ends, so a lost runner leaves a record of its use.
           free -m
           df -h
+          # The start-of-step line cannot show a test process that grows after it, so keep a
+          # minute-by-minute record in the step log. The loop gets its own process group, so the
+          # trap below also ends its sleep.
+          set -m
+          log_memory() {
+            # The subshell would otherwise put each record in its own process group, out of reach
+            # of the group kill below.
+            set +m
+            while true; do
+              date -u +%H:%M:%SZ || true
+              free -m || true
+              ps -eo rss,args --sort=-rss | head -6 | cut -c1-200 || true
+              sleep 60
+            done
+          }
+          log_memory &
+          logger_pid=$!
+          set +m
+          trap 'kill -- -"$logger_pid" 2>/dev/null || kill "$logger_pid" 2>/dev/null || true' EXIT
+          trap 'exit 143' INT TERM
           status=0
           cargo xtask mutation changed "$BASE_SHA" --shard "$SHARD/${{ strategy.job-total }}" > mutation-report.json || status=$?
+          kill -- -"$logger_pid" 2>/dev/null || kill "$logger_pid" 2>/dev/null || true
           free -m
           df -h
           cat mutation-report.json

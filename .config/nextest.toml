@@ -1,3 +1,5 @@
+experimental = ["wrapper-scripts"]
+
 [test-groups]
 # The init tests each run `pnpm install` against the machine's single pnpm store, and two at once
 # can fail to import a file the other is writing.
@@ -6,3 +8,16 @@ init-shared-pnpm-store = { max-threads = 1 }
 [[profile.default.overrides]]
 filter = 'binary_id(stomme::init)'
 test-group = 'init-shared-pnpm-store'
+
+# `cargo xtask mutation` selects this profile, so a normal test run stays uncapped. A mutant can
+# make a test allocate without end, and the cap makes that test fail in seconds instead of taking
+# the machine's memory until the runner is lost.
+[profile.mutation]
+inherits = "default"
+
+[scripts.wrapper.cap-test-memory]
+command = { command-line = "xtask/scripts/cap-test-memory.sh", relative-to = "workspace-root" }
+
+[[profile.mutation.scripts]]
+filter = 'all()'
+run-wrapper = 'cap-test-memory'

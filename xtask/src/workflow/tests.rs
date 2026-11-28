@@ -1030,6 +1030,111 @@ fn ci_shards_the_mutation_changed_job_across_four_runners() {
 }
 
 #[test]
+fn ci_shard_records_memory_while_it_mutates() {
+    let steps = job_steps(CI, "mutation-shard");
+    let mutate = workflow_step(&steps, "Mutate the pull request's diff");
+    let script = step_script(mutate);
+    let definition = offset_in(
+        &script,
+        "log_memory() {\n",
+        "the step defines the memory log",
+    );
+    let job_control = offset_in(&script, "set -m\n", "the log gets its own process group");
+    let start = offset_in(
+        &script,
+        "log_memory &\nlogger_pid=$!\n",
+        "the step starts the memory log and keeps its process",
+    );
+    let release = script[start..]
+        .find("set +m\n")
+        .map(|at| start + at)
+        .unwrap_or_else(|| panic!("the step restores job control after the start: {script}"));
+    let cleanup = offset_in(
+        &script,
+        "trap 'kill -- -\"$logger_pid\" 2>/dev/null || kill \"$logger_pid\" 2>/dev/null || true' EXIT\n",
+        "the step cleans the log up on every exit",
+    );
+    let cancel = offset_in(
+        &script,
+        "trap 'exit 143' INT TERM\n",
+        "the step turns a cancel into an exit",
+    );
+    let mutating = offset_in(
+        &script,
+        "cargo xtask mutation changed",
+        "the step mutates the diff",
+    );
+    let stop = offset_in(
+        &script,
+        "kill -- -\"$logger_pid\" 2>/dev/null || kill \"$logger_pid\" 2>/dev/null || true\n",
+        "the step stops the memory log and tolerates a failed kill",
+    );
+
+    assert!(definition < start, "{script}");
+    assert!(job_control < start, "{script}");
+    assert!(start < release, "{script}");
+    assert!(release < cleanup, "{script}");
+    assert!(cleanup < cancel, "{script}");
+    assert!(cancel < mutating, "{script}");
+    assert!(mutating < stop, "{script}");
+}
+
+#[test]
+fn ci_memory_log_records_time_memory_and_processes() {
+    let steps = job_steps(CI, "mutation-shard");
+    let mutate = workflow_step(&steps, "Mutate the pull request's diff");
+    let logger = memory_log(&step_script(mutate));
+    let reset = offset_in(&logger, "set +m\n", "the log turns off job control");
+    let looping = offset_in(&logger, "while true; do\n", "the log repeats its record");
+    let recorded_at = offset_in(
+        &logger,
+        "date -u +%H:%M:%SZ || true\n",
+        "the log records when it reads memory",
+    );
+    let memory = offset_in(&logger, "free -m || true\n", "the log records memory");
+    let processes = offset_in(
+        &logger,
+        "ps -eo rss,args --sort=-rss | head -6 | cut -c1-200 || true\n",
+        "the log records the largest processes",
+    );
+    let pause = offset_in(&logger, "sleep 60\n", "the log waits between records");
+    let loop_end = logger
+        .rfind("done\n")
+        .unwrap_or_else(|| panic!("the log repeats its record: {logger}"));
+
+    assert!(reset < looping, "{logger}");
+    assert!(looping < recorded_at, "{logger}");
+    assert!(recorded_at < memory, "{logger}");
+    assert!(memory < pause, "{logger}");
+    assert!(looping < processes, "{logger}");
+    assert!(processes < pause, "{logger}");
+    assert!(pause < loop_end, "{logger}");
+}
+
+fn offset_in(haystack: &str, needle: &str, why: &str) -> usize {
+    haystack
+        .find(needle)
+        .unwrap_or_else(|| panic!("{why}: {haystack}"))
+}
+
+fn memory_log(script: &str) -> String {
+    let body = script
+        .split_once("log_memory() {\n")
+        .and_then(|(_, rest)| {
+            rest.split_once("\n}\n")
+                .map(|(body, _)| format!("{body}\n"))
+        })
+        .unwrap_or_else(|| panic!("the step defines the memory log: {script}"));
+
+    assert!(
+        body.ends_with("done\n"),
+        "the memory log ends with its loop: {body}"
+    );
+
+    body
+}
+
+#[test]
 fn ci_aggregates_the_mutation_shards_under_the_gate_name() {
     let named: Vec<&str> = workflow_jobs(CI)
         .into_iter()

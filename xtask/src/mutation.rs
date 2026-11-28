@@ -51,11 +51,28 @@ enum PathError {
     Outside { path: String },
 }
 
+#[derive(Debug, PartialEq, Eq, Error)]
+enum MemoryError {
+    #[error("{MEMORY_INFO} has no MemTotal line.")]
+    MissingTotal,
+    #[error("MemTotal in {MEMORY_INFO} is not in kB.")]
+    NotKilobytes,
+    #[error("MemTotal in {MEMORY_INFO} is not a number.")]
+    NotANumber,
+}
+
 const OUTPUT_DIRECTORY: &str = "target/mutants";
 // cargo-mutants builds each job's copy of the workspace under TMPDIR. `/tmp` is often a tmpfs held
 // in memory, so the copies go to this folder on disk instead.
 const SCRATCH_DIRECTORY: &str = "target/mutants/scratch";
 const MAX_JOBS: usize = 4;
+const MEMORY_INFO: &str = "/proc/meminfo";
+const KILOBYTE: u64 = 1024;
+// Half of the machine's memory is left for cargo, rustc, and the rest of the machine, so several
+// jobs cannot fill it with capped test processes.
+const MEMORY_HEADROOM: u64 = 2;
+const MUTATION_PROFILE: &str = "mutation";
+const TEST_MEMORY_VARIABLE: &str = "MUTATION_TEST_MEMORY_BYTES";
 
 impl Scope {
     fn arguments(&self) -> Vec<String> {
@@ -195,6 +212,63 @@ fn apply_cap(
     (selected, unmutated)
 }
 
+fn test_memory_limit(total: u64, jobs: usize) -> u64 {
+    total / MEMORY_HEADROOM / jobs as u64
+}
+
+fn parse_total_memory(contents: &str) -> Result<u64, MemoryError> {
+    let total = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("MemTotal:"))
+        .ok_or(MemoryError::MissingTotal)?;
+
+    let kilobytes = total
+        .trim()
+        .strip_suffix("kB")
+        .ok_or(MemoryError::NotKilobytes)?;
+
+    let kilobytes: u64 = kilobytes
+        .trim()
+        .parse()
+        .map_err(|_| MemoryError::NotANumber)?;
+
+    Ok(kilobytes * KILOBYTE)
+}
+
+fn total_memory() -> anyhow::Result<u64> {
+    let read_error = match fs::read_to_string(MEMORY_INFO) {
+        Ok(contents) => return Ok(parse_total_memory(&contents)?),
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(error).with_context(|| format!("Could not read {MEMORY_INFO}"));
+        }
+        Err(error) => error,
+    };
+
+    // macOS keeps no /proc, so the kernel reports the memory size instead.
+    let output = Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .with_context(|| format!("Could not read {MEMORY_INFO} ({read_error}) or sysctl"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        anyhow::bail!(
+            "Could not read {MEMORY_INFO} ({read_error}) and sysctl hw.memsize failed with {}: {}",
+            output.status,
+            stderr.trim()
+        );
+    }
+
+    parse_memory_size(&output.stdout)
+}
+
+fn parse_memory_size(bytes: &[u8]) -> anyhow::Result<u64> {
+    let text = std::str::from_utf8(bytes).context("hw.memsize is not UTF-8")?;
+
+    text.trim().parse().context("hw.memsize is not a number")
+}
+
 fn available_cores() -> NonZeroUsize {
     std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
 }
@@ -232,7 +306,7 @@ struct Mutants<'a> {
 }
 
 impl Mutants<'_> {
-    fn command(&self, scope: &Scope) -> Command {
+    fn command(&self, scope: &Scope, process_memory_limit: u64) -> Command {
         let (jobs, threads) = job_counts(available_cores());
         // Each job's nextest run defaults to one test process per core, so the jobs together would
         // start jobs times cores test processes. Cap the test threads so the jobs together keep to
@@ -242,6 +316,8 @@ impl Mutants<'_> {
         command
             .env("TMPDIR", scratch_directory(self.root))
             .env("NEXTEST_TEST_THREADS", threads.to_string())
+            .env("NEXTEST_PROFILE", MUTATION_PROFILE)
+            .env(TEST_MEMORY_VARIABLE, process_memory_limit.to_string())
             .args(["mutants", "--workspace", "--no-shuffle", "--jobs"])
             .arg(jobs.to_string())
             .arg("--output")
@@ -265,8 +341,10 @@ impl Mutants<'_> {
 
     fn run(&self, scope: &Scope) -> anyhow::Result<()> {
         empty_scratch(self.root)?;
+        let (jobs, _) = job_counts(available_cores());
+        let limit = test_memory_limit(total_memory()?, jobs);
         let status = self
-            .command(scope)
+            .command(scope, limit)
             .status()
             .context("Could not start cargo mutants")?;
 
