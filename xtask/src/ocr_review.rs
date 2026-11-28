@@ -1027,6 +1027,7 @@ fn report_decides_the_check_result() {
         report: Report<'a>,
         expected_exit: i32,
         expected_fragments: &'a [&'a str],
+        unexpected_fragments: &'a [&'a str],
         expected_line_count: Option<usize>,
     }
 
@@ -1040,6 +1041,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 0,
             expected_fragments: &["covered every selected file"],
+            unexpected_fragments: &[],
             expected_line_count: Some(1),
         },
         Case {
@@ -1050,6 +1052,20 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 0,
             expected_fragments: &["holds no new lines, so this run reviewed nothing"],
+            unexpected_fragments: &[],
+            expected_line_count: Some(1),
+        },
+        Case {
+            name: "an empty scope whose classification failed",
+            report: Report {
+                scope_mode: "empty",
+                status: "1",
+                reason: "provider",
+                ..Report::default()
+            },
+            expected_exit: 1,
+            expected_fragments: &["::error::the OCR review failed: provider"],
+            unexpected_fragments: &["holds no new lines"],
             expected_line_count: Some(1),
         },
         Case {
@@ -1060,6 +1076,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review left selected files unreviewed"],
+            unexpected_fragments: &[],
             expected_line_count: Some(1),
         },
         Case {
@@ -1071,6 +1088,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review failed: provider"],
+            unexpected_fragments: &[],
             expected_line_count: Some(1),
         },
         Case {
@@ -1082,6 +1100,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review failed: provider 50%250A"],
+            unexpected_fragments: &[],
             expected_line_count: Some(1),
         },
         Case {
@@ -1095,6 +1114,7 @@ fn report_decides_the_check_result() {
             expected_fragments: &[
                 "::error::the OCR review failed: provider 50%250A%0D%0A::warning::forged",
             ],
+            unexpected_fragments: &[],
             expected_line_count: Some(1),
         },
         Case {
@@ -1105,6 +1125,7 @@ fn report_decides_the_check_result() {
             },
             expected_exit: 1,
             expected_fragments: &["::error::the OCR review failed\n"],
+            unexpected_fragments: &[],
             expected_line_count: Some(1),
         },
     ];
@@ -1115,6 +1136,9 @@ fn report_decides_the_check_result() {
         assert_eq!(exit, case.expected_exit, "{}", case.name);
         for fragment in case.expected_fragments {
             assert!(stdout.contains(fragment), "{}: {stdout}", case.name);
+        }
+        for fragment in case.unexpected_fragments {
+            assert!(!stdout.contains(fragment), "{}: {stdout}", case.name);
         }
         if let Some(count) = case.expected_line_count {
             let non_empty_lines = stdout.lines().filter(|line| !line.is_empty()).count();
@@ -1915,12 +1939,12 @@ fn range_scopes_the_review_from_the_marker_head() {
 fn range_scopes_the_review_after_a_moved_base() {
     let range = Range::new();
     let fingerprint = range.run(None, Some("rules")).output("fingerprint");
-    let marker = checkpoint_result(&fingerprint, OTHER_HEAD, MERGE_BASE, "complete");
+    let marker = checkpoint_result(&fingerprint, OTHER_HEAD, OTHER_BASE, "complete");
     let observation = range.run(Some(&marker), Some("rules"));
 
     assert_eq!(
         observation.output("reviewed_base"),
-        MERGE_BASE,
+        OTHER_BASE,
         "the scope is measured from the base of the reviewed range, not the current one"
     );
     assert_eq!(observation.output("mode"), "scoped");

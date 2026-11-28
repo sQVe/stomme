@@ -880,7 +880,7 @@ jobs:
             echo "::error::the OCR review cannot review the same head again, because $detail. Push a new commit to review this change."
             exit 1
           fi
-          if [ "$SCOPE_MODE" = "empty" ]; then
+          if [ "$SCOPE_MODE" = "empty" ] && [ "$FINAL" = "0" ]; then
             echo "The scope since the last complete review holds no new lines, so this run reviewed nothing."
             exit 0
           fi
