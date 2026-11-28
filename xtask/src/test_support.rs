@@ -23,3 +23,5 @@ pub(crate) fn write_executable(path: &Path, text: &str) {
     permissions.set_mode(0o755);
     fs::set_permissions(path, permissions).expect("make the fake command executable");
 }
+
+// A throwaway line that the scoped OCR review must cover, amended.
