@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.7
+
+- `stomme` 0.2.7.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.7.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Run the OCR review on the scope since the last complete review, so a force push or a rebase
+  reviews only the new lines. The reusable workflow runs `ocr review` itself, takes the review base
+  from `stomme ocr-scope`, and reviews the whole pull request on every doubt. It advances its
+  checkpoint only past a run that reports every selected file as reviewed.
+- The binary is unchanged since 0.2.6. This release carries the reusable workflow, so a project
+  reaches it through the release commit its caller workflow pins.
+
 ## 0.2.6
 
 - `stomme` 0.2.6.

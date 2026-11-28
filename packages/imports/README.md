@@ -12,7 +12,7 @@ The package is public. The release publishes it to npm.
 
 ```toml
 schema = 1
-version = "0.2.6"
+version = "0.2.7"
 language = "typescript"
 
 [modules.errors]
