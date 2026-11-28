@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.8
+
+- `stomme` 0.2.8.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.8.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Post a finding below the severity floor in the summary comment instead of as an inline thread, so
+  a fix push does not commission another review. The floor is `medium` on a full review and `high`
+  on a scoped one. One posting step now posts the result of every run, so the copy for the resumed
+  path is gone.
+- The binary is unchanged since 0.2.7. This release carries the reusable workflow, so a project
+  reaches it through the release commit its caller workflow pins.
+
 ## 0.2.7
 
 - `stomme` 0.2.7.
