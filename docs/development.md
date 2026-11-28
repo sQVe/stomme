@@ -163,6 +163,16 @@ survivors in changed mode, and 1 for an error or an unmutated file. cargo-mutant
 to `target/mutants/mutants.out`. Each job runs nextest with a test-thread count that bounds the
 concurrent nextest tests across all jobs; it does not bound total CPU use.
 
+`cargo xtask mutation` also caps the memory of each mutant's test process, so a mutant that makes
+a test allocate without end fails in seconds instead of taking the runner's memory until it is
+lost. The command selects the `mutation` nextest profile, and its wrapper script
+`xtask/scripts/cap-test-memory.sh` kills the test and every process it started when any of them uses
+more than `MUTATION_TEST_MEMORY_BYTES`. The cap is per process and is half of the machine's memory
+from `/proc/meminfo` divided by the job count, so a 16 GB runner with four jobs caps each process at
+2 GiB. The wrapper measures resident memory, not the address space a process reserves: the package
+tooling that the init tests run reserves far more than it uses, and a limit on that fails those
+tests. A normal test run selects the default profile and is unchanged.
+
 `--shard <index>/<count>` runs one shard of the mutants, with the index counting from 0. Every shard
 of one run needs the same arguments and the same count. A shard runs a round-robin share of the
 mutants, so one slow file does not lengthen a single shard.

@@ -421,7 +421,7 @@ fn mutants_command_caps_the_test_threads_of_each_job() {
         output: &output,
         shard: None,
     }
-    .command(&scope);
+    .command(&scope, 2048);
     let environment: Vec<(&OsStr, Option<&OsStr>)> = command.get_envs().collect();
     let arguments: Vec<&OsStr> = command.get_args().collect();
     let received_threads = environment
@@ -480,7 +480,7 @@ fn mutants_command_forwards_the_shard() {
             output: &output,
             shard,
         }
-        .command(&scope);
+        .command(&scope, 2048);
         let arguments: Vec<String> = command
             .get_args()
             .map(|argument| argument.to_string_lossy().into_owned())
@@ -492,6 +492,173 @@ fn mutants_command_forwards_the_shard() {
             None => assert!(!arguments.contains("--shard"), "{arguments}"),
         }
     }
+}
+
+#[test]
+fn mutants_command_runs_the_tests_in_the_capped_profile() {
+    let fixture = Fixture::new();
+    let root = fixture.folder.path();
+    let output = root.join(OUTPUT_DIRECTORY);
+    let scope = Scope {
+        diff: None,
+        files: strings(&["a.rs"]),
+    };
+    let command = Mutants {
+        cargo: "cargo",
+        root,
+        output: &output,
+        shard: None,
+    }
+    .command(&scope, 2147483648);
+    let environment: Vec<(String, String)> = command
+        .get_envs()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.unwrap_or_default().to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    let expected = [
+        ("NEXTEST_PROFILE".to_string(), MUTATION_PROFILE.to_string()),
+        (TEST_MEMORY_VARIABLE.to_string(), "2147483648".to_string()),
+    ];
+
+    for (name, value) in expected {
+        assert!(
+            environment.contains(&(name.clone(), value.clone())),
+            "{name}: expected {value}, got {environment:?}"
+        );
+    }
+}
+
+#[test]
+fn nextest_profile_runs_every_test_through_the_cap_script() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.config/nextest.toml");
+    let text = fs::read_to_string(&path).expect("read the nextest configuration");
+    let config: toml_edit::DocumentMut = text.parse().expect("the nextest configuration parses");
+    let experimental = config["experimental"].to_string();
+    let wrapper = &config["scripts"]["wrapper"]["cap-test-memory"]["command"];
+    let scripts = config["profile"][MUTATION_PROFILE]["scripts"]
+        .as_array_of_tables()
+        .expect("the profile lists its scripts as tables");
+    let entries = scripts
+        .iter()
+        .map(|table| {
+            (
+                table["filter"].as_str().expect("the script lists a filter"),
+                table["run-wrapper"]
+                    .as_str()
+                    .expect("the script lists a wrapper"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert!(experimental.contains("wrapper-scripts"), "{experimental}");
+    assert_eq!(
+        wrapper["command-line"].as_str(),
+        Some("xtask/scripts/cap-test-memory.sh")
+    );
+    assert_eq!(wrapper["relative-to"].as_str(), Some("workspace-root"));
+    assert_eq!(entries, vec![("all()", "cap-test-memory")]);
+}
+
+#[test]
+fn cap_script_kills_a_child_of_a_test_that_passes_the_cap() {
+    let fixture = Fixture::new();
+    let marker = fixture.folder.path().join("survivor");
+    let command = format!("sh -c 'sleep 1; touch {}' & wait", marker.display());
+    let output = run_cap_script("1", &["sh", "-c", &command]);
+
+    assert_eq!(output.status.code(), Some(143));
+
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    assert!(!marker.exists(), "a child of the test survived the cap");
+}
+
+#[test]
+fn cap_script_kills_a_process_that_starts_during_the_grace_period() {
+    let fixture = Fixture::new();
+    let marker = fixture.folder.path().join("survivor");
+    // The TERM trap starts a new process, so it provably starts after the first signal, and only
+    // the second scan can find it. It touches the marker after the grace period ends.
+    let command = format!(
+        "trap 'sh -c \"sleep 2; touch {}\" >/dev/null 2>&1 &' TERM; while :; do sleep 0.05; done",
+        marker.display()
+    );
+    let output = run_cap_script("1", &["sh", "-c", &command]);
+
+    assert_eq!(output.status.code(), Some(137));
+
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+
+    assert!(
+        !marker.exists(),
+        "a process started after the first signal survived"
+    );
+}
+
+#[test]
+fn cap_script_refuses_a_cap_that_is_not_a_byte_count() {
+    for cap in ["0", "2G", "1 GiB"] {
+        let output = run_cap_script(cap, &["sh", "-c", "exit 0"]);
+
+        assert_eq!(output.status.code(), Some(1), "{cap}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("must be a positive byte count"),
+            "{cap}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn cap_script_kills_a_test_that_passes_the_cap() {
+    // The test ignores TERM, so only the escalation after the grace period ends it.
+    let output = run_cap_script("1", &["sh", "-c", "trap '' TERM; sleep 30"]);
+
+    assert_eq!(output.status.code(), Some(137));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("passed 1 bytes"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn cap_script_keeps_the_exit_code_of_a_test_under_the_cap() {
+    let output = run_cap_script("1099511627776", &["sh", "-c", "sleep 2; exit 3"]);
+
+    assert_eq!(output.status.code(), Some(3));
+}
+
+#[test]
+fn cap_script_refuses_to_run_without_a_cap() {
+    let output = Command::new(cap_script())
+        .args(["sh", "-c", "exit 0"])
+        .env_remove(TEST_MEMORY_VARIABLE)
+        .output()
+        .expect("run the cap script");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("MUTATION_TEST_MEMORY_BYTES is not set"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn cap_script() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/cap-test-memory.sh")
+}
+
+fn run_cap_script(cap: &str, arguments: &[&str]) -> std::process::Output {
+    Command::new(cap_script())
+        .args(arguments)
+        .env(TEST_MEMORY_VARIABLE, cap)
+        .output()
+        .expect("run the cap script")
 }
 
 #[test]
@@ -528,6 +695,64 @@ fn apply_cap_selects_whole_files_within_the_limit() {
         ]);
 
         assert_eq!(apply_cap(&counts, cap), (selected, unmutated), "{name}");
+    }
+}
+
+#[test]
+fn test_memory_limit_leaves_half_the_machine_for_the_build() {
+    let gibibyte = 1024 * 1024 * 1024;
+    let cases = [
+        ("a 16 GB runner", 16 * gibibyte, 4, 2 * gibibyte),
+        ("a 32 GB machine", 32 * gibibyte, 4, 4 * gibibyte),
+        ("one job", 16 * gibibyte, 1, 8 * gibibyte),
+        ("a small machine", 4 * gibibyte, 4, gibibyte / 2),
+    ];
+
+    for (name, total, jobs, expected) in cases {
+        assert_eq!(test_memory_limit(total, jobs), expected, "{name}");
+    }
+}
+
+#[test]
+fn total_memory_reads_the_memtotal_line() {
+    let contents = "MemTotal:       32624244 kB\nMemFree:         10188344 kB\n";
+
+    assert_eq!(
+        parse_total_memory(contents).expect("the total parses"),
+        32624244 * 1024
+    );
+}
+
+#[test]
+fn total_memory_names_why_it_cannot_read_the_total() {
+    let cases = [
+        ("MemFree: 1 kB\n", MemoryError::MissingTotal),
+        ("MemTotal: 32624244 MB\n", MemoryError::NotKilobytes),
+        ("MemTotal: many kB\n", MemoryError::NotANumber),
+    ];
+
+    for (contents, expected) in cases {
+        let error = parse_total_memory(contents).expect_err("the total is unreadable");
+
+        assert_eq!(error, expected, "{contents:?}");
+    }
+}
+
+#[test]
+fn total_memory_reads_the_memory_size_of_the_kernel() {
+    let cases = [
+        (b"34359738368\n".as_slice(), Ok(34359738368)),
+        (b" 1024 ".as_slice(), Ok(1024)),
+        (b"many\n".as_slice(), Err(())),
+        (b"\xff\n".as_slice(), Err(())),
+    ];
+
+    for (bytes, expected) in cases {
+        assert_eq!(
+            parse_memory_size(bytes).map_err(|_| ()),
+            expected,
+            "{bytes:?}"
+        );
     }
 }
 
