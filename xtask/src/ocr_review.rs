@@ -10,13 +10,20 @@ use crate::test_support::{temporary_directory, write_executable};
 const OCR_REVIEW: &str = include_str!("../../.github/workflows/ocr-review.yml");
 const OCR_CALLER: &str = include_str!("../../.github/workflows/ocr.yml");
 const POSTING_HELPER: &str = include_str!("../fixtures/ocr-post-review-comments-exports.js");
+const REFS_STEP: &str = "Resolve the review refs";
+const RANGE_STEP: &str = "Resolve the review range";
+const SCOPE_STEP: &str = "Build the review scope";
+const REVIEW_STEP: &str = "Run the review";
 const CLASSIFY_STEP: &str = "Classify and resume the review";
+const POST_STEP: &str = "Post the review";
+const RESUME_POST_STEP: &str = "Post the resumed review";
 const COVERAGE_STEP: &str = "Add the coverage section";
 const CHECKPOINT_STEP: &str = "Read the checkpointed coverage";
-const POST_STEP: &str = "Post the resumed review";
 const REPORT_STEP: &str = "Report the OCR result";
 const HEAD_SHA: &str = "8c6c9a2f49891c7f86c7a82f380f5c32519c52a6";
 const OTHER_HEAD: &str = "0b836765f754d4d652906821e5d850a9c90d778f";
+const SCOPED_BASE: &str = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d";
+const MERGE_BASE: &str = "aabbccddeeff00112233445566778899aabbccdd";
 const SESSION_RESULT: &str = r#"{"session_id":"session-1"}"#;
 const EMPTY_RESULT: &str = "{}";
 const MIXED_RESULT: &str = r#"{
@@ -193,6 +200,66 @@ if [ -z "$body" ]; then
 fi
 printf '%s\n' "$body"
 exit "${OCR_RESUME_CODE:-0}"
+"#;
+
+const RANGE_HELPER: &str = r#"const fs = require('fs');
+module.exports = {
+  ...require(process.env.PINNED_HELPER),
+  readCheckpointComment: async (options) => {
+    fs.writeFileSync(process.env.LOOKUP_LOG, JSON.stringify({
+      owner: options.owner,
+      repo: options.repo,
+      prNumber: options.prNumber,
+      appSlug: options.appSlug,
+      log: typeof options.log,
+      github: typeof options.github,
+    }));
+    return JSON.parse(process.env.CHECKPOINT_RESULT);
+  },
+  // The pinned helper's own validation, so the workflow is judged by the rule
+  // that ships with the action it pins.
+  validateCheckpointPayload: (payload, { prNumber } = {}) => {
+    if (!payload) return 'no payload';
+    if (payload.v !== 1) return 'unsupported version';
+    if (prNumber != null && payload.pr !== prNumber) return 'belongs to another pull request';
+    if (!/^[0-9a-f]{40}$/.test(payload.head)) return 'head is not a 40-hex sha';
+    if (payload.terminal_state !== 'complete') return 'terminal_state is not complete';
+    if (typeof payload.base_ref !== 'string' || payload.base_ref === '') return 'missing base_ref';
+    if (typeof payload.merge_base !== 'string' || payload.merge_base === '') return 'missing merge_base';
+    if (typeof payload.fingerprint !== 'string' || payload.fingerprint === '') return 'missing fingerprint';
+    return null;
+  },
+};
+"#;
+
+const GIT_FAKE: &str = r#"#!/bin/bash
+printf '%s\n' "$*" >> "$GIT_ARGUMENTS"
+if [ "${GIT_FAIL:-}" = "1" ]; then
+  echo "fatal: could not read from remote repository" >&2
+  exit 128
+fi
+exit 0
+"#;
+
+const SCOPE_FAKE: &str = r#"#!/bin/bash
+printf '%s\n' "$*" >> "$SCOPE_ARGUMENTS"
+if [ -n "${SCOPE_STDERR:-}" ]; then
+  printf '%s\n' "$SCOPE_STDERR" >&2
+fi
+if [ "${SCOPE_EXIT:-0}" != "0" ]; then
+  exit "$SCOPE_EXIT"
+fi
+printf '%s\n' "${SCOPE_BASE-}"
+"#;
+
+const REVIEW_FAKE: &str = r#"#!/bin/bash
+printf '%s\n' "$*" >> "$OCR_ARGUMENTS"
+body="${OCR_REVIEW_BODY-}"
+if [ -z "$body" ]; then
+  body='{"session_id":"session-1"}'
+fi
+printf '%s\n' "$body"
+exit "${OCR_REVIEW_EXIT:-0}"
 "#;
 
 const EXPORTS_PROBE: &str = r#"const helper = require(process.env.PINNED_HELPER);
@@ -451,7 +518,8 @@ fn heredoc_delimiter(line: &str) -> Option<&str> {
 
 #[derive(Clone, Copy)]
 struct Report<'a> {
-    range_reason: &'a str,
+    range_mode: &'a str,
+    scope_mode: &'a str,
     status: &'a str,
     reason: &'a str,
     verdict: &'a str,
@@ -460,7 +528,8 @@ struct Report<'a> {
 impl Default for Report<'_> {
     fn default() -> Self {
         Self {
-            range_reason: "ok",
+            range_mode: "full",
+            scope_mode: "",
             status: "0",
             reason: "",
             verdict: "",
@@ -481,6 +550,7 @@ struct Run<'a> {
     resume_stderr: Option<&'a str>,
     first_unusable: bool,
     stderr_line: Option<&'a str>,
+    range_from: &'a str,
 }
 
 impl Default for Run<'_> {
@@ -497,6 +567,7 @@ impl Default for Run<'_> {
             resume_stderr: None,
             first_unusable: false,
             stderr_line: None,
+            range_from: "range-from",
         }
     }
 }
@@ -607,7 +678,8 @@ impl Classifier {
             .env("MERGE_BASE", "merge-base")
             .env("HEAD_SHA", "head-sha")
             .env("EFFORT", "medium")
-            .env("RANGE_FROM", "range-from")
+            .env("RANGE_FROM", run.range_from)
+            .env("OCR_RULE", "docs/stomme/ocr-rules.json")
             .env("STOMME_FIRST_CODE", run.first.to_string())
             .env("STOMME_RESUME_CODE", run.resumed.to_string())
             .env("OCR_RESUME_CODE", run.resume.to_string())
@@ -666,7 +738,8 @@ impl Classifier {
             .current_dir(root)
             .env_clear()
             .env("PATH", search_path(&root.join("bin")))
-            .env("RANGE_REASON", report.range_reason)
+            .env("RANGE_MODE", report.range_mode)
+            .env("SCOPE_MODE", report.scope_mode)
             .env("FINAL", report.status)
             .env("REASON", report.reason)
             .env("CHECKPOINT_VERDICT", report.verdict)
@@ -709,13 +782,85 @@ fn workflow_classifies_with_the_released_binary() {
 }
 
 #[test]
-fn workflow_skips_the_install_for_a_no_op_review() {
-    let install = step_text(OCR_REVIEW, "Install stomme from the project pin");
-    let guard = "if: steps.ocr.outputs.range_reason != 'same_head_noop'";
+fn workflow_runs_the_review_itself() {
+    assert!(
+        !OCR_REVIEW.contains("uses: alibaba/open-code-review@"),
+        "the workflow runs the review instead of the action's review step"
+    );
+
+    let review = step_block(OCR_REVIEW, REVIEW_STEP, "run");
+
+    assert!(review.contains("ocr review \"${args[@]}\""), "{review}");
+    assert!(review.contains("--rule \"$OCR_RULE\""), "{review}");
+    assert!(review.contains("--format json"), "{review}");
+    assert!(
+        OCR_REVIEW.contains("RESOLVE_OUTDATED: 'true'"),
+        "the posting helper resolves outdated threads, as the action's input did"
+    );
+}
+
+#[test]
+fn workflow_installs_and_configures_the_pinned_reviewer() {
+    let install = step_block(OCR_REVIEW, "Install the pinned OpenCodeReview", "run");
 
     assert!(
-        install.lines().any(|line| line.trim() == guard),
-        "the install step is skipped only for a no-op review:\n{install}"
+        install.contains("@alibaba-group/open-code-review@${OCR_VERSION}"),
+        "{install}"
+    );
+    assert!(OCR_REVIEW.contains("OCR_VERSION: '1.14.2'"));
+
+    let configure = step_block(OCR_REVIEW, "Configure OCR", "run");
+
+    for line in [
+        "ocr config set llm.url \"$OCR_LLM_URL\"",
+        "ocr config set llm.model \"$OCR_LLM_MODEL\"",
+        "ocr config set llm.protocol \"openai\"",
+        "ocr config set language \"English\"",
+        "ocr config set llm.extra_body \"$OCR_EXTRA_BODY\"",
+    ] {
+        assert!(configure.contains(line), "{line}\n{configure}");
+    }
+}
+
+#[test]
+fn workflow_skips_the_install_for_a_no_op_review() {
+    let install = step_text(OCR_REVIEW, "Install stomme from the project pin");
+    let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
+
+    assert_eq!(
+        step_guard(&install),
+        "steps.range.outputs.mode != 'noop'",
+        "a no-op review needs no binary"
+    );
+    assert_eq!(step_guard(&classify), "steps.range.outputs.mode != 'noop'");
+}
+
+#[test]
+fn workflow_guards_each_route_from_the_range_decision() {
+    let scope = step_text(OCR_REVIEW, SCOPE_STEP);
+    let review = step_text(OCR_REVIEW, REVIEW_STEP);
+    let post = step_text(OCR_REVIEW, POST_STEP);
+    let coverage = step_text(OCR_REVIEW, COVERAGE_STEP);
+    let read = step_text(OCR_REVIEW, CHECKPOINT_STEP);
+
+    assert_eq!(step_guard(&scope), "steps.range.outputs.mode == 'scoped'");
+    assert_eq!(
+        step_guard(&review),
+        "steps.range.outputs.mode != 'noop' && steps.scope.outputs.mode != 'empty'",
+        "an empty scope runs no review"
+    );
+    assert_eq!(
+        step_guard(&post),
+        "steps.review.outputs.exit_code == '0' || steps.scope.outputs.mode == 'empty'",
+        "an empty scope posts the result that advances the marker"
+    );
+    assert_eq!(
+        step_guard(&coverage),
+        "always() && steps.range.outputs.mode != 'noop'"
+    );
+    assert_eq!(
+        step_guard(&read),
+        "always() && steps.range.outputs.mode == 'noop'"
     );
 }
 
@@ -723,23 +868,29 @@ fn workflow_skips_the_install_for_a_no_op_review() {
 fn workflow_classifies_the_review_of_every_run() {
     let classify = step_text(OCR_REVIEW, CLASSIFY_STEP);
 
-    assert!(classify.contains("if: steps.ocr.outputs.range_reason != 'same_head_noop'"));
+    assert!(classify.contains("steps.range.outputs.mode != 'noop'"));
+    assert!(classify.contains("RANGE_FROM: ${{ steps.scope.outputs.base }}"));
+    assert!(
+        classify.contains("echo \"first_final=$final\""),
+        "the first result's own verdict decides whether the marker may advance"
+    );
     assert!(!classify.contains("build-stomme"));
 }
 
 #[test]
 fn workflow_posts_and_reports_the_resumed_result() {
-    let post = step_text(OCR_REVIEW, "Post the resumed review");
+    let post = step_text(OCR_REVIEW, RESUME_POST_STEP);
 
     assert!(post.contains("id: resume-post"));
     assert!(post.contains("if: steps.outcome.outputs.post_resumed == 'true'"));
 
     let coverage = step_text(OCR_REVIEW, COVERAGE_STEP);
 
-    assert!(coverage.contains("steps.ocr.outputs.summary_comment_url"));
+    assert!(coverage.contains("steps.post.outputs.summary_comment_url"));
     assert!(coverage.contains("steps.resume-post.outputs.summary_comment_url"));
     assert!(coverage.contains("steps.outcome.outputs.coverage_source"));
     assert!(coverage.contains("#issuecomment-"));
+    assert!(coverage.contains("steps.scope.outputs.note"));
     assert!(!coverage.contains("findSummaryIssueComment"));
 }
 
@@ -751,15 +902,26 @@ fn workflow_routes_the_job_from_its_predicates() {
 
     assert!(token.contains("if [ -z \"$MODEL_TOKEN\" ]"));
 
-    let coverage = step_text(OCR_REVIEW, COVERAGE_STEP);
-
-    assert!(
-        coverage.contains("if: always() && steps.ocr.outputs.range_reason != 'same_head_noop'")
-    );
-
     let report = step_block(OCR_REVIEW, REPORT_STEP, "run");
 
-    assert!(report.contains("if [ \"$RANGE_REASON\" = \"same_head_noop\" ]"));
+    assert!(report.contains("if [ \"$RANGE_MODE\" = \"noop\" ]"));
+    assert!(report.contains("if [ \"$SCOPE_MODE\" = \"empty\" ]"));
+}
+
+#[test]
+fn workflow_resolves_the_refs_the_range_needs() {
+    let refs = step_block(OCR_REVIEW, REFS_STEP, "run");
+
+    assert!(refs.contains("git fetch origin \"pull/${PR_NUMBER}/head\""));
+    assert!(refs.contains("git merge-base \"origin/${BASE_REF}\" \"$HEAD_SHA\""));
+    assert!(
+        refs.contains("^[0-9a-f]{40}$"),
+        "the head SHA is validated before it reaches a step output"
+    );
+
+    let checkout = step_text(OCR_REVIEW, "Check out the pull request");
+
+    assert!(checkout.contains("fetch-depth: 0"));
 }
 
 #[test]
@@ -788,7 +950,9 @@ fn the_pinned_posting_helper_exports_what_the_workflow_reads() {
         serde_json::json!([
             "SUMMARY_MARKER",
             "findSummaryIssueComment",
-            "runPostReviewComments"
+            "readCheckpointComment",
+            "runPostReviewComments",
+            "validateCheckpointPayload"
         ])
     );
 }
@@ -801,10 +965,6 @@ fn the_pinned_posting_helper_copy_names_the_commit_the_workflow_checks_out() {
         .expect("the pinned copy names its commit");
 
     assert!(
-        OCR_REVIEW.contains(&format!("alibaba/open-code-review@{commit}")),
-        "the workflow reviews with {commit}"
-    );
-    assert!(
         OCR_REVIEW.contains(&format!("ref: {commit}")),
         "the workflow checks the posting helper out at {commit}"
     );
@@ -814,16 +974,31 @@ fn the_pinned_posting_helper_copy_names_the_commit_the_workflow_checks_out() {
 fn workflow_reads_the_checkpointed_coverage_of_a_no_op_run() {
     let read = step_text(OCR_REVIEW, CHECKPOINT_STEP);
 
-    assert!(read.contains("if: always() && steps.ocr.outputs.range_reason == 'same_head_noop'"));
+    assert!(read.contains("if: always() && steps.range.outputs.mode == 'noop'"));
     assert!(read.contains("helper.findSummaryIssueComment"));
     assert!(read.contains("core.setOutput('verdict'"));
 
     let checkout = step_text(OCR_REVIEW, "Check out the OCR posting helper");
+    let order = |step: &str| {
+        OCR_REVIEW
+            .lines()
+            .position(|line| line == format!("      - name: {step}"))
+            .expect("the workflow has the step")
+    };
 
-    assert_eq!(
-        step_guard(&checkout),
-        "always() && (steps.outcome.outputs.final != '' || steps.ocr.outputs.range_reason == 'same_head_noop')",
-        "the helper is checked out on the first-run route and the no-op route"
+    assert!(
+        !checkout
+            .lines()
+            .any(|line| line.trim_start().starts_with("if: ")),
+        "the helper is checked out for every route"
+    );
+    assert!(
+        order("Check out the OCR posting helper") < order(RANGE_STEP),
+        "the range decision reads the marker with the pinned helper"
+    );
+    assert!(
+        order(RANGE_STEP) < order(CHECKPOINT_STEP),
+        "the no-op route is chosen before its coverage is read"
     );
 
     let report = step_text(OCR_REVIEW, REPORT_STEP);
@@ -1433,6 +1608,24 @@ fn classifier_uses_the_complete_resumed_result() {
 }
 
 #[test]
+fn classifier_resumes_from_the_scoped_base() {
+    let classifier = Classifier::new();
+    let observation = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        range_from: SCOPED_BASE,
+        ..Run::default()
+    });
+    let arguments = observation.ocr_arguments.expect("the resume ran");
+
+    assert!(
+        arguments.contains(&format!("--from {SCOPED_BASE}")),
+        "the resume reviews the same synthetic base, because OCR seals the range: {arguments}"
+    );
+    assert!(arguments.contains("--to head-sha"), "{arguments}");
+}
+
+#[test]
 fn classifier_reports_a_partial_resumed_result() {
     let classifier = Classifier::new();
     let observation = classifier.run(Run {
@@ -1553,6 +1746,636 @@ fn classifier_keeps_the_first_coverage_when_the_resume_is_unusable() {
     );
 }
 
+fn checkpoint_result(
+    fingerprint: &str,
+    head: &str,
+    merge_base: &str,
+    terminal_state: &str,
+) -> String {
+    serde_json::json!({
+        "reason": "ok",
+        "payload": {
+            "v": 1,
+            "pr": 7,
+            "head": head,
+            "base_ref": "main",
+            "merge_base": merge_base,
+            "terminal_state": terminal_state,
+            "fingerprint": fingerprint,
+            "run": "123",
+        },
+        "raw": "<!-- ocr-checkpoint:v1 marker -->",
+    })
+    .to_string()
+}
+
+struct Range {
+    folder: TempDir,
+    workspace: PathBuf,
+}
+
+struct RangeObservation {
+    exit: i32,
+    outputs: String,
+    lookup: Option<serde_json::Value>,
+    warnings: String,
+}
+
+impl RangeObservation {
+    fn output(&self, key: &str) -> String {
+        last_output(&self.outputs, key).unwrap_or_default()
+    }
+}
+
+impl Range {
+    fn new() -> Self {
+        let folder = temporary_directory();
+        let workspace = folder.path().join("workspace");
+        write_posting_helper(&workspace, RANGE_HELPER);
+        write_github_script(folder.path(), RANGE_STEP);
+
+        Range { folder, workspace }
+    }
+
+    fn run(&self, checkpoint: Option<&str>, rule: Option<&str>) -> RangeObservation {
+        let root = self.folder.path();
+        let output_file = root.join("output");
+        let lookup_file = root.join("lookup.json");
+        let info_file = root.join("info.txt");
+        let warning_file = root.join("warning.txt");
+        let rule_file = self.workspace.join("docs/stomme/ocr-rules.json");
+        for path in [&output_file, &lookup_file, &info_file, &warning_file] {
+            remove_stale(path).expect("remove the stale range output");
+        }
+        match rule {
+            Some(text) => {
+                fs::create_dir_all(rule_file.parent().expect("the rule file has a folder"))
+                    .expect("create the rule folder");
+                fs::write(&rule_file, text).expect("write the rule file");
+            }
+            None => remove_stale(&rule_file).expect("remove the stale rule file"),
+        }
+        let checkpoint = checkpoint.map_or_else(
+            || r#"{"reason":"no_summary_comment","payload":null,"raw":""}"#.to_string(),
+            str::to_string,
+        );
+        let environment = [
+            ("GITHUB_WORKSPACE", self.workspace.display().to_string()),
+            ("PINNED_HELPER", posting_helper_path().display().to_string()),
+            ("LOOKUP_LOG", lookup_file.display().to_string()),
+            ("INFO_LOG", info_file.display().to_string()),
+            ("WARNING_LOG", warning_file.display().to_string()),
+            ("GITHUB_OUTPUT", output_file.display().to_string()),
+            ("CHECKPOINT_RESULT", checkpoint),
+            ("OCR_RULE", "docs/stomme/ocr-rules.json".to_string()),
+            ("OCR_VERSION", "1.14.2".to_string()),
+            ("OCR_LLM_URL", "https://api.morphllm.com/v1".to_string()),
+            ("OCR_LLM_MODEL", "morph-dsv41flash-1017".to_string()),
+            ("OCR_APP_SLUG", "github-actions".to_string()),
+            ("PR_NUMBER", "7".to_string()),
+            ("HEAD_SHA", HEAD_SHA.to_string()),
+        ];
+        let completed = run_github_script(root, &environment);
+
+        assert!(
+            completed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&completed.stderr)
+        );
+
+        RangeObservation {
+            exit: completed
+                .status
+                .code()
+                .expect("the range script exits normally"),
+            outputs: read(&output_file).unwrap_or_default(),
+            lookup: read(&lookup_file)
+                .map(|text| serde_json::from_str(&text).expect("the fake records JSON")),
+            warnings: read(&warning_file).unwrap_or_default(),
+        }
+    }
+}
+
+#[test]
+fn range_reviews_the_whole_pull_request_without_a_marker() {
+    let range = Range::new();
+    let observation = range.run(None, Some("rules"));
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.output("mode"), "full");
+    assert_eq!(observation.output("reason"), "no_summary_comment");
+    assert_eq!(observation.output("reviewed"), "");
+    assert_eq!(
+        observation.output("fingerprint").len(),
+        16,
+        "the run records the fingerprint it compared"
+    );
+}
+
+#[test]
+fn range_reviews_the_whole_pull_request_after_a_fingerprint_change() {
+    let range = Range::new();
+    let marker = checkpoint_result("0000000000000000", OTHER_HEAD, MERGE_BASE, "complete");
+    let observation = range.run(Some(&marker), Some("rules"));
+
+    assert_eq!(observation.output("mode"), "full");
+    assert_eq!(
+        observation.output("reason"),
+        "config_changed",
+        "a changed configuration reviews the whole pull request, moved base or not"
+    );
+    assert_eq!(observation.output("reviewed"), "");
+}
+
+#[test]
+fn range_scopes_the_review_from_the_marker_head() {
+    let range = Range::new();
+    let fingerprint = range.run(None, Some("rules")).output("fingerprint");
+    let marker = checkpoint_result(&fingerprint, OTHER_HEAD, MERGE_BASE, "complete");
+    let observation = range.run(Some(&marker), Some("rules"));
+
+    assert_eq!(observation.output("mode"), "scoped");
+    assert_eq!(observation.output("reason"), "ok");
+    assert_eq!(observation.output("reviewed"), OTHER_HEAD);
+    assert_eq!(observation.output("reviewed_base"), MERGE_BASE);
+    assert_eq!(
+        observation.output("carry"),
+        "<!-- ocr-checkpoint:v1 marker -->",
+        "a run that does not advance re-emits the marker it read"
+    );
+    assert_eq!(
+        observation.output("fingerprint"),
+        fingerprint,
+        "the run compares the same configuration twice"
+    );
+}
+
+#[test]
+fn range_scopes_the_review_after_a_moved_base() {
+    let range = Range::new();
+    let fingerprint = range.run(None, Some("rules")).output("fingerprint");
+    let marker = checkpoint_result(&fingerprint, OTHER_HEAD, MERGE_BASE, "complete");
+    let observation = range.run(Some(&marker), Some("rules"));
+
+    assert_eq!(
+        observation.output("reviewed_base"),
+        MERGE_BASE,
+        "the scope is measured from the base of the reviewed range, not the current one"
+    );
+    assert_eq!(observation.output("mode"), "scoped");
+}
+
+#[test]
+fn range_skips_a_head_the_marker_already_records() {
+    let range = Range::new();
+    let fingerprint = range.run(None, Some("rules")).output("fingerprint");
+    let marker = checkpoint_result(&fingerprint, HEAD_SHA, MERGE_BASE, "complete");
+    let observation = range.run(Some(&marker), Some("rules"));
+
+    assert_eq!(observation.output("mode"), "noop");
+    assert_eq!(observation.output("reason"), "same_head_noop");
+}
+
+#[test]
+fn range_reviews_the_whole_pull_request_for_an_incomplete_marker() {
+    let range = Range::new();
+    let fingerprint = range.run(None, Some("rules")).output("fingerprint");
+    let marker = checkpoint_result(&fingerprint, OTHER_HEAD, MERGE_BASE, "partial");
+    let observation = range.run(Some(&marker), Some("rules"));
+
+    assert_eq!(observation.output("mode"), "full");
+    assert_eq!(
+        observation.output("reason"),
+        "schema_invalid",
+        "only a complete review narrows the next range"
+    );
+}
+
+#[test]
+fn range_reviews_the_whole_pull_request_without_the_rule_file() {
+    let range = Range::new();
+    let observation = range.run(None, None);
+
+    assert_eq!(observation.output("mode"), "full");
+    assert_eq!(observation.output("reason"), "rule_unreadable");
+    assert_eq!(
+        observation.output("fingerprint"),
+        "",
+        "a run that cannot hash the rules never advances the marker"
+    );
+    assert!(
+        observation
+            .warnings
+            .contains("reviewing the whole pull request"),
+        "{}",
+        observation.warnings
+    );
+}
+
+#[test]
+fn range_passes_the_summary_lookup_its_options() {
+    let range = Range::new();
+    let observation = range.run(None, Some("rules"));
+
+    assert_eq!(
+        observation.lookup,
+        Some(serde_json::json!({
+            "owner": "owner",
+            "repo": "repository",
+            "prNumber": 7,
+            "appSlug": "github-actions",
+            "log": "function",
+            "github": "object",
+        }))
+    );
+}
+
+struct Scope {
+    folder: TempDir,
+}
+
+struct ScopeObservation {
+    exit: i32,
+    outputs: String,
+    stdout: String,
+    arguments: Option<String>,
+    git_arguments: Option<String>,
+    environment: Option<String>,
+    result: Option<String>,
+}
+
+impl ScopeObservation {
+    fn output(&self, key: &str) -> String {
+        last_output(&self.outputs, key).unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ScopeRun<'a> {
+    base: &'a str,
+    stderr: &'a str,
+    fail_scope: bool,
+    fail_fetch: bool,
+}
+
+impl Default for ScopeRun<'_> {
+    fn default() -> Self {
+        Self {
+            base: "",
+            stderr: "stomme: scope: 2 files, 3 added lines, 1 removed lines",
+            fail_scope: false,
+            fail_fetch: false,
+        }
+    }
+}
+
+impl Scope {
+    fn new() -> Self {
+        let folder = temporary_directory();
+        let bin = folder.path().join("bin");
+        fs::create_dir_all(&bin).expect("create the fake command folder");
+        write_executable(&bin.join("git"), GIT_FAKE);
+        write_executable(&bin.join("stomme"), SCOPE_FAKE);
+        let script = step_block(OCR_REVIEW, SCOPE_STEP, "run")
+            .replace("/tmp/", &format!("{}/", folder.path().display()));
+        fs::write(folder.path().join("scope.sh"), script).expect("write the extracted script");
+
+        Scope { folder }
+    }
+
+    fn run(&self, run: ScopeRun<'_>) -> ScopeObservation {
+        let root = self.folder.path();
+        let output_file = root.join("output");
+        let environment_file = root.join("environment");
+        let arguments = root.join("scope-arguments");
+        let git_arguments = root.join("git-arguments");
+        let result_file = root.join("ocr-result.json");
+        for path in [
+            &output_file,
+            &environment_file,
+            &arguments,
+            &git_arguments,
+            &result_file,
+            &root.join("ocr-scope.err"),
+        ] {
+            remove_stale(path).expect("remove the stale scope output");
+        }
+
+        let completed = Command::new("/bin/bash")
+            .arg("-e")
+            .arg(root.join("scope.sh"))
+            .current_dir(root)
+            .env_clear()
+            .env("PATH", search_path(&root.join("bin")))
+            .env("GITHUB_OUTPUT", &output_file)
+            .env("GITHUB_ENV", &environment_file)
+            .env("REVIEWED", OTHER_HEAD)
+            .env("REVIEWED_BASE", MERGE_BASE)
+            .env("MERGE_BASE", "merge-base")
+            .env("HEAD_SHA", HEAD_SHA)
+            .env("SCOPE_ARGUMENTS", &arguments)
+            .env("GIT_ARGUMENTS", &git_arguments)
+            .env("SCOPE_BASE", run.base)
+            .env("SCOPE_STDERR", run.stderr)
+            .env("SCOPE_EXIT", if run.fail_scope { "1" } else { "0" })
+            .env("GIT_FAIL", if run.fail_fetch { "1" } else { "0" })
+            .output()
+            .expect("run the extracted scope script");
+
+        ScopeObservation {
+            exit: completed
+                .status
+                .code()
+                .expect("the scope script exits normally"),
+            outputs: read(&output_file).unwrap_or_default(),
+            stdout: String::from_utf8_lossy(&completed.stdout).into_owned(),
+            arguments: read(&arguments),
+            git_arguments: read(&git_arguments),
+            environment: read(&environment_file),
+            result: read(&result_file),
+        }
+    }
+}
+
+#[test]
+fn scope_reviews_from_the_built_base() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun {
+        base: SCOPED_BASE,
+        ..ScopeRun::default()
+    });
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.output("mode"), "scoped");
+    assert_eq!(observation.output("base"), SCOPED_BASE);
+    assert_eq!(
+        observation.output("note"),
+        "Scope since the last complete review: 2 files, 3 added lines, 1 removed lines"
+    );
+    assert_eq!(
+        observation.git_arguments.as_deref(),
+        Some(format!("fetch --filter=blob:none origin {OTHER_HEAD}\n").as_str()),
+        "the marker head is fetched by SHA, because a force push removed its ref"
+    );
+    assert_eq!(
+        observation.arguments.as_deref(),
+        Some(
+            format!(
+                "ocr-scope --reviewed {OTHER_HEAD} --reviewed-base {MERGE_BASE} --base merge-base --head {HEAD_SHA}\n"
+            )
+            .as_str()
+        )
+    );
+}
+
+#[test]
+fn scope_reviews_the_whole_pull_request_when_the_marker_head_is_unfetchable() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun {
+        base: SCOPED_BASE,
+        fail_fetch: true,
+        ..ScopeRun::default()
+    });
+
+    assert_eq!(observation.exit, 0, "a failed fetch never fails the job");
+    assert_eq!(observation.output("mode"), "full");
+    assert_eq!(observation.output("base"), "");
+    assert!(
+        observation.stdout.contains("Cannot fetch the head"),
+        "{}",
+        observation.stdout
+    );
+    assert_eq!(
+        observation.arguments, None,
+        "an unfetchable head builds no scope"
+    );
+}
+
+#[test]
+fn scope_reviews_the_whole_pull_request_when_the_command_fails() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun {
+        base: SCOPED_BASE,
+        stderr: "stomme: the clone is shallow, so the review scope has no merge base",
+        fail_scope: true,
+        ..ScopeRun::default()
+    });
+
+    assert_eq!(
+        observation.exit, 0,
+        "a failed scope command never fails the job"
+    );
+    assert_eq!(observation.output("mode"), "full");
+    assert!(
+        observation
+            .stdout
+            .contains("the review scope has no merge base"),
+        "{}",
+        observation.stdout
+    );
+}
+
+#[test]
+fn scope_reviews_the_whole_pull_request_without_a_base() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun::default());
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.output("mode"), "full");
+    assert!(
+        observation.stdout.contains("printed no base commit"),
+        "{}",
+        observation.stdout
+    );
+}
+
+#[test]
+fn scope_records_no_new_lines_for_an_empty_scope() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun {
+        base: "empty",
+        stderr: "stomme: scope: 0 files, 0 added lines, 0 removed lines",
+        ..ScopeRun::default()
+    });
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.output("mode"), "empty");
+    assert_eq!(
+        observation.output("note"),
+        "Scope since the last complete review: no new lines"
+    );
+    assert_eq!(
+        observation.environment.as_deref(),
+        Some("OCR_EXIT_CODE=0\n"),
+        "an empty scope is a complete run of nothing"
+    );
+
+    let result: serde_json::Value = serde_json::from_str(
+        observation
+            .result
+            .as_deref()
+            .expect("an empty scope writes a result"),
+    )
+    .expect("the empty-scope result is JSON");
+
+    assert_eq!(result["manifest"]["terminal_state"], "complete");
+    assert_eq!(result["manifest"]["input"]["resolved_head"], HEAD_SHA);
+    assert_eq!(
+        result["manifest"]["coverage"]["selected"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn empty_scope_result_advances_the_marker() {
+    let scope = Scope::new();
+    let observation = scope.run(ScopeRun {
+        base: "empty",
+        stderr: "stomme: scope: 0 files, 0 added lines, 0 removed lines",
+        ..ScopeRun::default()
+    });
+    let result = observation.result.expect("an empty scope writes a result");
+    let classifier = Classifier::new();
+    let classified = classifier.run(Run {
+        result: Some(&result),
+        ..Run::default()
+    });
+
+    assert_eq!(
+        classified.final_status().as_deref(),
+        Some("0"),
+        "a complete classification is what lets the post step advance the marker"
+    );
+    assert_eq!(classified.coverage_verdict().as_deref(), Some("complete"));
+}
+
+struct Review {
+    folder: TempDir,
+}
+
+struct ReviewObservation {
+    exit: i32,
+    outputs: String,
+    arguments: Option<String>,
+    environment: Option<String>,
+}
+
+impl ReviewObservation {
+    fn output(&self, key: &str) -> String {
+        last_output(&self.outputs, key).unwrap_or_default()
+    }
+}
+
+impl Review {
+    fn new() -> Self {
+        let folder = temporary_directory();
+        let bin = folder.path().join("bin");
+        fs::create_dir_all(&bin).expect("create the fake command folder");
+        write_executable(&bin.join("ocr"), REVIEW_FAKE);
+        let script = step_block(OCR_REVIEW, REVIEW_STEP, "run")
+            .replace("/tmp/", &format!("{}/", folder.path().display()));
+        fs::write(folder.path().join("review.sh"), script).expect("write the extracted script");
+
+        Review { folder }
+    }
+
+    fn run(&self, from: &str, code: &str) -> ReviewObservation {
+        let root = self.folder.path();
+        let output_file = root.join("output");
+        let environment_file = root.join("environment");
+        let arguments = root.join("ocr-arguments");
+        for path in [&output_file, &environment_file, &arguments] {
+            remove_stale(path).expect("remove the stale review output");
+        }
+
+        let completed = Command::new("/bin/bash")
+            .arg("-e")
+            .arg(root.join("review.sh"))
+            .current_dir(root)
+            .env_clear()
+            .env("PATH", search_path(&root.join("bin")))
+            .env("GITHUB_OUTPUT", &output_file)
+            .env("GITHUB_ENV", &environment_file)
+            .env("MODEL_TOKEN", "model-token")
+            .env("RANGE_FROM", from)
+            .env("MERGE_BASE", MERGE_BASE)
+            .env("HEAD_SHA", HEAD_SHA)
+            .env("OCR_RULE", "docs/stomme/ocr-rules.json")
+            .env("OCR_ARGUMENTS", &arguments)
+            .env("OCR_REVIEW_EXIT", code)
+            .output()
+            .expect("run the extracted review script");
+
+        ReviewObservation {
+            exit: completed
+                .status
+                .code()
+                .expect("the review script exits normally"),
+            outputs: read(&output_file).unwrap_or_default(),
+            arguments: read(&arguments),
+            environment: read(&environment_file),
+        }
+    }
+}
+
+#[test]
+fn review_runs_from_the_built_base() {
+    let review = Review::new();
+    let observation = review.run(SCOPED_BASE, "0");
+    let arguments = observation.arguments.as_deref().expect("the review ran");
+
+    assert_eq!(observation.exit, 0);
+    assert!(
+        arguments.contains(&format!("--from {SCOPED_BASE}")),
+        "{arguments}"
+    );
+    assert!(
+        arguments.contains(&format!("--to {HEAD_SHA}")),
+        "{arguments}"
+    );
+    assert!(
+        arguments.contains("--rule docs/stomme/ocr-rules.json"),
+        "{arguments}"
+    );
+    assert_eq!(observation.output("exit_code"), "0");
+    assert_eq!(
+        observation.environment.as_deref(),
+        Some("OCR_EXIT_CODE=0\n")
+    );
+}
+
+#[test]
+fn review_runs_from_the_merge_base_without_a_scope() {
+    let review = Review::new();
+    let observation = review.run("", "0");
+    let arguments = observation.arguments.as_deref().expect("the review ran");
+
+    assert!(
+        arguments.contains(&format!("--from {MERGE_BASE}")),
+        "{arguments}"
+    );
+    assert!(
+        !arguments.contains("--from ") || arguments.contains(&format!("--from {MERGE_BASE}")),
+        "a full review starts at the merge base"
+    );
+}
+
+#[test]
+fn review_records_a_provider_failure_without_failing_the_step() {
+    let review = Review::new();
+    let observation = review.run(SCOPED_BASE, "1");
+
+    assert_eq!(
+        observation.exit, 0,
+        "the classification decides the job result, not the review step"
+    );
+    assert_eq!(observation.output("exit_code"), "1");
+    assert_eq!(
+        observation.environment.as_deref(),
+        Some("OCR_EXIT_CODE=1\n")
+    );
+}
+
 struct Coverage {
     folder: TempDir,
     workspace: PathBuf,
@@ -1577,6 +2400,7 @@ struct CoverageRun<'a> {
     from_resume: bool,
     verdict: &'a str,
     head: &'a str,
+    note: Option<&'a str>,
 }
 
 impl Default for CoverageRun<'_> {
@@ -1589,6 +2413,7 @@ impl Default for CoverageRun<'_> {
             from_resume: false,
             verdict: "complete",
             head: HEAD_SHA,
+            note: None,
         }
     }
 }
@@ -1738,10 +2563,38 @@ impl Coverage {
             ),
             ("COVERAGE_VERDICT", run.verdict.to_string()),
             ("HEAD_SHA", run.head.to_string()),
+            ("SCOPE_NOTE", run.note.unwrap_or_default().to_string()),
         ];
 
         run_github_script(self.folder.path(), &environment)
     }
+}
+
+#[test]
+fn coverage_names_the_scope_above_the_coverage_section() {
+    let coverage = Coverage::new();
+    let note = "Scope since the last complete review: 2 files, 3 added lines, 1 removed lines";
+    let observation = coverage.run(CoverageRun {
+        coverage: Some("### Review coverage\n\nOCR reviewed 2 of 2 selected files."),
+        comment: Some("<!-- ocr-summary -->\nSummary text"),
+        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        note: Some(note),
+        ..CoverageRun::default()
+    });
+
+    let expected = format!(
+        "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\n{}\n### Review scope\n\n{note}\n\n### Review coverage\n\nOCR reviewed 2 of 2 selected files.\n<!-- ocr-coverage:end -->\nSummary text",
+        verdict_line(HEAD_SHA, "complete")
+    );
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(observation.updated.as_deref(), Some(expected.as_str()));
+    assert!(
+        observation
+            .summary
+            .expect("the section goes to the job summary")
+            .contains(note)
+    );
 }
 
 #[test]
@@ -2076,27 +2929,46 @@ fn coverage_warns_when_the_summary_has_no_marker() {
     );
 }
 
-struct ResumedPost {
+struct Post {
     folder: TempDir,
     workspace: PathBuf,
 }
 
-struct ResumedPostObservation {
+struct PostObservation {
     exit: i32,
     recorded: Option<serde_json::Value>,
 }
 
-impl ResumedPost {
-    fn new() -> Self {
+#[derive(Clone, Copy)]
+struct PostRun<'a> {
+    result: &'a str,
+    stderr: &'a str,
+    fingerprint: &'a str,
+    carry: &'a str,
+}
+
+impl Default for PostRun<'_> {
+    fn default() -> Self {
+        Self {
+            result: "/tmp/ocr-result.json",
+            stderr: "/tmp/ocr-stderr.log",
+            fingerprint: "",
+            carry: "",
+        }
+    }
+}
+
+impl Post {
+    fn new(step: &str) -> Self {
         let folder = temporary_directory();
         let workspace = folder.path().join("workspace");
         write_posting_helper(&workspace, POSTING_HELPER_RECORD);
-        write_github_script(folder.path(), POST_STEP);
+        write_github_script(folder.path(), step);
 
-        ResumedPost { folder, workspace }
+        Post { folder, workspace }
     }
 
-    fn run(&self) -> ResumedPostObservation {
+    fn run(&self, run: PostRun<'_>) -> PostObservation {
         let root = self.folder.path();
         let record = root.join("record.json");
         remove_stale(&record).expect("remove the stale record");
@@ -2111,11 +2983,12 @@ impl ResumedPost {
             ("OCR_CHECKPOINT_RANGE", "true".to_string()),
             ("OCR_APP_SLUG", "github-actions".to_string()),
             ("RESOLVE_OUTDATED", "true".to_string()),
-            ("BASE_REF", "origin/main".to_string()),
-            ("MERGE_BASE", "merge-base".to_string()),
-            ("RANGE_MODE", "checkpoint".to_string()),
-            ("RANGE_FROM", "range-from".to_string()),
-            ("RANGE_TO", "head-sha".to_string()),
+            ("BASE_REF", "main".to_string()),
+            ("MERGE_BASE", MERGE_BASE.to_string()),
+            ("RESULT_PATH", run.result.to_string()),
+            ("STDERR_PATH", run.stderr.to_string()),
+            ("CHECKPOINT_FINGERPRINT", run.fingerprint.to_string()),
+            ("CHECKPOINT_CARRY", run.carry.to_string()),
         ];
         let completed = run_github_script(root, &environment);
 
@@ -2125,7 +2998,7 @@ impl ResumedPost {
             String::from_utf8_lossy(&completed.stderr)
         );
 
-        ResumedPostObservation {
+        PostObservation {
             exit: completed.status.code().expect("the script exits normally"),
             recorded: read(&record)
                 .map(|text| serde_json::from_str(&text).expect("the helper records JSON")),
@@ -2134,9 +3007,22 @@ impl ResumedPost {
 }
 
 #[test]
+fn the_two_posts_share_one_script() {
+    assert_eq!(
+        step_block(OCR_REVIEW, POST_STEP, "script"),
+        step_block(OCR_REVIEW, RESUME_POST_STEP, "script"),
+        "the first post and the resumed post differ only in their inputs"
+    );
+}
+
+#[test]
 fn resumed_post_passes_the_posting_helper_its_options() {
-    let post = ResumedPost::new();
-    let observation = post.run();
+    let post = Post::new(RESUME_POST_STEP);
+    let observation = post.run(PostRun {
+        result: "/tmp/ocr-resume.json",
+        stderr: "/tmp/ocr-resume.err",
+        ..PostRun::default()
+    });
 
     assert_eq!(observation.exit, 0);
     assert_eq!(
@@ -2153,17 +3039,80 @@ fn resumed_post_passes_the_posting_helper_its_options() {
             "incremental": true,
             "checkpointEnabled": true,
             "checkpointCarry": "",
-            "checkpointBaseRef": "origin/main",
-            "checkpointMergeBase": "merge-base",
+            "checkpointBaseRef": "main",
+            "checkpointMergeBase": "aabbccddeeff00112233445566778899aabbccdd",
             "checkpointFingerprint": "",
             "checkpointNoop": false,
-            "rangeMode": "checkpoint",
-            "rangeFrom": "range-from",
-            "rangeTo": "head-sha",
+            "rangeMode": "",
+            "rangeFrom": "",
+            "rangeTo": "",
             "resolveOutdated": "true",
             "appSlug": "github-actions",
         }))
     );
+}
+
+#[test]
+fn post_passes_the_posting_helper_its_options() {
+    let post = Post::new(POST_STEP);
+    let observation = post.run(PostRun::default());
+    let recorded = observation
+        .recorded
+        .expect("the helper records its options");
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(recorded["resultPath"], "/tmp/ocr-result.json");
+    assert_eq!(recorded["stderrPath"], "/tmp/ocr-stderr.log");
+    assert_eq!(recorded["prNumber"], 7);
+    assert_eq!(recorded["stickySummary"], true);
+    assert_eq!(recorded["checkpointEnabled"], true);
+    assert_eq!(
+        recorded["checkpointMergeBase"],
+        "aabbccddeeff00112233445566778899aabbccdd"
+    );
+}
+
+#[test]
+fn post_advances_the_marker_of_a_complete_review() {
+    let post = Post::new(POST_STEP);
+    let observation = post.run(PostRun {
+        fingerprint: "0123456789abcdef",
+        carry: "<!-- ocr-checkpoint:v1 marker -->",
+        ..PostRun::default()
+    });
+    let recorded = observation
+        .recorded
+        .expect("the helper records its options");
+
+    assert_eq!(recorded["checkpointFingerprint"], "0123456789abcdef");
+    assert_eq!(
+        recorded["checkpointCarry"], "<!-- ocr-checkpoint:v1 marker -->",
+        "the marker read this run is re-emitted when the review does not advance"
+    );
+}
+
+#[test]
+fn post_keeps_the_old_marker_of_a_partial_review() {
+    let post = Post::new(RESUME_POST_STEP);
+    let observation = post.run(PostRun {
+        result: "/tmp/ocr-resume.json",
+        stderr: "/tmp/ocr-resume.err",
+        fingerprint: "",
+        carry: "<!-- ocr-checkpoint:v1 marker -->",
+    });
+    let recorded = observation
+        .recorded
+        .expect("the helper records its options");
+
+    assert_eq!(
+        recorded["checkpointFingerprint"], "",
+        "an empty fingerprint keeps the previous marker, so the next range only widens"
+    );
+    assert_eq!(
+        recorded["checkpointCarry"],
+        "<!-- ocr-checkpoint:v1 marker -->"
+    );
+    assert_eq!(recorded["resultPath"], "/tmp/ocr-resume.json");
 }
 
 struct CheckpointedCoverage {
@@ -2311,7 +3260,7 @@ fn a_no_op_run_passes_with_a_complete_coverage_section() {
     );
 
     let (exit, stdout) = classifier.report(Report {
-        range_reason: "same_head_noop",
+        range_mode: "noop",
         status: "",
         verdict: "complete",
         ..Report::default()
@@ -2334,7 +3283,7 @@ fn a_no_op_run_fails_with_a_partial_coverage_section() {
     assert_eq!(observation.verdict.as_deref(), Some("partial"));
 
     let (exit, stdout) = classifier.report(Report {
-        range_reason: "same_head_noop",
+        range_mode: "noop",
         status: "",
         verdict: "partial",
         ..Report::default()
@@ -2355,7 +3304,7 @@ fn a_no_op_run_fails_with_a_failed_coverage_section() {
     assert_eq!(observation.verdict.as_deref(), Some("failed"));
 
     let (exit, stdout) = classifier.report(Report {
-        range_reason: "same_head_noop",
+        range_mode: "noop",
         status: "",
         verdict: "failed",
         ..Report::default()
@@ -2457,7 +3406,7 @@ fn a_no_op_run_fails_without_a_readable_coverage_section() {
         assert!(!observation.warnings.is_empty(), "{name}");
 
         let (exit, stdout) = classifier.report(Report {
-            range_reason: "same_head_noop",
+            range_mode: "noop",
             status: "",
             verdict: expected_verdict,
             ..Report::default()

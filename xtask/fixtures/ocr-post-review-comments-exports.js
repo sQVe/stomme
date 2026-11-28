@@ -19,8 +19,18 @@ function findSummaryIssueComment() {
   throw new Error("the pinned copy only records the helper's exports");
 }
 
+function readCheckpointComment() {
+  throw new Error("the pinned copy only records the helper's exports");
+}
+
+function validateCheckpointPayload() {
+  throw new Error("the pinned copy only records the helper's exports");
+}
+
 module.exports = {
   runPostReviewComments,
   findSummaryIssueComment,
+  readCheckpointComment,
+  validateCheckpointPayload,
   SUMMARY_MARKER,
 };

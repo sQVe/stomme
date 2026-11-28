@@ -23,6 +23,12 @@ jobs:
       OCR_CHECKPOINT_RANGE: 'true'
       OCR_INCREMENTAL: 'true'
       OCR_STICKY_SUMMARY: 'true'
+      OCR_VERSION: '1.14.2'
+      OCR_LLM_URL: https://api.morphllm.com/v1
+      OCR_LLM_MODEL: morph-dsv41flash-1017
+      OCR_RULE: docs/stomme/ocr-rules.json
+      OCR_EXTRA_BODY: '{"thinking": {"type": "disabled"}}'
+      RESOLVE_OUTDATED: 'true'
     steps:
       - name: Check the model token
         env:
@@ -33,35 +39,269 @@ jobs:
             exit 1
           fi
 
-      - name: Run OCR
-        id: ocr
-        uses: alibaba/open-code-review@e74f2c6bd4422bd1e12d257d1725bcce1d6b9ddd # v1.14.2
-        # A partial review from a timeout or a provider error exits nonzero, and
-        # the Action then posts nothing. The steps below decide the job result.
-        continue-on-error: true
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ocr_version: '1.14.2'
-          llm_url: https://api.morphllm.com/v1
-          llm_model: morph-dsv41flash-1017
-          llm_protocol: openai
-          llm_auth_token: ${{ secrets.model-token }}
-          rule: docs/stomme/ocr-rules.json
-          sticky_summary: ${{ env.OCR_STICKY_SUMMARY }}
-          checkpoint_range: ${{ env.OCR_CHECKPOINT_RANGE }}
-          incremental: ${{ env.OCR_INCREMENTAL }}
-          resolve_outdated: 'true'
+          # The full history, so the merge base of a rebased pull request is
+          # computable and the scope command never meets a shallow clone.
+          fetch-depth: 0
+
+      - name: Check out the OCR posting helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: alibaba/open-code-review
+          ref: e74f2c6bd4422bd1e12d257d1725bcce1d6b9ddd
+          path: .ocr-action
+          persist-credentials: false
+
+      - name: Resolve the review refs
+        id: refs
+        env:
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          BASE_REF="$EVENT_BASE_REF"
+          HEAD_SHA="$EVENT_HEAD_SHA"
+          PR_NUMBER="$EVENT_PR_NUMBER"
+          if [ -z "$PR_NUMBER" ] || [ -z "$BASE_REF" ]; then
+            echo "::error::the event payload names no pull request to review"
+            exit 1
+          fi
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::the pull request head is not a full commit SHA: \"$HEAD_SHA\""
+            exit 1
+          fi
+          git fetch origin "pull/${PR_NUMBER}/head"
+          git fetch origin "$BASE_REF"
+          MERGE_BASE="$(git merge-base "origin/${BASE_REF}" "$HEAD_SHA")"
+          {
+            echo "BASE_REF=$BASE_REF"
+            echo "HEAD_SHA=$HEAD_SHA"
+            echo "PR_NUMBER=$PR_NUMBER"
+            echo "MERGE_BASE=$MERGE_BASE"
+          } >> "$GITHUB_ENV"
+          {
+            echo "base_ref=$BASE_REF"
+            echo "merge_base=$MERGE_BASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Reviewing ${HEAD_SHA} from merge-base ${MERGE_BASE} (base origin/${BASE_REF})"
+
+      - name: Resolve the review range
+        id: range
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const crypto = require('crypto');
+
+            // Every branch here only chooses where the review starts, and each
+            // one has the same safe answer: review the whole pull request. So
+            // nothing in this step may fail the job.
+            const decide = (mode, reason, fields = {}) => {
+              core.setOutput('mode', mode);
+              core.setOutput('reason', reason);
+              core.setOutput('reviewed', fields.reviewed || '');
+              core.setOutput('reviewed_base', fields.reviewed_base || '');
+              core.setOutput('carry', fields.carry || '');
+              core.info(`[range] ${mode}: ${reason}`);
+            };
+
+            const workspace = process.env.GITHUB_WORKSPACE || '.';
+            const rulePath = path.resolve(workspace, process.env.OCR_RULE || '');
+            let ruleDigest = 'none';
+            try {
+              ruleDigest = crypto.createHash('sha256').update(fs.readFileSync(rulePath)).digest('hex');
+            } catch (error) {
+              core.warning(`[range] cannot read ${rulePath} (${error.message}); reviewing the whole pull request.`);
+              core.setOutput('fingerprint', '');
+              decide('full', 'rule_unreadable');
+              return;
+            }
+
+            // Everything that changes what a review would say. JSON keeps the
+            // fields length-delimited, so no value can shift a field boundary
+            // and make two different configurations hash alike.
+            const fingerprint = crypto.createHash('sha256')
+              .update(JSON.stringify([
+                process.env.OCR_VERSION || '',
+                process.env.OCR_LLM_MODEL || '',
+                process.env.OCR_LLM_URL || '',
+                ruleDigest,
+              ]))
+              .digest('hex')
+              .slice(0, 16);
+            core.setOutput('fingerprint', fingerprint);
+
+            const helper = path.join(
+              workspace,
+              '.ocr-action',
+              'scripts',
+              'github-actions',
+              'post-review-comments.js',
+            );
+
+            try {
+              const { readCheckpointComment, validateCheckpointPayload } = require(helper);
+              const prNumber = Number(process.env.PR_NUMBER);
+              const existing = await readCheckpointComment({
+                github,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                prNumber,
+                appSlug: process.env.OCR_APP_SLUG || '',
+                log: (line) => core.info(line),
+              });
+              if (existing.reason !== 'ok') {
+                decide('full', existing.reason);
+                return;
+              }
+              const invalid = validateCheckpointPayload(existing.payload, { prNumber });
+              if (invalid) {
+                core.info(`[range] marker rejected (${invalid}); reviewing the whole pull request.`);
+                decide('full', 'schema_invalid');
+                return;
+              }
+              // The configuration is compared before anything about the base:
+              // findings from another model, rule file, or OCR version are not
+              // comparable to this run's, wherever the base moved.
+              if (existing.payload.fingerprint !== fingerprint) {
+                decide('full', 'config_changed');
+                return;
+              }
+              if (existing.payload.head === process.env.HEAD_SHA) {
+                decide('noop', 'same_head_noop', { carry: existing.raw });
+                return;
+              }
+              decide('scoped', 'ok', {
+                reviewed: existing.payload.head,
+                reviewed_base: existing.payload.merge_base,
+                carry: existing.raw,
+              });
+            } catch (error) {
+              core.warning(`[range] cannot read the checkpoint (${error.message}); reviewing the whole pull request.`);
+              decide('full', 'resolver_error');
+            }
 
       - name: Install stomme from the project pin
-        if: steps.ocr.outputs.range_reason != 'same_head_noop'
+        if: steps.range.outputs.mode != 'noop'
         uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
+
+      - name: Build the review scope
+        id: scope
+        if: steps.range.outputs.mode == 'scoped'
+        env:
+          REVIEWED: ${{ steps.range.outputs.reviewed }}
+          REVIEWED_BASE: ${{ steps.range.outputs.reviewed_base }}
+        run: |
+          # Every failure here falls back to the whole pull request, because a
+          # narrowed range this step cannot prove is worse than a wide one.
+          fallback() {
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+            echo "::warning::$1 Reviewing the whole pull request."
+          }
+
+          if ! git fetch --filter=blob:none origin "$REVIEWED" > /dev/null 2>&1; then
+            fallback "Cannot fetch the head of the last complete review (${REVIEWED})."
+            exit 0
+          fi
+
+          scope_exit=0
+          base="$(stomme ocr-scope --reviewed "$REVIEWED" --reviewed-base "$REVIEWED_BASE" --base "$MERGE_BASE" --head "$HEAD_SHA" 2> /tmp/ocr-scope.err)" || scope_exit=$?
+          if [ "$scope_exit" != "0" ]; then
+            detail="$(tail -n 1 /tmp/ocr-scope.err 2> /dev/null || true)"
+            fallback "The scope command failed: ${detail:-no error output}"
+            exit 0
+          fi
+          if [ -z "$base" ]; then
+            fallback "The scope command printed no base commit."
+            exit 0
+          fi
+
+          counts="$(sed -n 's/^stomme: scope: //p' /tmp/ocr-scope.err 2> /dev/null | tail -n 1)"
+          if [ "$base" = "empty" ]; then
+            # The scope holds no new lines, so there is nothing to review. The
+            # record states that this head is covered, so the next push narrows
+            # from it and this run advances the marker.
+            cat > /tmp/ocr-result.json <<JSON
+          {"status":"complete","manifest":{"schema_version":"ocr.run-manifest/v1","terminal_state":"complete","input":{"resolved_head":"${HEAD_SHA}"},"coverage":{"selected":[],"completed":[],"reused":[],"failed":[],"waived":[],"excluded":[]}}}
+          JSON
+            echo "OCR_EXIT_CODE=0" >> "$GITHUB_ENV"
+            echo "mode=empty" >> "$GITHUB_OUTPUT"
+            echo "note=Scope since the last complete review: no new lines" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "mode=scoped" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "note=Scope since the last complete review: ${counts:-no new lines}" >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned OpenCodeReview
+        if: steps.range.outputs.mode != 'noop'
+        env:
+          # Keep the review on the install performed here: the launcher's
+          # detached self-updater would replace the runtime mid-run.
+          OCR_NO_UPDATE: '1'
+        run: |
+          npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
+          ocr version
+
+      - name: Configure OCR
+        if: steps.range.outputs.mode != 'noop'
+        env:
+          OCR_NO_UPDATE: '1'
+        run: |
+          ocr config unset provider
+          ocr config set llm.auth_token ""
+          ocr config set llm.extra_headers ""
+          ocr config set llm.retry_codes ""
+          ocr config set llm.url "$OCR_LLM_URL"
+          ocr config set llm.model "$OCR_LLM_MODEL"
+          ocr config set llm.use_anthropic "false"
+          ocr config set llm.protocol "openai"
+          ocr config set llm.auth_header ""
+          ocr config set llm.auth_token_cmd 'printf "%s" "$OCR_LLM_TOKEN"'
+          ocr config set llm.extra_body "$OCR_EXTRA_BODY"
+          ocr config set language "English"
+
+      - name: Run the review
+        id: review
+        if: steps.range.outputs.mode != 'noop' && steps.scope.outputs.mode != 'empty'
+        env:
+          MODEL_TOKEN: ${{ secrets.model-token }}
+          RANGE_FROM: ${{ steps.scope.outputs.base }}
+          SCOPE_NOTE: ${{ steps.scope.outputs.note }}
+        run: |
+          # A partial review from a timeout or a provider error exits nonzero,
+          # and the classification below decides the job result.
+          args=(
+            --from "${RANGE_FROM:-$MERGE_BASE}"
+            --to "$HEAD_SHA"
+            --rule "$OCR_RULE"
+            --format json
+            --audience agent
+            --timeout 15
+          )
+          echo "Reviewing ${args[1]}..${HEAD_SHA}"
+          echo "${SCOPE_NOTE:-The run reviews the whole pull request.}"
+          code=0
+          OCR_LLM_TOKEN="$MODEL_TOKEN" OCR_LLM_TIMEOUT="300" OCR_NO_UPDATE="1" \
+            ocr review "${args[@]}" > /tmp/ocr-result.json 2> /tmp/ocr-stderr.log || code=$?
+          echo "OCR_EXIT_CODE=$code" >> "$GITHUB_ENV"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "=== OCR result ==="
+          cat /tmp/ocr-result.json
+          echo "=== OCR stderr ==="
+          cat /tmp/ocr-stderr.log
 
       - name: Classify and resume the review
         id: outcome
-        if: steps.ocr.outputs.range_reason != 'same_head_noop'
+        if: steps.range.outputs.mode != 'noop'
         env:
           STOMME: stomme
           MODEL_TOKEN: ${{ secrets.model-token }}
-          RANGE_FROM: ${{ steps.ocr.outputs.range_from }}
+          RANGE_FROM: ${{ steps.scope.outputs.base }}
           OCR_EXIT_CODE: ${{ env.OCR_EXIT_CODE }}
         run: |
           token="$MODEL_TOKEN"
@@ -188,6 +428,7 @@ jobs:
           cp /tmp/ocr-coverage.md /tmp/ocr-first-coverage.md 2>/dev/null || true
           {
             echo "final=$final"
+            echo "first_final=$final"
             echo "coverage_source=first"
           } >> "$GITHUB_OUTPUT"
           # The verdict names the classification of the coverage file that the
@@ -238,7 +479,7 @@ jobs:
               --from "${RANGE_FROM:-$MERGE_BASE}"
               --to "$HEAD_SHA"
               --resume "$session_id"
-              --rule docs/stomme/ocr-rules.json
+              --rule "$OCR_RULE"
               --format json
               --audience agent
             )
@@ -316,27 +557,21 @@ jobs:
             echo 'OCR_REASON'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Check out the OCR posting helper
-        if: always() && (steps.outcome.outputs.final != '' || steps.ocr.outputs.range_reason == 'same_head_noop')
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: alibaba/open-code-review
-          ref: e74f2c6bd4422bd1e12d257d1725bcce1d6b9ddd
-          path: .ocr-action
-          persist-credentials: false
-
-      - name: Post the resumed review
-        id: resume-post
-        if: steps.outcome.outputs.post_resumed == 'true'
+      - name: Post the review
+        id: post
+        if: steps.review.outputs.exit_code == '0' || steps.scope.outputs.mode == 'empty'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          RANGE_MODE: ${{ steps.ocr.outputs.range_mode }}
-          RANGE_FROM: ${{ steps.ocr.outputs.range_from }}
-          RANGE_TO: ${{ steps.ocr.outputs.range_to }}
+          RESULT_PATH: /tmp/ocr-result.json
+          STDERR_PATH: /tmp/ocr-stderr.log
+          # The marker advances only past a run whose coverage command reported
+          # every selected file as reviewed. A waived or oversize-excluded file
+          # leaves the previous marker, so the next range only widens.
+          CHECKPOINT_FINGERPRINT: ${{ steps.outcome.outputs.first_final == '0' && steps.range.outputs.fingerprint || '' }}
+          CHECKPOINT_CARRY: ${{ steps.range.outputs.carry }}
         with:
           script: |
             const path = require('path');
-            const fs = require('fs');
             const helper = path.join(
               process.env.GITHUB_WORKSPACE,
               '.ocr-action',
@@ -351,34 +586,82 @@ jobs:
               core,
               fs,
               prNumber: Number(process.env.PR_NUMBER),
-              resultPath: '/tmp/ocr-resume.json',
-              stderrPath: '/tmp/ocr-resume.err',
+              resultPath: process.env.RESULT_PATH,
+              stderrPath: process.env.STDERR_PATH,
               stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
               incremental: process.env.OCR_INCREMENTAL === 'true',
               // No routing option: the helper routes nothing without a
               // threshold, so no finding moves to the summary.
               checkpointEnabled: process.env.OCR_CHECKPOINT_RANGE === 'true',
-              checkpointCarry: '',
+              checkpointCarry: process.env.CHECKPOINT_CARRY || '',
               checkpointBaseRef: process.env.BASE_REF || '',
               checkpointMergeBase: process.env.MERGE_BASE || '',
-              // An empty fingerprint keeps the previous checkpoint marker, so
-              // the next push reviews a wider range, never a wrong one.
-              checkpointFingerprint: '',
+              checkpointFingerprint: process.env.CHECKPOINT_FINGERPRINT || '',
               checkpointNoop: false,
-              rangeMode: process.env.RANGE_MODE || '',
-              rangeFrom: process.env.RANGE_FROM || '',
-              rangeTo: process.env.RANGE_TO || '',
+              // The range note names the scope, which the coverage section
+              // reports, so the helper renders no range line of its own.
+              rangeMode: '',
+              rangeFrom: '',
+              rangeTo: '',
+              resolveOutdated: process.env.RESOLVE_OUTDATED,
+              appSlug: process.env.OCR_APP_SLUG,
+            });
+
+      - name: Post the resumed review
+        id: resume-post
+        if: steps.outcome.outputs.post_resumed == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RESULT_PATH: /tmp/ocr-resume.json
+          STDERR_PATH: /tmp/ocr-resume.err
+          CHECKPOINT_FINGERPRINT: ${{ steps.outcome.outputs.final == '0' && steps.range.outputs.fingerprint || '' }}
+          CHECKPOINT_CARRY: ${{ steps.range.outputs.carry }}
+        with:
+          script: |
+            const path = require('path');
+            const helper = path.join(
+              process.env.GITHUB_WORKSPACE,
+              '.ocr-action',
+              'scripts',
+              'github-actions',
+              'post-review-comments.js',
+            );
+            const { runPostReviewComments } = require(helper);
+            await runPostReviewComments({
+              github,
+              context,
+              core,
+              fs,
+              prNumber: Number(process.env.PR_NUMBER),
+              resultPath: process.env.RESULT_PATH,
+              stderrPath: process.env.STDERR_PATH,
+              stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
+              incremental: process.env.OCR_INCREMENTAL === 'true',
+              // No routing option: the helper routes nothing without a
+              // threshold, so no finding moves to the summary.
+              checkpointEnabled: process.env.OCR_CHECKPOINT_RANGE === 'true',
+              checkpointCarry: process.env.CHECKPOINT_CARRY || '',
+              checkpointBaseRef: process.env.BASE_REF || '',
+              checkpointMergeBase: process.env.MERGE_BASE || '',
+              checkpointFingerprint: process.env.CHECKPOINT_FINGERPRINT || '',
+              checkpointNoop: false,
+              // The range note names the scope, which the coverage section
+              // reports, so the helper renders no range line of its own.
+              rangeMode: '',
+              rangeFrom: '',
+              rangeTo: '',
               resolveOutdated: process.env.RESOLVE_OUTDATED,
               appSlug: process.env.OCR_APP_SLUG,
             });
 
       - name: Add the coverage section
-        if: always() && steps.ocr.outputs.range_reason != 'same_head_noop'
+        if: always() && steps.range.outputs.mode != 'noop'
         env:
-          FIRST_COMMENT_URL: ${{ steps.ocr.outputs.summary_comment_url }}
+          FIRST_COMMENT_URL: ${{ steps.post.outputs.summary_comment_url }}
           RESUMED_COMMENT_URL: ${{ steps.resume-post.outputs.summary_comment_url }}
           COVERAGE_SOURCE: ${{ steps.outcome.outputs.coverage_source }}
           COVERAGE_VERDICT: ${{ steps.outcome.outputs.coverage_verdict }}
+          SCOPE_NOTE: ${{ steps.scope.outputs.note }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -394,6 +677,11 @@ jobs:
               core.info('The coverage file is empty; leaving the summary comment alone.');
               return;
             }
+            // The scope note names the files and lines this run reviewed, which
+            // the helper's own range line cannot: the reviewed base is a
+            // synthetic commit of this clone, not a commit of the pull request.
+            const note = (process.env.SCOPE_NOTE || '').trim();
+            const section = note ? `### Review scope\n\n${note}\n\n${coverage}` : coverage;
             const fromResume = process.env.COVERAGE_SOURCE === 'resumed';
             const commentUrl = fromResume
               ? process.env.RESUMED_COMMENT_URL || ''
@@ -403,7 +691,7 @@ jobs:
             if (urlMatch && !/^[0-9a-f]{40}$/.test(head)) {
               throw new Error(`HEAD_SHA is not a full commit SHA: "${head}"`);
             }
-            await core.summary.addRaw(coverage).write();
+            await core.summary.addRaw(section).write();
             if (!urlMatch) {
               core.info('This run posted no summary comment; the coverage section is only in the job summary.');
               return;
@@ -450,7 +738,7 @@ jobs:
             // section covers, so a same-head run reads this section as evidence
             // for its own head instead of trusting whichever section is newest.
             const verdict = process.env.COVERAGE_VERDICT || 'failed';
-            const block = `${start}\n<!-- stomme-ocr-coverage-verdict: ${verdict} head=${head} -->\n${coverage}\n${end}`;
+            const block = `${start}\n<!-- stomme-ocr-coverage-verdict: ${verdict} head=${head} -->\n${section}\n${end}`;
             let body = comment.body || '';
             const startAt = markerLineAt(body, start, 0);
             const endAt = startAt === -1 ? -1 : markerLineAt(body, end, startAt + start.length);
@@ -480,7 +768,7 @@ jobs:
 
       - name: Read the checkpointed coverage
         id: checkpoint-coverage
-        if: always() && steps.ocr.outputs.range_reason == 'same_head_noop'
+        if: always() && steps.range.outputs.mode == 'noop'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -548,12 +836,13 @@ jobs:
       - name: Report the OCR result
         if: always()
         env:
-          RANGE_REASON: ${{ steps.ocr.outputs.range_reason }}
+          RANGE_MODE: ${{ steps.range.outputs.mode }}
+          SCOPE_MODE: ${{ steps.scope.outputs.mode }}
           FINAL: ${{ steps.outcome.outputs.final }}
           REASON: ${{ steps.outcome.outputs.reason }}
           CHECKPOINT_VERDICT: ${{ steps.checkpoint-coverage.outputs.verdict }}
         run: |
-          if [ "$RANGE_REASON" = "same_head_noop" ]; then
+          if [ "$RANGE_MODE" = "noop" ]; then
             if [ "$CHECKPOINT_VERDICT" = "complete" ]; then
               echo "The checkpoint already covers the head, and its coverage section reports every selected file as reviewed."
               exit 0
@@ -567,6 +856,10 @@ jobs:
             esac
             echo "::error::the OCR review cannot review the same head again, because $detail. Push a new commit to review this change."
             exit 1
+          fi
+          if [ "$SCOPE_MODE" = "empty" ]; then
+            echo "The scope since the last complete review holds no new lines, so this run reviewed nothing."
+            exit 0
           fi
           if [ "$FINAL" != "0" ] && [ -f /tmp/ocr-coverage.err ]; then
             while IFS= read -r line; do
