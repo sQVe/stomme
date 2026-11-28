@@ -280,13 +280,10 @@ fn report_scope(base: &str, status: &str) -> ExitCode {
         return fail(&format!("stomme: could not write the scope base: {error}"));
     }
 
-    if let Err(error) = write_stderr(&format!("stomme: {status}\n")) {
-        return fail(&format!(
-            "stomme: could not write the scope status: {error}"
-        ));
+    // The base commit is already on stdout, so a broken status stream must not discard it.
+    match write_stderr(&format!("stomme: {status}\n")) {
+        Ok(()) | Err(_) => ExitCode::SUCCESS,
     }
-
-    ExitCode::SUCCESS
 }
 
 fn fail(message: &str) -> ExitCode {
