@@ -177,7 +177,9 @@ fn parse_tree(bytes: &[u8]) -> Result<BTreeMap<String, TreeEntry>, OcrScopeError
         let mode = parts.next().ok_or_else(|| malformed("ls-tree"))?;
         let kind = parts.next().ok_or_else(|| malformed("ls-tree"))?;
         let object = parts.next().ok_or_else(|| malformed("ls-tree"))?;
-        let path = path_text(&field[tab + 1..])?;
+        let Ok(path) = path_text(&field[tab + 1..]) else {
+            continue;
+        };
 
         entries.insert(
             path,

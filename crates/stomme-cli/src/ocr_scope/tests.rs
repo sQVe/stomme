@@ -431,6 +431,40 @@ fn builds_the_scope_from_a_root_that_ends_in_a_space() {
     assert_eq!((files, added, removed), (1, 1, 0));
 }
 
+#[cfg(unix)]
+#[test]
+fn skips_a_head_path_that_is_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| {
+            write_files(folder, &[("src/file.rs", "one\n")]);
+            let path = folder.join(OsStr::from_bytes(b"src/bad-\xff.rs"));
+
+            fs::write(path, "x\n").expect("write the fixture file");
+        },
+        |_| {},
+        |_| {},
+        |folder| write_file(folder, "src/file.rs", b"one\ntwo\n"),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        files,
+        added,
+        removed,
+        ..
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+}
+
 #[test]
 fn scopes_a_line_removed_since_the_review() {
     let folder = repository_folder();
@@ -1044,7 +1078,7 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     let history = build_history(
         folder.path(),
         |folder| write_files(folder, &[("src/other.rs", "other\n")]),
-        |folder| write_file(folder, "src/new.rs", b"new first\nnew second"),
+        |folder| write_file(folder, "src/new.rs", b"new first\nnew third"),
         |_| {},
         |folder| write_file(folder, "src/new.rs", b"new first\nnew second\nnew third"),
     );
@@ -1063,12 +1097,43 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     assert_eq!((files, added, removed), (1, 1, 0));
     assert_eq!(
         blob_text(folder.path(), &format!("{base}:src/new.rs")),
-        "new first\nnew second"
+        "new first\nnew third"
     );
     assert_eq!(
         changed_paths(folder.path(), &base, &history.head),
         ["src/new.rs"]
     );
+}
+
+#[test]
+fn keeps_the_terminator_of_the_last_retained_head_line() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_file(folder, "src/file.rs", b"a\n"),
+        |_| {},
+        |_| {},
+        |folder| write_file(folder, "src/file.rs", b"a\nb"),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(
+        blob_bytes(folder.path(), &format!("{base}:src/file.rs")),
+        b"a\n"
+    );
+    assert_eq!(added_texts(folder.path(), &base, &history.head), ["b"]);
+    assert!(removed_texts(folder.path(), &base, &history.head).is_empty());
 }
 
 #[test]
@@ -1152,6 +1217,30 @@ fn refuses_a_reviewed_head_that_is_not_in_the_clone() {
         OcrScopeError::NotACommit { flag: "--reviewed", ref value } if value == &missing
     ));
     assert!(replace_refs(folder.path()).is_empty());
+}
+
+#[test]
+fn reports_a_scoped_path_missing_from_the_head_tree() {
+    let folder = repository_folder();
+    let git = Git {
+        root: folder.path(),
+    };
+    let scoped = BTreeMap::from([(
+        "src/file.rs".to_string(),
+        ScopedFile::Lines {
+            added: BTreeSet::from([1]),
+            removed: Vec::new(),
+            base_present: true,
+        },
+    )]);
+
+    let error = build_base_commit(&git, "HEAD", &BTreeMap::new(), &scoped)
+        .expect_err("refuse a path that the head tree does not hold");
+
+    assert!(matches!(
+        error,
+        OcrScopeError::MissingHeadEntry { ref path } if path == "src/file.rs"
+    ));
 }
 
 #[test]

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use super::OcrScopeError;
 use super::git::{
     Git, TreeEntry, blob, commit_tree, content_lines, git_path, git_text_with_environment,
-    hash_object, malformed, require_success,
+    hash_object, require_success,
 };
 use super::mapping::InsertedLine;
 
@@ -80,7 +80,9 @@ pub(super) fn build_base_commit(
                 removed,
                 base_present,
             } => {
-                let entry = tree.get(path).ok_or_else(|| malformed("ls-tree"))?;
+                let entry = tree
+                    .get(path)
+                    .ok_or_else(|| OcrScopeError::MissingHeadEntry { path: path.clone() })?;
                 let content = blob(git, &entry.object)?;
                 let rebuilt = rebuild(&content, added, removed);
                 let has_lines = !content_lines(&rebuilt).is_empty();
@@ -117,37 +119,36 @@ fn rebuild(content: &[u8], added: &BTreeSet<usize>, removed: &[InsertedLine]) ->
 
     for line in 1..=line_count {
         if !added.contains(&line) {
-            output.push(OutputLine::Head(lines[line - 1]));
+            let terminated = line < line_count || final_newline;
+            let text = lines[line - 1];
+
+            output.push(OutputLine::Head { text, terminated });
         }
 
         push_insertions(&mut output, &insertions, line);
     }
 
-    serialize(&output, final_newline)
+    serialize(&output)
 }
 
 enum OutputLine<'a> {
-    Head(&'a [u8]),
+    Head { text: &'a [u8], terminated: bool },
     Restored(&'a InsertedLine),
 }
 
-fn serialize(lines: &[OutputLine<'_>], final_newline: bool) -> Vec<u8> {
+fn serialize(lines: &[OutputLine<'_>]) -> Vec<u8> {
     let mut bytes = Vec::new();
     let last = lines.len().saturating_sub(1);
 
     for (index, line) in lines.iter().enumerate() {
-        let text = match line {
-            OutputLine::Head(text) => *text,
-            OutputLine::Restored(restored) => restored.text.as_slice(),
-        };
-        let terminated = match line {
-            OutputLine::Head(_) => index < last || final_newline,
-            OutputLine::Restored(restored) => index < last || restored.terminated,
+        let (text, terminated) = match line {
+            OutputLine::Head { text, terminated } => (*text, *terminated),
+            OutputLine::Restored(restored) => (restored.text.as_slice(), restored.terminated),
         };
 
         bytes.extend_from_slice(text);
 
-        if terminated {
+        if index < last || terminated {
             bytes.push(b'\n');
         }
     }

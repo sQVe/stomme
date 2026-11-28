@@ -50,6 +50,11 @@ pub(crate) enum OcrScopeError {
     NotACommit { flag: &'static str, value: String },
     #[error("`git {command}` failed: {}", escaped_text(.stderr))]
     Git { command: String, stderr: String },
+    #[error(
+        "the head tree has no entry for the path `{}`",
+        escaped_text(.path)
+    )]
+    MissingHeadEntry { path: String },
     #[error("the path `{}` is not valid UTF-8", escaped_text(.path))]
     NotText { path: String },
 }
