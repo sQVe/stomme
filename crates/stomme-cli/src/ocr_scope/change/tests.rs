@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn reads_name_status_records() {
+    let bytes = b"M\0src/modified.rs\0D\0src/deleted.rs\0R100\0src/old.rs\0src/new.rs\0";
+    let cases = [
+        (
+            "a modification",
+            0,
+            'M',
+            "src/modified.rs",
+            "src/modified.rs",
+        ),
+        ("a deletion", 1, 'D', "src/deleted.rs", "src/deleted.rs"),
+        ("a rename", 2, 'R', "src/old.rs", "src/new.rs"),
+    ];
+
+    let changes = parse_name_status(bytes).expect("parse the name-status records");
+
+    assert_eq!(changes.len(), cases.len());
+
+    for (name, index, status, old_path, new_path) in cases {
+        assert_eq!(changes[index].status, status, "{name}");
+        assert_eq!(changes[index].old_path, old_path, "{name}");
+        assert_eq!(changes[index].new_path, new_path, "{name}");
+    }
+}
+
+#[test]
 fn reads_ordered_raw_records_with_rename_paths() {
     let bytes = b":100644 100644 old-object new-object M\0src/a.rs\0:100644 000000 old-object zero-object D\0src/b.rs\0:100644 100755 old-object new-object R100\0src/c.rs\0src/d.rs\0";
 
@@ -34,6 +60,21 @@ fn reads_binary_and_text_numstat_records() {
         })
     ));
     assert!(matches!(stats.get("assets/logo.bin"), Some(Counts::Binary)));
+}
+
+#[test]
+fn reads_a_rename_numstat_record_under_the_new_path() {
+    let stats = parse_numstat(b"1\t2\t\0src/old.rs\0src/new.rs\0")
+        .expect("parse the rename numstat record");
+
+    assert!(matches!(
+        stats.get("src/new.rs"),
+        Some(Counts::Text {
+            added: 1,
+            removed: 2
+        })
+    ));
+    assert!(!stats.contains_key("src/old.rs"));
 }
 
 #[test]

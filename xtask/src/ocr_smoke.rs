@@ -113,14 +113,14 @@ const TYPESCRIPT_CASE: Case = Case {
     )],
 };
 
-pub(super) struct CaseOutcome {
+struct CaseOutcome {
     name: &'static str,
     admission: Vec<String>,
     precedence: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Preview {
+struct Preview {
     files: Vec<PreviewFile>,
 }
 
@@ -152,12 +152,12 @@ struct RuleCheck {
     pattern: String,
 }
 
-pub(super) struct CommandOutput {
+struct CommandOutput {
     stdout: String,
     stderr: String,
 }
 
-pub(super) struct Ocr {
+struct Ocr {
     binary: PathBuf,
     root: PathBuf,
     home: PathBuf,
@@ -361,12 +361,7 @@ fn report(outcomes: &[CaseOutcome]) -> bool {
     passed
 }
 
-pub(super) fn preview_arguments(
-    scratch: &Path,
-    rules: &Path,
-    base: &str,
-    head: &str,
-) -> Vec<String> {
+fn preview_arguments(scratch: &Path, rules: &Path, base: &str, head: &str) -> Vec<String> {
     vec![
         "review".to_string(),
         "--repo".to_string(),
@@ -399,7 +394,7 @@ fn display_path(path: &Path) -> String {
     path.display().to_string()
 }
 
-pub(super) fn run_ocr(ocr: &Ocr, arguments: &[String]) -> anyhow::Result<CommandOutput> {
+fn run_ocr(ocr: &Ocr, arguments: &[String]) -> anyhow::Result<CommandOutput> {
     let description = format!("ocr {}", arguments.join(" "));
     let output = ocr_command(ocr, arguments)
         .output()
@@ -431,7 +426,7 @@ fn ocr_command(ocr: &Ocr, arguments: &[String]) -> Command {
     command
 }
 
-pub(super) fn parse_preview(text: &str, stderr: &str) -> anyhow::Result<Preview> {
+fn parse_preview(text: &str, stderr: &str) -> anyhow::Result<Preview> {
     serde_json::from_str(text).with_context(|| {
         format!("ocr review --preview printed JSON that is not a preview; stderr:\n{stderr}")
     })
@@ -487,23 +482,10 @@ fn pinned_ocr_version(root: &Path) -> anyhow::Result<String> {
 }
 
 fn installed_ocr_version(ocr: &Ocr) -> anyhow::Result<String> {
-    let description = "ocr --version";
-    let output = ocr_command(ocr, &["--version".to_string()])
-        .output()
-        .with_context(|| format!("Could not run {description}"))?;
+    let output = run_ocr(ocr, &["--version".to_string()])?;
 
-    if !output.status.success() {
-        anyhow::bail!(
-            "{description} failed with {}:\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    let stdout = String::from_utf8(output.stdout)
-        .with_context(|| format!("{description} printed output that is not UTF-8"))?;
-
-    version_in(&stdout).with_context(|| format!("{description} printed no version:\n{stdout}"))
+    version_in(&output.stdout)
+        .with_context(|| format!("ocr --version printed no version:\n{}", output.stdout))
 }
 
 fn version_in(text: &str) -> Option<String> {
@@ -598,13 +580,13 @@ fn stomme_output(command: &mut Command, subcommand: &str) -> anyhow::Result<Outp
     Ok(output)
 }
 
-pub(super) fn init_repository(folder: &Path) -> anyhow::Result<()> {
+fn init_repository(folder: &Path) -> anyhow::Result<()> {
     git_text(folder, &["init", "-q"])?;
 
     Ok(())
 }
 
-pub(super) fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<()> {
+fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<()> {
     for (relative, contents) in files {
         let path = folder.join(relative);
         let parent = path.parent().expect("a file path has a parent");
@@ -617,7 +599,7 @@ pub(super) fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Resu
     Ok(())
 }
 
-pub(super) fn stage_tree(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<String> {
+fn stage_tree(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<String> {
     write_files(folder, files)?;
     git_text(folder, &["add", "-A"])?;
 
@@ -640,7 +622,7 @@ fn git_command(folder: &Path) -> Command {
     command
 }
 
-pub(super) fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
+fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
     let mut command = git_command(folder);
     let description = format!("git {}", arguments.join(" "));
     let output = command
@@ -661,7 +643,7 @@ pub(super) fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<Stri
     Ok(text.trim().to_string())
 }
 
-pub(super) fn temporary_folder(prefix: &str) -> anyhow::Result<TempDir> {
+fn temporary_folder(prefix: &str) -> anyhow::Result<TempDir> {
     tempfile::Builder::new()
         .prefix(prefix)
         .tempdir()

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use super::OcrScopeError;
 use super::git::{
-    Git, TreeEntry, blob, commit_tree, content_lines, git_text, git_text_with_environment,
+    Git, TreeEntry, blob, commit_tree, content_lines, git_path, git_text_with_environment,
     hash_object, malformed, require_success,
 };
 use super::mapping::InsertedLine;
@@ -173,9 +173,8 @@ fn write_tree(
     writes: &[(String, String, String)],
     drops: &[String],
 ) -> Result<String, OcrScopeError> {
-    let directory = git_text(git, &["rev-parse", "--absolute-git-dir"])?;
-    let index_path =
-        PathBuf::from(directory).join(format!("stomme-ocr-scope-index-{}", std::process::id()));
+    let directory = git_path(git, &["rev-parse", "--absolute-git-dir"])?;
+    let index_path = directory.join(format!("stomme-ocr-scope-index-{}", std::process::id()));
     let _guard = TemporaryIndex {
         path: index_path.clone(),
     };

@@ -1397,9 +1397,20 @@ fn diff_texts(folder: &Path, base: &str, head: &str) -> (Vec<String>, Vec<String
     let text = String::from_utf8(output.stdout).expect("the diff is UTF-8");
     let mut added = Vec::new();
     let mut removed = Vec::new();
+    let mut in_file_header = false;
 
     for line in text.lines() {
-        if line.starts_with("+++") || line.starts_with("---") {
+        if line.starts_with("diff --git ") {
+            in_file_header = true;
+            continue;
+        }
+
+        if line.starts_with("@@") {
+            in_file_header = false;
+            continue;
+        }
+
+        if in_file_header {
             continue;
         }
 

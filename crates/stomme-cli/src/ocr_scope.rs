@@ -132,9 +132,10 @@ fn resolve(git: &Git<'_>, flag: &'static str, value: &str) -> Result<String, Ocr
         });
     }
 
-    git::require_success(&arguments, &output)?;
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    match git::require_success(&arguments, &output) {
+        Ok(()) => Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()),
+        Err(error) => Err(error),
+    }
 }
 
 fn coverage(git: &Git<'_>, base: &str, reviewed: &str) -> Result<Vec<CoveredLine>, OcrScopeError> {

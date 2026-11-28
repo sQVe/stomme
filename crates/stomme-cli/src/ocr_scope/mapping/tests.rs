@@ -201,19 +201,19 @@ fn covered_line(path: &str, line: usize, text: &str) -> CoveredLine {
 }
 
 fn changes(path: &str, patch: &str) -> BTreeMap<String, RangeChange> {
-    let hunks = parse_hunks(patch.as_bytes());
+    let hunks = parse_hunks(patch.as_bytes()).expect("parse the fixture patch");
     let change = RangeChange {
         new_path: path.to_string(),
-        hunks,
+        hunks: Some(hunks),
     };
 
     BTreeMap::from([(path.to_string(), change)])
 }
 
 fn head_lines(path: &str, text: &str) -> BTreeMap<String, Vec<Vec<u8>>> {
-    let lines = text
-        .split('\n')
-        .map(|line| line.as_bytes().to_vec())
+    let lines = crate::ocr_scope::git::content_lines(text.as_bytes())
+        .into_iter()
+        .map(<[u8]>::to_vec)
         .collect();
 
     BTreeMap::from([(path.to_string(), lines)])

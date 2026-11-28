@@ -29,7 +29,7 @@ fn rejects_a_bad_hunk_header() {
 
 #[test]
 fn reads_removed_added_and_context_rows() {
-    let hunks = parse_hunks(b"@@ -1,3 +1,2 @@\n-a\n b\n+c").expect("parse the hunk");
+    let hunks = parse_hunks(b"@@ -1,2 +1,2 @@\n-a\n b\n+c").expect("parse the hunk");
 
     assert_eq!(
         hunks[0].rows,

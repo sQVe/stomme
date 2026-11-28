@@ -75,6 +75,7 @@ const BASE_FILES: &[(&str, &str)] = &[
 const REVIEWED_FILES: &[(&str, &str)] = &[
     ("src/kept.rs", REVIEWED_KEPT),
     ("src/changed.rs", REVIEWED_CHANGED),
+    ("src/main_only.rs", BASE_MAIN_ONLY),
 ];
 
 const MOVED_BASE_FILES: &[(&str, &str)] = &[
@@ -92,6 +93,13 @@ const HEAD_FILES: &[(&str, &str)] = &[
 struct History {
     head: String,
     scoped_base: String,
+}
+
+struct ScopeRefs<'a> {
+    reviewed: &'a str,
+    reviewed_base: &'a str,
+    base: &'a str,
+    head: &'a str,
 }
 
 pub(super) fn run_scope_case(ocr: &Ocr) -> anyhow::Result<CaseOutcome> {
@@ -160,26 +168,28 @@ fn build_history(path: &Path, root: &Path) -> anyhow::Result<History> {
         &["commit-tree", &head_tree, "-p", &moved_base, "-m", "head"],
     )?;
 
-    let scoped_base = run_scope_command(path, root, &reviewed, &base, &moved_base, &head)?;
+    let scoped_base = run_scope_command(
+        path,
+        root,
+        &ScopeRefs {
+            reviewed: &reviewed,
+            reviewed_base: &base,
+            base: &moved_base,
+            head: &head,
+        },
+    )?;
 
     Ok(History { head, scoped_base })
 }
 
-fn run_scope_command(
-    folder: &Path,
-    root: &Path,
-    reviewed: &str,
-    reviewed_base: &str,
-    base: &str,
-    head: &str,
-) -> anyhow::Result<String> {
+fn run_scope_command(folder: &Path, root: &Path, refs: &ScopeRefs<'_>) -> anyhow::Result<String> {
     let mut command = stomme_command(root, folder, "ocr-scope");
 
     command
-        .args(["--reviewed", reviewed])
-        .args(["--reviewed-base", reviewed_base])
-        .args(["--base", base])
-        .args(["--head", head]);
+        .args(["--reviewed", refs.reviewed])
+        .args(["--reviewed-base", refs.reviewed_base])
+        .args(["--base", refs.base])
+        .args(["--head", refs.head]);
     let output = stomme_output(&mut command, "ocr-scope")?;
     let text = String::from_utf8(output.stdout)
         .context("ocr-scope printed a base commit that is not UTF-8")?;
