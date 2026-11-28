@@ -340,6 +340,28 @@ fn a_type_annotation_before_a_leading_colon_is_not_a_path_start() {
 }
 
 #[test]
+fn edition_2015_reads_a_leading_colon_after_a_generic_close() {
+    let paths = paths_in(
+        "fn f() {\n    x > ::config::LIMIT;\n    Foo::<{ N }>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
+fn edition_2015_ignores_an_earlier_comparison_when_reading_a_leading_colon() {
+    let paths = paths_in(
+        "fn smaller(a: u8, b: u8) -> bool {\n    a < b\n}\n\nfn compare() {\n    if 2 > ::config::LIMIT {\n        println!(\"big\");\n    }\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
 fn a_leading_colon_after_a_cast_is_a_path_in_edition_2015() {
     let paths = paths_in(
         "fn f() {\n    let value = 0 as ::config::Ty;\n}\n",

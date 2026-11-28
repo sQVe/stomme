@@ -993,6 +993,31 @@ fn glob_reexport_use_reports_the_private_file_it_reaches() {
 }
 
 #[test]
+fn a_restricted_glob_does_not_reach_the_private_file() {
+    let cases = [
+        ("pub(self)", "pub(self) use attention::*;\n", false),
+        (
+            "pub(in crate::fact)",
+            "pub(in crate::fact) use attention::*;\n",
+            false,
+        ),
+        ("pub", "pub use attention::*;\n", true),
+    ];
+
+    for (name, glob, reaches) in cases {
+        let fact_entry = format!("mod attention;\n{glob}");
+        let root = alias_project(&fact_entry, INNER_FILES, "", INNER_HELPER);
+        let problems = problems(root.path());
+
+        if reaches {
+            assert_keys(&problems, &[INNER], name);
+        } else {
+            assert_keys(&problems, &[], name);
+        }
+    }
+}
+
+#[test]
 fn glob_reexport_cases_decide_the_reached_private_file() {
     assert_cases([
         Case {

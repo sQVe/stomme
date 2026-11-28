@@ -33,13 +33,15 @@ enum Visibility {
 }
 
 type ScopeTable = BTreeMap<String, BTreeMap<Vec<String>, Scope>>;
+type MemoKey = (Place, String, Visibility, Namespace);
+type Memo = BTreeMap<MemoKey, BTreeSet<Meaning>>;
 
 pub(super) struct Resolver<'a> {
     pub(super) tree: &'a Tree,
     pub(super) modules: &'a [Module],
     scopes: ScopeTable,
     file_paths: BTreeSet<&'a str>,
-    memo: RefCell<BTreeMap<(Place, String, Visibility), BTreeSet<Meaning>>>,
+    memo: RefCell<Memo>,
 }
 
 impl<'a> Resolver<'a> {
@@ -150,7 +152,7 @@ impl<'a> Resolver<'a> {
             return BTreeSet::from([Meaning::Item]);
         }
 
-        let memo_key = (place.clone(), name.to_string(), visibility);
+        let memo_key = (place.clone(), name.to_string(), visibility, namespace);
         let remembered = self.memo.borrow().get(&memo_key).cloned();
 
         if let Some(meanings) = remembered {
@@ -174,7 +176,7 @@ impl<'a> Resolver<'a> {
         // A value and a module share a name in separate namespaces, so only an export that may
         // name the module hides the module a glob binds.
         if children.is_empty() && !shadows_glob {
-            meanings.extend(self.glob_meanings(place, scope, name, walk));
+            meanings.extend(self.glob_meanings(place, scope, name, visibility, namespace, walk));
         }
 
         meanings.extend(children);
@@ -240,6 +242,8 @@ impl<'a> Resolver<'a> {
         place: &Place,
         scope: &Scope,
         name: &str,
+        visibility: Visibility,
+        namespace: Namespace,
         walk: &mut Walk,
     ) -> BTreeSet<Meaning> {
         let mut meanings = BTreeSet::new();
@@ -251,13 +255,7 @@ impl<'a> Resolver<'a> {
                 };
 
                 if self.binds_publicly(walk.module, &target, name) {
-                    meanings.extend(self.lookup(
-                        &target,
-                        name,
-                        Visibility::Crate,
-                        Namespace::Type,
-                        walk,
-                    ));
+                    meanings.extend(self.lookup(&target, name, visibility, namespace, walk));
                 }
             }
         }

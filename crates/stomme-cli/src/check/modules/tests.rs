@@ -776,7 +776,7 @@ fn an_explicit_package_workspace_selects_its_edition() {
 }
 
 #[test]
-fn an_escaping_package_workspace_falls_back_to_the_ancestors() {
+fn an_escaping_package_workspace_leaves_the_edition_unknown() {
     let files = [
         (
             "crates/Cargo.toml",
@@ -794,25 +794,61 @@ fn an_escaping_package_workspace_falls_back_to_the_ancestors() {
 
     let problems = problems(root.path());
 
-    assert_problem(
-        &problems,
-        "crates/a/src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "escaping package workspace",
-    );
+    assert_eq!(problems, Vec::<Problem>::new());
 }
 
 #[test]
-fn a_missing_package_workspace_falls_back_to_the_ancestors() {
+fn a_missing_package_workspace_leaves_the_edition_unknown() {
+    let cases = [
+        ("declared missing", "workspace = \"../missing\"\n", false),
+        ("no workspace key", "", true),
+    ];
+    let table = "[modules.config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.ticket]\nentry = \"crates/a/src/ticket.rs\"\n";
+
+    for (name, workspace, walks_to_ancestor) in cases {
+        let member = format!(
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition.workspace = true\n{workspace}"
+        );
+        let files = [
+            (
+                "crates/Cargo.toml",
+                "[workspace]\n\n[workspace.package]\nedition = \"2015\"\n",
+            ),
+            ("crates/a/Cargo.toml", member.as_str()),
+            ("crates/a/src/config.rs", "pub fn read() {}\n"),
+            ("crates/a/src/ticket.rs", "use ::config::read;\n"),
+        ];
+        let root = project(&files, table);
+        let problems = problems(root.path());
+
+        if walks_to_ancestor {
+            assert_problem(
+                &problems,
+                "crates/a/src/ticket.rs",
+                Rule::ModuleImports,
+                "ticket:config",
+                name,
+            );
+        } else {
+            assert!(problems.is_empty(), "{name}: {problems:?}");
+        }
+    }
+}
+
+#[test]
+fn a_package_workspace_without_a_workspace_section_leaves_the_edition_unknown() {
     let files = [
         (
             "crates/Cargo.toml",
             "[workspace]\n\n[workspace.package]\nedition = \"2015\"\n",
         ),
         (
+            "crates/ws/Cargo.toml",
+            "[package]\nname = \"ws\"\nversion = \"0.1.0\"\n",
+        ),
+        (
             "crates/a/Cargo.toml",
-            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition.workspace = true\nworkspace = \"../missing\"\n",
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition.workspace = true\nworkspace = \"../ws\"\n",
         ),
         ("crates/a/src/config.rs", "pub fn read() {}\n"),
         ("crates/a/src/ticket.rs", "use ::config::read;\n"),
@@ -820,15 +856,7 @@ fn a_missing_package_workspace_falls_back_to_the_ancestors() {
     let table = "[modules.config]\nentry = \"crates/a/src/config.rs\"\n\n[modules.ticket]\nentry = \"crates/a/src/ticket.rs\"\n";
     let root = project(&files, table);
 
-    let problems = problems(root.path());
-
-    assert_problem(
-        &problems,
-        "crates/a/src/ticket.rs",
-        Rule::ModuleImports,
-        "ticket:config",
-        "missing package workspace",
-    );
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
 }
 
 #[test]
@@ -854,6 +882,78 @@ fn edition_2015_resolves_a_leading_colon_inside_the_crate() {
         "ticket:config",
         "edition 2015",
     );
+}
+
+#[test]
+fn edition_2015_leading_colon_is_external_without_a_local_module() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"edition-2015\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/config.rs", "pub mod parse;\n"),
+        ("src/config/parse.rs", "pub fn read() {}\n"),
+        (
+            "src/ticket.rs",
+            "use ::std::mem;\nuse ::config::parse::read;\n",
+        ),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModuleImports,
+        "ticket:config",
+        "leading colon external",
+    );
+}
+
+#[test]
+fn edition_2015_unrooted_use_is_crate_relative() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"edition-2015\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/config.rs", "pub mod Hidden;\n"),
+        ("src/config/Hidden.rs", "pub fn read() {}\n"),
+        ("src/ticket.rs", "use std::mem;\nuse config::Hidden;\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModulePrivateFile,
+        "ticket:src/config/Hidden.rs",
+        "unrooted edition 2015 use",
+    );
+}
+
+#[test]
+fn a_value_path_through_a_public_glob_binds_the_value_item() {
+    let files = [
+        (
+            "src/fact.rs",
+            "pub fn api() {}\npub mod api;\npub mod hub { pub use super::*; }\n",
+        ),
+        ("src/fact/api.rs", "pub fn read() {}\n"),
+        (
+            "src/ticket.rs",
+            "fn f() {\n    crate::fact::hub::api();\n}\n",
+        ),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
 }
 
 #[test]

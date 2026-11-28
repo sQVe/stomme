@@ -128,7 +128,9 @@ pub(super) fn scopes(source: &str, edition: Edition, module_depth: usize) -> Vec
                     };
 
                     if is_glob(&leaf) {
-                        scopes[current].globs.push(glob_target(leaf, edition));
+                        if visibility != ExportVisibility::Restricted {
+                            scopes[current].globs.push(glob_target(leaf, edition));
+                        }
                     } else if let Some(export) = export(leaf, visibility, edition) {
                         scopes[current].exports.push(export);
                     }
@@ -237,7 +239,12 @@ fn public_module_name<'source>(
     tokens: &TokenStream<'source>,
     parent_is_crate_root: bool,
 ) -> Option<&'source str> {
-    let (mut lookahead, _) = after_visibility(token, tokens, parent_is_crate_root)?;
+    let (mut lookahead, visibility) = after_visibility(token, tokens, parent_is_crate_root)?;
+
+    if visibility == ExportVisibility::Restricted {
+        return None;
+    }
+
     let module_token = lookahead.next()?;
     let declaration = module_declaration(module_token, &lookahead)?;
 

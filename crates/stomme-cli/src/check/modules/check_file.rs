@@ -173,15 +173,13 @@ fn classify_unlisted(
         return Some(crate_root_path(file, module, use_path, "*"));
     }
 
-    let names_file = tree
-        .files
-        .iter()
-        .any(|file| file.path == format!("{}/{first}.rs", module.src_folder));
-    let names_folder = tree
-        .folders
-        .contains(&format!("{}/{first}", module.src_folder));
+    let names_a_local_module = names_a_local_module(tree, module, first);
 
-    if !names_file && !names_folder {
+    if !names_a_local_module {
+        if use_path.implicit_crate_root {
+            return None;
+        }
+
         return Some(crate_root_path(file, module, use_path, first));
     }
 
@@ -192,6 +190,18 @@ fn classify_unlisted(
     let key = format!("{}:{first}", module.name);
 
     Some(problem(file, Rule::ModuleImports, message, key))
+}
+
+fn names_a_local_module(tree: &Tree, module: &Module, first: &str) -> bool {
+    let names_file = tree
+        .files
+        .iter()
+        .any(|file| file.path == format!("{}/{first}.rs", module.src_folder));
+    let names_folder = tree
+        .folders
+        .contains(&format!("{}/{first}", module.src_folder));
+
+    names_file || names_folder
 }
 
 fn crate_root_itself(file: &SourceFile, module: &Module, use_path: &UsePath) -> Problem {

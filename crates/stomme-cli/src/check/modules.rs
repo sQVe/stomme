@@ -186,18 +186,33 @@ fn read_workspace_edition(
     manifest: &cargo_manifest::PackageManifest,
     problems: &mut Vec<Problem>,
 ) -> anyhow::Result<Edition> {
-    if let Some(folder) = explicit_workspace_folder(package, manifest) {
-        match read_manifest(root, &folder, problems)? {
-            ManifestRead::Found(workspace_manifest) => {
-                if let Some(workspace) = workspace_manifest.workspace.as_ref() {
-                    return Ok(workspace_edition(workspace));
-                }
-            }
-            ManifestRead::Missing => {}
-            ManifestRead::Invalid => return Ok(Edition::Other),
-        }
-    }
+    let Some(workspace) = manifest
+        .package
+        .as_ref()
+        .and_then(|package| package.workspace.as_deref())
+    else {
+        return read_inherited_edition(root, package, manifest, problems);
+    };
 
+    let Some(folder) = workspace_folder(package, workspace) else {
+        return Ok(Edition::Other);
+    };
+
+    match read_manifest(root, &folder, problems)? {
+        ManifestRead::Found(workspace_manifest) => Ok(workspace_manifest
+            .workspace
+            .as_ref()
+            .map_or(Edition::Other, workspace_edition)),
+        ManifestRead::Missing | ManifestRead::Invalid => Ok(Edition::Other),
+    }
+}
+
+fn read_inherited_edition(
+    root: &Path,
+    package: &str,
+    manifest: &cargo_manifest::PackageManifest,
+    problems: &mut Vec<Problem>,
+) -> anyhow::Result<Edition> {
     if let Some(workspace) = manifest.workspace.as_ref() {
         return Ok(workspace_edition(workspace));
     }
@@ -219,15 +234,6 @@ fn read_workspace_edition(
     }
 
     Ok(Edition::Other)
-}
-
-fn explicit_workspace_folder(
-    package: &str,
-    manifest: &cargo_manifest::PackageManifest,
-) -> Option<String> {
-    let workspace = manifest.package.as_ref()?.workspace.as_deref()?;
-
-    workspace_folder(package, workspace)
 }
 
 fn workspace_folder(package: &str, workspace: &str) -> Option<String> {

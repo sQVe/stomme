@@ -268,6 +268,14 @@ fn public_module_declarations_are_listed_per_scope() {
 }
 
 #[test]
+fn restricted_module_declarations_are_not_public() {
+    let scope =
+        file_scope("pub(self) mod a;\npub(in crate::x) mod b;\npub(crate) mod c;\npub mod d;\n");
+
+    assert_eq!(scope.public_modules, names(&["c", "d"]));
+}
+
+#[test]
 fn glob_exports_are_listed_as_targets() {
     let source = "pub use attention::*;\npub use self::*;\npub use super::*;\npub use crate::fact::*;\npub use ::std::*;\npub use self::{score, attention::*};\nuse private::*;\n";
     let scope = file_scope(source);
@@ -286,6 +294,21 @@ fn glob_exports_are_listed_as_targets() {
     assert_eq!(
         file_exports(source),
         [named("score", relative(0, &["score"]))]
+    );
+}
+
+#[test]
+fn restricted_globs_are_not_recorded() {
+    let scope = file_scope(
+        "pub(self) use path::*;\npub(in crate::x) use other::*;\npub(crate) use crate_wide::*;\npub use public::*;\nuse private::*;\n",
+    );
+
+    assert_eq!(
+        scope.globs,
+        [
+            Target::Bare(strings(&["crate_wide"])),
+            Target::Bare(strings(&["public"])),
+        ]
     );
 }
 

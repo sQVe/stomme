@@ -23,9 +23,12 @@ pub(super) struct UsePath {
     pub(super) inline_modules: Vec<String>,
     pub(super) in_test_module: bool,
     pub(super) namespace: Namespace,
+    // A crate prefix the edition supplied, so a first segment with no local file or folder is
+    // external.
+    pub(super) implicit_crate_root: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Namespace {
     Type,
     Value,
@@ -176,6 +179,7 @@ fn push_leading_colon_paths(
             inline_modules: modules.clone(),
             in_test_module,
             namespace: Namespace::Value,
+            implicit_crate_root: true,
         });
     }
 }
@@ -217,6 +221,7 @@ fn push_value_path(
             inline_modules: inline_path.clone(),
             in_test_module,
             namespace: Namespace::Value,
+            implicit_crate_root: false,
         });
     }
 }
@@ -235,12 +240,18 @@ fn read_use_declaration(
         let Some(segments) = use_path_segments(&leaf, edition, &modules, table) else {
             continue;
         };
+        let implicit_crate_root = edition.is_2015()
+            && leaf
+                .segments
+                .first()
+                .is_some_and(|first| !is_root_name(first));
         paths.push(UsePath {
             segments,
             line: leaf.line,
             inline_modules: modules.clone(),
             in_test_module,
             namespace: Namespace::Type,
+            implicit_crate_root,
         });
     }
 }
@@ -287,22 +298,43 @@ fn is_leading_colon_colon(
 fn ends_a_path(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
     match token.kind {
         TokenKind::CloseBracket | TokenKind::CloseParen => true,
-        TokenKind::Gt => token
-            .index
-            .checked_sub(1)
-            .and_then(|index| all_tokens.get(index))
-            .is_some_and(|before| {
-                matches!(
-                    before.kind,
-                    TokenKind::Ident
-                        | TokenKind::RawIdent
-                        | TokenKind::Gt
-                        | TokenKind::CloseBracket
-                        | TokenKind::CloseParen
-                )
-            }),
+        TokenKind::Gt => closes_generic_arguments(token, all_tokens),
         _ => false,
     }
+}
+
+fn closes_generic_arguments(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
+    let mut angles = 0usize;
+    let mut braces = 0usize;
+    let mut parens = 0usize;
+    let mut brackets = 0usize;
+
+    for before in all_tokens[..token.index].iter().rev() {
+        let nested = braces > 0 || parens > 0 || brackets > 0;
+
+        match before.kind {
+            TokenKind::Gt if !nested => angles += 1,
+            TokenKind::Lt if !nested => {
+                if angles == 0 {
+                    return true;
+                }
+
+                angles -= 1;
+            }
+            TokenKind::CloseBrace => braces += 1,
+            TokenKind::OpenBrace if braces == 0 => return false,
+            TokenKind::OpenBrace => braces -= 1,
+            TokenKind::CloseParen => parens += 1,
+            TokenKind::OpenParen if parens == 0 => return false,
+            TokenKind::OpenParen => parens -= 1,
+            TokenKind::CloseBracket => brackets += 1,
+            TokenKind::OpenBracket if brackets == 0 => return false,
+            TokenKind::OpenBracket => brackets -= 1,
+            _ => {}
+        }
+    }
+
+    false
 }
 
 fn is_expression_keyword(token: &Token<'_>) -> bool {
@@ -373,14 +405,25 @@ fn use_path_segments(
         return Some(segments);
     }
 
-    if !leaf.has_separator {
-        return None;
-    }
-
     let first = leaf.segments.first()?;
 
     if is_root_name(first) {
+        if !leaf.has_separator {
+            return None;
+        }
+
         return Some(leaf.segments.clone());
+    }
+
+    if edition.is_2015() {
+        let mut segments = vec!["crate".to_string()];
+        segments.extend(leaf.segments.iter().cloned());
+
+        return Some(segments);
+    }
+
+    if !leaf.has_separator {
+        return None;
     }
 
     let mut segments = expand_root(first, inline_path, table, edition)?;
