@@ -1001,16 +1001,22 @@ fn ci_shards_the_mutation_changed_job_across_four_runners() {
     let mutate = workflow_step(&steps, "Mutate the pull request's diff");
     let script = step_script(mutate);
     let mutate_at = script
-        .find("cargo xtask mutation changed \"$BASE_SHA\" --shard \"$SHARD/4\"")
+        .find("cargo xtask mutation changed \"$BASE_SHA\" --shard \"$SHARD/${{ strategy.job-total }}\"")
         .unwrap_or_else(|| panic!("the step runs one shard: {script}"));
-    let memory_start = script.find("free -m").expect("the step logs memory first");
-    let memory_end = script.rfind("free -m").expect("the step logs memory last");
 
     assert!(mutate.contains("\n          SHARD: ${{ matrix.shard }}\n"));
-    assert!(memory_start < mutate_at, "{script}");
-    assert!(mutate_at < memory_end, "{script}");
-    assert_eq!(script.matches("free -m").count(), 2, "{script}");
-    assert_eq!(script.matches("df -h").count(), 2, "{script}");
+
+    for probe in ["free -m", "df -h"] {
+        let first = script
+            .find(probe)
+            .unwrap_or_else(|| panic!("the step logs {probe} before the run: {script}"));
+        let last = script
+            .rfind(probe)
+            .expect("the step logs the probe after the run");
+
+        assert!(first < mutate_at, "{script}");
+        assert!(mutate_at < last, "{script}");
+    }
 
     let upload = steps
         .iter()
@@ -1068,16 +1074,18 @@ fn ci_merges_the_shard_reports() {
         (
             "survivors from two shards",
             vec![
-                report("survivors", vec![survivor("a.rs", 1)], &[]),
-                report("survivors", vec![survivor("b.rs", 2)], &[]),
+                report("survivors", vec![survivor("a.rs", 1)], &["c.rs"]),
+                report("survivors", vec![survivor("b.rs", 2)], &["c.rs", "d.rs"]),
             ],
             "survivors",
             vec!["a.rs:1", "b.rs:2"],
+            vec!["c.rs", "d.rs"],
         ),
         (
             "an error in one shard",
             vec![report("pass", vec![], &[]), report("error", vec![], &[])],
             "error",
+            vec![],
             vec![],
         ),
         (
@@ -1088,10 +1096,11 @@ fn ci_merges_the_shard_reports() {
             ],
             "nothing",
             vec![],
+            vec![],
         ),
     ];
 
-    for (name, reports, status, listed) in cases {
+    for (name, reports, status, listed, unmutated) in cases {
         let (merged, summary) = run_merge(merge, &reports);
 
         assert_eq!(merged["status"], status, "{name}");
@@ -1100,6 +1109,7 @@ fn ci_merges_the_shard_reports() {
             Some(listed.len()),
             "{name}"
         );
+        assert_eq!(merged["unmutated"], json!(unmutated), "{name}");
 
         for line in listed {
             assert!(summary.contains(line), "{name}: {summary}");

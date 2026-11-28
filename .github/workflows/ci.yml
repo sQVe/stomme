@@ -124,10 +124,11 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SHARD: ${{ matrix.shard }}
         run: |
+          # Log memory and disk at both ends, so a lost runner leaves a record of its use.
           free -m
           df -h
           status=0
-          cargo xtask mutation changed "$BASE_SHA" --shard "$SHARD/4" > mutation-report.json || status=$?
+          cargo xtask mutation changed "$BASE_SHA" --shard "$SHARD/${{ strategy.job-total }}" > mutation-report.json || status=$?
           free -m
           df -h
           cat mutation-report.json

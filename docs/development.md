@@ -10,6 +10,8 @@
    cargo install --locked cargo-nextest cargo-deny cargo-shear cargo-mutants typos-cli taplo-cli prek
    ```
 
+   Install `jq` as well. The workflow tests run the mutation job's report merge, which uses it.
+
 3. Install Node, pnpm, and Bun. Use the Node major and Bun version in
    [CI](../.github/workflows/ci.yml), and the pnpm version in
    [package.json](../package.json). The package's `engines` field sets the minimum Node and Bun
