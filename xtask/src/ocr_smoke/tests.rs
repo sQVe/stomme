@@ -238,15 +238,22 @@ fn typescript_consumer_case_passes_and_fails_without_include() {
 #[test]
 fn check_passes_on_the_current_tree() {
     let outcomes = check(&crate::workspace_root()).expect("run the smoke check");
+    let expected = [
+        ("repository", true),
+        ("typescript consumer", true),
+        ("scope", false),
+    ];
 
-    assert_eq!(outcomes.len(), 3);
-    for outcome in &outcomes {
-        assert!(outcome.admission.is_empty(), "{}", outcome.name);
+    assert_eq!(outcomes.len(), expected.len());
 
-        if outcome.name == "scope" {
-            assert_eq!(outcome.precedence, None, "{}", outcome.name);
-        } else {
-            assert_eq!(outcome.precedence, Some(Vec::new()), "{}", outcome.name);
+    for (outcome, (name, checks_precedence)) in outcomes.iter().zip(expected) {
+        assert_eq!(outcome.name, name);
+        assert!(outcome.admission.is_empty(), "{name}");
+
+        match (checks_precedence, outcome.precedence.as_deref()) {
+            (true, Some(precedence)) => assert!(precedence.is_empty(), "{name}"),
+            (false, None) => {}
+            _ => panic!("{name} has the wrong precedence check"),
         }
     }
 }

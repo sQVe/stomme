@@ -73,16 +73,20 @@ fn is_rename(status: char) -> bool {
     status == 'R' || status == 'C'
 }
 
-struct RawChange {
-    status: char,
-    old_path: String,
-    new_path: String,
-    old_mode: String,
-    new_mode: String,
-    old_object: String,
+pub(super) struct RawChange {
+    pub(super) status: char,
+    pub(super) old_path: String,
+    pub(super) new_path: String,
+    pub(super) old_mode: String,
+    pub(super) new_mode: String,
+    pub(super) old_object: String,
 }
 
-fn raw_changes(git: &Git<'_>, base: &str, head: &str) -> Result<Vec<RawChange>, OcrScopeError> {
+pub(super) fn raw_changes(
+    git: &Git<'_>,
+    base: &str,
+    head: &str,
+) -> Result<Vec<RawChange>, OcrScopeError> {
     let arguments = [
         "diff",
         "--raw",

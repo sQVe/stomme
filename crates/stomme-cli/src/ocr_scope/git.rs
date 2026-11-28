@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use super::OcrScopeError;
@@ -99,6 +99,29 @@ pub(super) fn git_text(git: &Git<'_>, arguments: &[&str]) -> Result<String, OcrS
     require_success(arguments, &output)?;
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+pub(super) fn git_path(git: &Git<'_>, arguments: &[&str]) -> Result<PathBuf, OcrScopeError> {
+    let output = git.run(arguments)?;
+
+    require_success(arguments, &output)?;
+
+    let path = output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout);
+
+    Ok(path_from_bytes(path))
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt as _;
+
+    PathBuf::from(OsStr::from_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
 pub(super) fn git_text_with_environment(

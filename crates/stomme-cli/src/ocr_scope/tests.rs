@@ -309,6 +309,42 @@ fn leaves_out_a_removal_the_review_already_covered() {
     assert!(replace_refs(folder.path()).is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn scopes_a_deletion_after_a_prior_symlink_conversion() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_symlink(folder, "src/a.txt", "token"),
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_files(folder, &[("src/a.txt", "keep\ntoken\n")]);
+        },
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_files(folder, &[("src/a.txt", "keep\ntoken\n")]);
+        },
+        |folder| write_files(folder, &[("src/a.txt", "keep\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 0, 1));
+    assert_eq!(
+        removed_texts(folder.path(), &base, &history.head),
+        ["token"]
+    );
+}
+
 #[test]
 fn gives_the_same_scope_from_a_nested_folder() {
     let folder = repository_folder();
@@ -326,6 +362,40 @@ fn gives_the_same_scope_from_a_nested_folder() {
 
     assert!(matches!(from_root, Outcome::Base { .. }));
     assert_eq!(from_nested, from_root);
+}
+
+#[cfg(unix)]
+#[test]
+fn builds_the_scope_from_a_root_that_ends_in_a_space() {
+    let parent = tempfile::Builder::new()
+        .prefix("stomme-ocr-scope-space-")
+        .tempdir()
+        .expect("create a temporary folder");
+    let folder = parent.path().join("root ");
+
+    fs::create_dir(&folder).expect("create the repository folder");
+    git(&folder, &["init", "-q"]);
+
+    let history = build_history(
+        &folder,
+        |folder| write_files(folder, &[("src/a.txt", "keep\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nreviewed\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nreviewed\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nreviewed\nnew\n")]),
+    );
+
+    let outcome = run_scope(&folder, &history).expect("build the scope base");
+    let Outcome::Base {
+        files,
+        added,
+        removed,
+        ..
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
 }
 
 #[test]

@@ -12,8 +12,8 @@ mod mapping;
 mod patch;
 
 use base::{ScopedFile, build_base_commit, counts};
-use change::{Change, Counts, detailed_changes, file_patch, name_status};
-use git::{Git, TreeEntry, blob, content_lines, git_text, graft, tree_entries};
+use change::{Change, Counts, detailed_changes, file_patch, name_status, raw_changes};
+use git::{Git, TreeEntry, blob, content_lines, git_path, git_text, graft, tree_entries};
 use mapping::{
     CoveredLine, RangeChange, added_lines, claimed_positions, map_covered_lines, removed_texts,
     scoped_removed_lines, uncovered_added_lines,
@@ -106,9 +106,8 @@ fn is_shallow(git: &Git<'_>) -> Result<bool, OcrScopeError> {
 
 fn repository_root(git: &Git<'_>) -> Result<PathBuf, OcrScopeError> {
     let arguments = ["rev-parse", "--show-toplevel"];
-    let root = git_text(git, &arguments)?;
 
-    Ok(PathBuf::from(root))
+    git_path(git, &arguments)
 }
 
 fn resolve(git: &Git<'_>, flag: &'static str, value: &str) -> Result<String, OcrScopeError> {
@@ -179,11 +178,14 @@ fn range_changes(
     base: &str,
     head: &str,
 ) -> Result<BTreeMap<String, RangeChange>, OcrScopeError> {
-    let statuses = name_status(git, base, head)?;
+    let statuses = raw_changes(git, base, head)?;
     let mut changes = BTreeMap::new();
 
     for change in statuses {
-        if change.status == 'D' {
+        if change.status == 'D'
+            || is_non_regular(&change.old_mode)
+            || is_non_regular(&change.new_mode)
+        {
             continue;
         }
 
