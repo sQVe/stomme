@@ -145,6 +145,8 @@ cargo xtask mutation changed main
 cargo xtask mutation audit xtask/src/check.rs
 
 cargo xtask mutation changed main --max-mutants 50
+
+cargo xtask mutation changed main --shard 1/4
 ```
 
 `.cargo/mutants.toml` leaves out test code and test helpers. A missed mutant is a survivor: add a
@@ -152,6 +154,10 @@ test that fails when that line changes. The command exits 0 when every mutant is
 survivors in changed mode, and 1 for an error or an unmutated file. cargo-mutants writes its logs
 to `target/mutants/mutants.out`. Each job runs nextest with a test-thread count that bounds the
 concurrent nextest tests across all jobs; it does not bound total CPU use.
+
+`--shard <index>/<count>` runs one shard of the mutants, with the index counting from 0. Every shard
+of one run needs the same arguments and the same count. A shard runs a round-robin share of the
+mutants, so one slow file does not lengthen a single shard.
 
 ## CI
 
@@ -161,9 +167,10 @@ advisories fail cargo-deny without a code change.
 - `Check` runs `cargo xtask check tidy` on Linux.
 - `Test (Linux)` sets up Node, pnpm with its cache, and Bun, installs with
   `pnpm install --frozen-lockfile`, then runs `cargo xtask check build` on Linux.
-- `Mutation (changed)` runs on pull requests. It runs `cargo xtask mutation changed` against the
-  pull request's base, prints the JSON report, and lists survivors in the job summary. Survivors
-  pass the job; an error or an unmutated file fails it.
+- `Mutation (changed)` runs on pull requests. Four shard jobs run `cargo xtask mutation changed`
+  against the pull request's base with `--shard <index>/4`, and upload their JSON report and
+  cargo-mutants log. The job with that name merges the shard reports and lists all survivors in the
+  job summary. Survivors pass the job; an error, an unmutated file, or a failed shard fails it.
 - `Mutation audit` runs on the weekly schedule and on manual runs from `main`. It runs
   `cargo mutants --workspace` and uploads `mutants.out` as an artifact. Survivors and timeouts
   pass the job; other cargo-mutants failures fail it.

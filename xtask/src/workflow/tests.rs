@@ -6,12 +6,15 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 use thiserror::Error;
 
+use serde_json::{Value, json};
+
 use super::*;
 use crate::git_isolation::isolate_git;
 use crate::test_support::temporary_directory;
 
 const TOKEN_ACTION: &str = "actions/create-github-app-token@64ab";
 const SYNC_GUARD: &str = "Check the trigger";
+const CI: &str = include_str!("../../../.github/workflows/ci.yml");
 const RELEASE_GATE: &str = include_str!("../../../.github/workflows/release-gate.yml");
 const SYNC_UPDATE: &str = include_str!("../../../.github/workflows/sync-update.yml");
 
@@ -983,6 +986,177 @@ fn sync_update_guard_allows_only_a_renovate_push() {
 
         assert_eq!(output, "run=false\n", "{name}");
     }
+}
+
+#[test]
+fn ci_shards_the_mutation_changed_job_across_four_runners() {
+    let job = workflow_job(CI, "mutation-shard");
+
+    assert!(job.contains("\n    name: Mutation (changed) shard ${{ matrix.shard }}\n"));
+    assert!(job.contains("\n    strategy:\n"));
+    assert!(job.contains("\n      fail-fast: false\n"));
+    assert!(job.contains("\n      matrix:\n        shard: [0, 1, 2, 3]\n"));
+
+    let steps = job_steps(CI, "mutation-shard");
+    let mutate = workflow_step(&steps, "Mutate the pull request's diff");
+    let script = step_script(mutate);
+    let mutate_at = script
+        .find("cargo xtask mutation changed \"$BASE_SHA\" --shard \"$SHARD/4\"")
+        .unwrap_or_else(|| panic!("the step runs one shard: {script}"));
+    let memory_start = script.find("free -m").expect("the step logs memory first");
+    let memory_end = script.rfind("free -m").expect("the step logs memory last");
+
+    assert!(mutate.contains("\n          SHARD: ${{ matrix.shard }}\n"));
+    assert!(memory_start < mutate_at, "{script}");
+    assert!(mutate_at < memory_end, "{script}");
+    assert_eq!(script.matches("free -m").count(), 2, "{script}");
+    assert_eq!(script.matches("df -h").count(), 2, "{script}");
+
+    let upload = steps
+        .iter()
+        .find(|step| step.contains("actions/upload-artifact"))
+        .expect("the shard uploads its report");
+
+    assert!(upload.contains("\n        if: always()\n"));
+    assert!(upload.contains("name: mutation-shard-${{ matrix.shard }}"));
+    assert!(upload.contains("mutation-report.json"));
+    assert!(upload.contains("target/mutants/mutants.out/debug.log"));
+}
+
+#[test]
+fn ci_aggregates_the_mutation_shards_under_the_gate_name() {
+    let named: Vec<&str> = workflow_jobs(CI)
+        .into_iter()
+        .filter(|(_, job)| {
+            job.lines()
+                .any(|line| line.trim() == "name: Mutation (changed)")
+        })
+        .map(|(job, _)| job)
+        .collect();
+
+    assert_eq!(named, vec!["mutation"], "one job carries the gate name");
+
+    let job = workflow_job(CI, "mutation");
+
+    assert!(job.contains("\n    if: always() && github.event_name == 'pull_request'\n"));
+    assert!(job.contains("\n    needs: [mutation-shard]\n"));
+
+    let steps = job_steps(CI, "mutation");
+    let download = steps
+        .iter()
+        .find(|step| step.contains("actions/download-artifact"))
+        .expect("the aggregate downloads the shard reports");
+    let failure = steps
+        .iter()
+        .find(|step| step.contains("needs.mutation-shard.result"))
+        .expect("the aggregate fails when a shard failed");
+
+    assert!(download.contains("pattern: mutation-shard-*"));
+    assert!(failure.contains("\n        if: needs.mutation-shard.result != 'success'\n"));
+    assert!(failure.contains("exit 1"));
+    assert!(
+        workflow_job(CI, "mutation-audit")
+            .contains("cargo mutants --workspace --test-tool nextest")
+    );
+}
+
+#[test]
+fn ci_merges_the_shard_reports() {
+    let steps = job_steps(CI, "mutation");
+    let merge = workflow_step(&steps, "Merge the shard reports");
+    let cases = [
+        (
+            "survivors from two shards",
+            vec![
+                report("survivors", vec![survivor("a.rs", 1)], &[]),
+                report("survivors", vec![survivor("b.rs", 2)], &[]),
+            ],
+            "survivors",
+            vec!["a.rs:1", "b.rs:2"],
+        ),
+        (
+            "an error in one shard",
+            vec![report("pass", vec![], &[]), report("error", vec![], &[])],
+            "error",
+            vec![],
+        ),
+        (
+            "no mutants in any shard",
+            vec![
+                report("nothing", vec![], &[]),
+                report("nothing", vec![], &[]),
+            ],
+            "nothing",
+            vec![],
+        ),
+    ];
+
+    for (name, reports, status, listed) in cases {
+        let (merged, summary) = run_merge(merge, &reports);
+
+        assert_eq!(merged["status"], status, "{name}");
+        assert_eq!(
+            merged["survivors"].as_array().map(Vec::len),
+            Some(listed.len()),
+            "{name}"
+        );
+
+        for line in listed {
+            assert!(summary.contains(line), "{name}: {summary}");
+        }
+    }
+}
+
+fn run_merge(step: &str, reports: &[String]) -> (Value, String) {
+    let directory = temporary_directory();
+    let root = directory.path();
+    let summary = root.join("summary.md");
+
+    for (index, report) in reports.iter().enumerate() {
+        let artifact = root.join(format!("shards/mutation-shard-{index}"));
+
+        fs::create_dir_all(&artifact).expect("create the artifact folder");
+        fs::write(artifact.join("mutation-report.json"), report).expect("write the report");
+    }
+
+    let output = isolated_command("bash", root)
+        .arg("-e")
+        .arg("-c")
+        .arg(step_script(step))
+        .env("GITHUB_STEP_SUMMARY", &summary)
+        .output()
+        .expect("run the merge step");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "{stdout}{stderr}");
+
+    let merged = fs::read_to_string(root.join("mutation-report.json")).expect("read the report");
+    let merged = serde_json::from_str(&merged).expect("the merged report is JSON");
+    let summary = fs::read_to_string(&summary).expect("read the job summary");
+
+    (merged, summary)
+}
+
+fn report(status: &str, survivors: Vec<Value>, unmutated: &[&str]) -> String {
+    json!({
+        "version": 1,
+        "status": status,
+        "survivors": survivors,
+        "unmutated": unmutated,
+    })
+    .to_string()
+}
+
+fn survivor(file: &str, line: usize) -> Value {
+    json!({
+        "file": file,
+        "line": line,
+        "mutator": "BinaryOperator",
+        "original": "<=",
+        "replacement": ">",
+        "covered": true,
+    })
 }
 
 fn run_guard(environment: &[(&str, &str)]) -> String {
