@@ -2320,3 +2320,50 @@ fn a_restricted_glob_resolves_inside_the_declaring_module() {
         "restricted glob in the declaring module",
     );
 }
+
+#[test]
+fn a_double_reference_generic_is_not_a_leading_colon_path() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"generic\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/bar.rs", "pub fn bar() {}\n"),
+        (
+            "src/ticket.rs",
+            "fn f() {\n    let _ = Foo<&&u8>::bar();\n}\n",
+        ),
+    ];
+    let table =
+        "[modules.bar]\nentry = \"src/bar.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert!(
+        problems.is_empty(),
+        "double reference generic: {problems:?}"
+    );
+}
+
+#[test]
+fn a_type_argument_opener_keeps_a_generic_close_from_a_leading_colon() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"generic\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/bar.rs", "pub fn bar() {}\n"),
+        (
+            "src/ticket.rs",
+            "fn f() {\n    let _ = Foo<Item = &&u8>::bar();\n    let _ = Foo<fn() -> &&u8>::bar();\n}\n",
+        ),
+    ];
+    let table =
+        "[modules.bar]\nentry = \"src/bar.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert!(problems.is_empty(), "type argument opener: {problems:?}");
+}

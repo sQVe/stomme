@@ -351,6 +351,17 @@ fn edition_2015_reads_a_leading_colon_after_a_generic_close() {
 }
 
 #[test]
+fn edition_2015_reads_a_leading_colon_after_a_comparison_following_a_generic_call() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = x.foo::<u8>() > ::config::LIMIT;\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
 fn edition_2015_ignores_an_earlier_comparison_when_reading_a_leading_colon() {
     let paths = paths_in(
         "fn smaller(a: u8, b: u8) -> bool {\n    a < b\n}\n\nfn compare() {\n    if 2 > ::config::LIMIT {\n        println!(\"big\");\n    }\n}\n",
@@ -376,6 +387,36 @@ fn edition_2015_ignores_a_same_block_comparison_when_reading_a_leading_colon() {
 fn edition_2015_reads_no_leading_colon_after_a_nested_generic() {
     let paths = paths_in(
         "fn f() {\n    Foo<Bar<u8>>::baz();\n    Foo::<{ N }>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_a_double_reference_generic() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = Foo<&&u8>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_an_associated_type_binding() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = Foo<Item = &&u8>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_a_function_pointer_return() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = Foo<fn() -> &&u8>::bar();\n}\n",
         Edition::Rust2015,
     );
 

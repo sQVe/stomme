@@ -317,13 +317,18 @@ fn closes_generic_arguments(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool
 
     for before in all_tokens[..token.index].iter().rev() {
         let nested = braces > 0 || parens > 0 || brackets > 0;
+        let left = token_before(all_tokens, before.index);
+        let follows_opener = follows_a_type_argument_opener(all_tokens, before.index);
+        // The `>` of a `->` return type closes no generic.
+        let arrow =
+            before.kind == TokenKind::Gt && left.is_some_and(|left| left.kind == TokenKind::Minus);
 
-        if !nested && starts_an_expression_operator(before, right) {
+        if !nested && starts_an_expression_operator(before, right, follows_opener) {
             return false;
         }
 
         match before.kind {
-            TokenKind::Gt if !nested => angles += 1,
+            TokenKind::Gt if !nested && !arrow => angles += 1,
             TokenKind::Lt if !nested => {
                 if angles == 0 {
                     return true;
@@ -350,14 +355,29 @@ fn closes_generic_arguments(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool
 }
 
 // A comparison or a statement boundary means the scan left the generic argument list. The
-// lexer emits two-character operators as two tokens, so each one is checked as a pair.
-fn starts_an_expression_operator(before: &Token<'_>, right: &Token<'_>) -> bool {
+// lexer emits two-character operators as two tokens, so each one is checked as a pair. A
+// logical pair after a type-argument opener is a double reference instead.
+fn starts_an_expression_operator(
+    before: &Token<'_>,
+    right: &Token<'_>,
+    follows_opener: bool,
+) -> bool {
     if before.kind == TokenKind::Semi {
         return true;
     }
 
+    let pair = (before.kind, right.kind);
+    let logical = matches!(
+        pair,
+        (TokenKind::And, TokenKind::And) | (TokenKind::Or, TokenKind::Or)
+    );
+
+    if logical && follows_opener {
+        return false;
+    }
+
     matches!(
-        (before.kind, right.kind),
+        pair,
         (TokenKind::And, TokenKind::And)
             | (TokenKind::Or, TokenKind::Or)
             | (TokenKind::Eq, TokenKind::Eq)
@@ -366,6 +386,32 @@ fn starts_an_expression_operator(before: &Token<'_>, right: &Token<'_>) -> bool 
             | (TokenKind::Gt, TokenKind::Eq)
             | (TokenKind::Eq, TokenKind::Gt)
     )
+}
+
+fn follows_a_type_argument_opener(all_tokens: &[Token<'_>], index: usize) -> bool {
+    let Some(left) = token_before(all_tokens, index) else {
+        return false;
+    };
+
+    match left.kind {
+        TokenKind::Lt
+        | TokenKind::Comma
+        | TokenKind::OpenParen
+        | TokenKind::OpenBracket
+        | TokenKind::Colon
+        | TokenKind::Eq => true,
+        TokenKind::Gt => {
+            token_before(all_tokens, left.index).is_some_and(|token| token.kind == TokenKind::Minus)
+        }
+        _ => false,
+    }
+}
+
+fn token_before<'tokens, 'source>(
+    all_tokens: &'tokens [Token<'source>],
+    index: usize,
+) -> Option<&'tokens Token<'source>> {
+    index.checked_sub(1).and_then(|index| all_tokens.get(index))
 }
 
 fn is_expression_keyword(token: &Token<'_>) -> bool {
