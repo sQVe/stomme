@@ -201,8 +201,12 @@ impl<'a> Resolver<'a> {
             && scope.exports.iter().any(|export| {
                 export.name == name && export.visibility != ExportVisibility::Restricted
             });
+        let glob_binds_publicly = scope
+            .globs
+            .iter()
+            .any(|glob| glob.visibility != ExportVisibility::Restricted);
 
-        exported || !scope.globs.is_empty() || scope.public_modules.contains(name)
+        exported || glob_binds_publicly || scope.public_modules.contains(name)
     }
 
     fn export_meanings(
@@ -249,7 +253,16 @@ impl<'a> Resolver<'a> {
         let mut meanings = BTreeSet::new();
 
         for glob in &scope.globs {
-            for meaning in self.resolve_target(place, glob, walk) {
+            let visible = match visibility {
+                Visibility::All => true,
+                Visibility::Crate => glob.visibility != ExportVisibility::Restricted,
+            };
+
+            if !visible {
+                continue;
+            }
+
+            for meaning in self.resolve_target(place, &glob.target, walk) {
                 let Meaning::Module(target) = meaning else {
                     continue;
                 };

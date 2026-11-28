@@ -362,6 +362,38 @@ fn edition_2015_ignores_an_earlier_comparison_when_reading_a_leading_colon() {
 }
 
 #[test]
+fn edition_2015_ignores_a_same_block_comparison_when_reading_a_leading_colon() {
+    let paths = paths_in(
+        "fn compare(a: u8, b: u8, c: u8) {\n    if a < b && c > ::config::LIMIT {\n        println!(\"big\");\n    }\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_a_nested_generic() {
+    let paths = paths_in(
+        "fn f() {\n    Foo<Bar<u8>>::baz();\n    Foo::<{ N }>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_marks_an_external_absolute_alias_as_an_implicit_crate_root() {
+    let paths = paths_in(
+        "use ::std as std_alias;\nstd_alias::mem();\n",
+        Edition::Rust2015,
+    );
+
+    assert_eq!(paths[1].segments, expected(&[&["crate", "std", "mem"]])[0]);
+    assert!(paths[1].implicit_crate_root);
+}
+
+#[test]
 fn a_leading_colon_after_a_cast_is_a_path_in_edition_2015() {
     let paths = paths_in(
         "fn f() {\n    let value = 0 as ::config::Ty;\n}\n",

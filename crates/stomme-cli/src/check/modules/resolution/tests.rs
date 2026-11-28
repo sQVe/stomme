@@ -2200,3 +2200,123 @@ fn bindings_hold_the_checked_file_and_its_inline_scopes_only() {
     assert_eq!(names(&["inner"]), ["nested".to_string()]);
     assert_eq!(names(&["inner", "deep"]), ["deep_nested".to_string()]);
 }
+
+#[test]
+fn a_same_block_comparison_keeps_a_leading_colon_path_in_edition_2015() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"compare\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/config.rs", ""),
+        (
+            "src/ticket.rs",
+            "fn f(a: u8, b: u8, c: u8) {\n    if a < b && c > ::config::LIMIT {\n    }\n}\n",
+        ),
+    ];
+    let table = "[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+    let found: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.path.as_str(), problem.rule, problem.key.as_deref()))
+        .collect();
+
+    assert_eq!(
+        found,
+        [
+            ("src/config.rs", Rule::ModuleListed, None),
+            ("src/ticket.rs", Rule::ModuleImports, Some("ticket:config"),),
+        ],
+        "same-block comparison"
+    );
+}
+
+#[test]
+fn edition_2015_absolute_alias_cases_decide_the_crate_root_path() {
+    let cases = [
+        (
+            "external target",
+            "use ::std as std_alias;\nstd_alias::mem();\n",
+            None,
+        ),
+        (
+            "local target",
+            "use ::config as cfg;\ncfg::LIMIT;\n",
+            Some("ticket:config"),
+        ),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\n";
+
+    for (name, ticket, key) in cases {
+        let files = [
+            (
+                "Cargo.toml",
+                "[package]\nname = \"alias\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+            ),
+            ("src/config.rs", ""),
+            ("src/ticket.rs", ticket),
+        ];
+        let root = project(&files, table);
+        let problems = problems(root.path());
+
+        match key {
+            Some(key) => assert_problem(&problems, "src/ticket.rs", Rule::ModuleImports, key, name),
+            None => assert!(problems.is_empty(), "{name}: {problems:?}"),
+        }
+    }
+}
+
+#[test]
+fn an_unrooted_edition_2015_alias_reaches_the_private_file() {
+    let files = [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"alias\"\nversion = \"0.1.0\"\nedition = \"2015\"\n",
+        ),
+        ("src/config.rs", "mod hidden;\n"),
+        ("src/config/hidden.rs", "pub fn read() {}\n"),
+        (
+            "src/ticket.rs",
+            "use config as cfg;\ncfg::hidden::read();\n",
+        ),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModulePrivateFile,
+        "ticket:src/config/hidden.rs",
+        "unrooted 2015 alias",
+    );
+}
+
+#[test]
+fn a_restricted_glob_resolves_inside_the_declaring_module() {
+    let files = [
+        (
+            "src/config.rs",
+            "mod hidden;\npub(self) use self::hidden::*;\npub mod ticket;\n",
+        ),
+        ("src/config/hidden.rs", "pub mod inner;\n"),
+        ("src/config/hidden/inner.rs", "pub fn read() {}\n"),
+        ("src/config/ticket.rs", "use super::inner::read;\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\npublic = [\"src/config.rs\"]\n\n[modules.ticket]\nentry = \"src/config/ticket.rs\"\nimports = [\"config\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/config/ticket.rs",
+        Rule::ModulePrivateFile,
+        "ticket:src/config/hidden/inner.rs",
+        "restricted glob in the declaring module",
+    );
+}

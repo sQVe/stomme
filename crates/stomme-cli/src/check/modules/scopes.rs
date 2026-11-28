@@ -15,7 +15,7 @@ pub(super) struct Scope {
     pub(super) inline_modules: BTreeSet<String>,
     pub(super) public_modules: BTreeSet<String>,
     pub(super) exports: Vec<Export>,
-    pub(super) globs: Vec<Target>,
+    pub(super) globs: Vec<Glob>,
     pub(super) value_items: BTreeSet<String>,
     pub(super) bindings: Vec<Binding>,
 }
@@ -49,6 +49,12 @@ pub(super) struct Binding {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Export {
     pub(super) name: String,
+    pub(super) target: Target,
+    pub(super) visibility: ExportVisibility,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Glob {
     pub(super) target: Target,
     pub(super) visibility: ExportVisibility,
 }
@@ -128,9 +134,10 @@ pub(super) fn scopes(source: &str, edition: Edition, module_depth: usize) -> Vec
                     };
 
                     if is_glob(&leaf) {
-                        if visibility != ExportVisibility::Restricted {
-                            scopes[current].globs.push(glob_target(leaf, edition));
-                        }
+                        scopes[current].globs.push(Glob {
+                            target: glob_target(leaf, edition),
+                            visibility,
+                        });
                     } else if let Some(export) = export(leaf, visibility, edition) {
                         scopes[current].exports.push(export);
                     }

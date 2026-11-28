@@ -47,6 +47,11 @@ pub(super) struct UseLeaf {
     pub(super) has_separator: bool,
 }
 
+struct RootPath {
+    segments: Vec<String>,
+    implicit_crate_root: bool,
+}
+
 struct Leaf {
     absolute: bool,
     segments: Vec<String>,
@@ -212,7 +217,7 @@ fn push_value_path(
     let leaves = parser.parse_segments();
 
     for leaf in leaves {
-        let mut segments = root.clone();
+        let mut segments = root.segments.clone();
         segments.extend(leaf.segments);
         let line = if from_binding { token.line } else { leaf.line };
         paths.push(UsePath {
@@ -221,7 +226,7 @@ fn push_value_path(
             inline_modules: inline_path.clone(),
             in_test_module,
             namespace: Namespace::Value,
-            implicit_crate_root: false,
+            implicit_crate_root: root.implicit_crate_root,
         });
     }
 }
@@ -308,9 +313,14 @@ fn closes_generic_arguments(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool
     let mut braces = 0usize;
     let mut parens = 0usize;
     let mut brackets = 0usize;
+    let mut right = token;
 
     for before in all_tokens[..token.index].iter().rev() {
         let nested = braces > 0 || parens > 0 || brackets > 0;
+
+        if !nested && starts_an_expression_operator(before, right) {
+            return false;
+        }
 
         match before.kind {
             TokenKind::Gt if !nested => angles += 1,
@@ -332,9 +342,30 @@ fn closes_generic_arguments(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool
             TokenKind::OpenBracket => brackets -= 1,
             _ => {}
         }
+
+        right = before;
     }
 
     false
+}
+
+// A comparison or a statement boundary means the scan left the generic argument list. The
+// lexer emits two-character operators as two tokens, so each one is checked as a pair.
+fn starts_an_expression_operator(before: &Token<'_>, right: &Token<'_>) -> bool {
+    if before.kind == TokenKind::Semi {
+        return true;
+    }
+
+    matches!(
+        (before.kind, right.kind),
+        (TokenKind::And, TokenKind::And)
+            | (TokenKind::Or, TokenKind::Or)
+            | (TokenKind::Eq, TokenKind::Eq)
+            | (TokenKind::Bang, TokenKind::Eq)
+            | (TokenKind::Lt, TokenKind::Eq)
+            | (TokenKind::Gt, TokenKind::Eq)
+            | (TokenKind::Eq, TokenKind::Gt)
+    )
 }
 
 fn is_expression_keyword(token: &Token<'_>) -> bool {
@@ -376,13 +407,16 @@ fn path_root(
     inline_path: &[String],
     table: &BindingTable,
     edition: Edition,
-) -> Option<Vec<String>> {
+) -> Option<RootPath> {
     if !followed_by_colon_colon(tokens) {
         return None;
     }
 
     if is_root_segment(token) {
-        return Some(vec![token.text.to_string()]);
+        return Some(RootPath {
+            segments: vec![token.text.to_string()],
+            implicit_crate_root: false,
+        });
     }
 
     expand_root(item_name(token)?, inline_path, table, edition)
@@ -426,7 +460,7 @@ fn use_path_segments(
         return None;
     }
 
-    let mut segments = expand_root(first, inline_path, table, edition)?;
+    let mut segments = expand_root(first, inline_path, table, edition)?.segments;
     segments.extend(leaf.segments[1..].iter().cloned());
 
     Some(segments)
@@ -441,7 +475,7 @@ fn expand_root(
     inline_path: &[String],
     table: &BindingTable,
     edition: Edition,
-) -> Option<Vec<String>> {
+) -> Option<RootPath> {
     let mut visited = BTreeSet::new();
     let scope = inline_path.to_vec();
     let mut current = name.to_string();
@@ -464,13 +498,29 @@ fn expand_root(
             }
 
             segments.insert(0, "crate".to_string());
-            return Some(segments);
+
+            return Some(RootPath {
+                segments,
+                implicit_crate_root: true,
+            });
         }
 
         let first = segments.first()?.clone();
 
         if is_root_name(&first) {
-            return Some(segments);
+            return Some(RootPath {
+                segments,
+                implicit_crate_root: false,
+            });
+        }
+
+        if edition.is_2015() {
+            segments.insert(0, "crate".to_string());
+
+            return Some(RootPath {
+                segments,
+                implicit_crate_root: true,
+            });
         }
 
         suffix = segments[1..].to_vec();

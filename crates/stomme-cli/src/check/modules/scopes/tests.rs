@@ -53,6 +53,10 @@ fn named(name: &str, target: Target) -> (String, Target) {
     (name.to_string(), target)
 }
 
+fn glob(target: Target, visibility: ExportVisibility) -> Glob {
+    Glob { target, visibility }
+}
+
 #[test]
 fn target_forms_map_to_their_kind() {
     assert_eq!(
@@ -283,12 +287,15 @@ fn glob_exports_are_listed_as_targets() {
     assert_eq!(
         scope.globs,
         [
-            Target::Bare(strings(&["attention"])),
-            relative(0, &[]),
-            relative(1, &[]),
-            Target::Crate(strings(&["fact"])),
-            Target::External,
-            relative(0, &["attention"]),
+            glob(
+                Target::Bare(strings(&["attention"])),
+                ExportVisibility::Public
+            ),
+            glob(relative(0, &[]), ExportVisibility::Public),
+            glob(relative(1, &[]), ExportVisibility::Public),
+            glob(Target::Crate(strings(&["fact"])), ExportVisibility::Public),
+            glob(Target::External, ExportVisibility::Public),
+            glob(relative(0, &["attention"]), ExportVisibility::Public),
         ]
     );
     assert_eq!(
@@ -298,7 +305,7 @@ fn glob_exports_are_listed_as_targets() {
 }
 
 #[test]
-fn restricted_globs_are_not_recorded() {
+fn restricted_globs_keep_their_visibility() {
     let scope = file_scope(
         "pub(self) use path::*;\npub(in crate::x) use other::*;\npub(crate) use crate_wide::*;\npub use public::*;\nuse private::*;\n",
     );
@@ -306,8 +313,19 @@ fn restricted_globs_are_not_recorded() {
     assert_eq!(
         scope.globs,
         [
-            Target::Bare(strings(&["crate_wide"])),
-            Target::Bare(strings(&["public"])),
+            glob(
+                Target::Bare(strings(&["path"])),
+                ExportVisibility::Restricted
+            ),
+            glob(
+                Target::Bare(strings(&["other"])),
+                ExportVisibility::Restricted
+            ),
+            glob(
+                Target::Bare(strings(&["crate_wide"])),
+                ExportVisibility::Crate
+            ),
+            glob(Target::Bare(strings(&["public"])), ExportVisibility::Public),
         ]
     );
 }
