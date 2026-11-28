@@ -340,6 +340,35 @@ fn check_refuses_an_installed_ocr_that_differs_from_the_pin() {
     assert!(message.contains("pins 1.14.2"), "{message}");
 }
 
+#[cfg(unix)]
+#[test]
+fn installed_ocr_version_reports_both_streams() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let root = temporary_directory();
+    let home = temporary_directory();
+    let binary = root.path().join(OCR_BINARY);
+    let parent = binary.parent().expect("the binary has a parent");
+
+    fs::create_dir_all(parent).expect("create the binary folder");
+    fs::write(
+        &binary,
+        "#!/bin/sh\necho 'open-code-review'\necho 'banner on stderr' >&2\n",
+    )
+    .expect("write the fake OCR binary");
+    let mut permissions = fs::metadata(&binary)
+        .expect("read the fake binary mode")
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&binary, permissions).expect("make the fake binary executable");
+
+    let error = installed_ocr_version(&ocr(root.path(), home.path()))
+        .expect_err("refuse a banner without a version");
+    let message = format!("{error:#}");
+
+    assert!(message.contains("banner on stderr"), "{message}");
+}
+
 #[test]
 fn precedence_fails_on_a_system_built_in_source() {
     let checked = RuleCheck {

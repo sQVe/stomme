@@ -484,8 +484,12 @@ fn pinned_ocr_version(root: &Path) -> anyhow::Result<String> {
 fn installed_ocr_version(ocr: &Ocr) -> anyhow::Result<String> {
     let output = run_ocr(ocr, &["--version".to_string()])?;
 
-    version_in(&output.stdout)
-        .with_context(|| format!("ocr --version printed no version:\n{}", output.stdout))
+    version_in(&output.stdout).with_context(|| {
+        format!(
+            "ocr --version printed no version:\nstdout:\n{}\nstderr:\n{}",
+            output.stdout, output.stderr
+        )
+    })
 }
 
 fn version_in(text: &str) -> Option<String> {

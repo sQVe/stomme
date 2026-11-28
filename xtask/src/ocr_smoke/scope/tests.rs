@@ -1,6 +1,21 @@
 use crate::ocr_smoke::{Preview, PreviewFile};
 
-use super::selection_failures;
+use super::{scope_base, selection_failures};
+
+#[test]
+fn scope_base_rejects_the_empty_sentinel() {
+    let error = scope_base("empty\n").expect_err("reject the empty sentinel");
+
+    assert_eq!(
+        format!("{error:#}"),
+        "ocr-smoke: scope: ocr-scope found no unreviewed change"
+    );
+}
+
+#[test]
+fn scope_base_trims_the_printed_commit() {
+    assert_eq!(scope_base(" abc123 \n").expect("read the base"), "abc123");
+}
 
 #[test]
 fn selection_reports_every_mismatch() {

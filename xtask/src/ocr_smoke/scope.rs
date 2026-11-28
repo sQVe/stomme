@@ -194,7 +194,17 @@ fn run_scope_command(folder: &Path, root: &Path, refs: &ScopeRefs<'_>) -> anyhow
     let text = String::from_utf8(output.stdout)
         .context("ocr-scope printed a base commit that is not UTF-8")?;
 
-    Ok(text.trim().to_string())
+    scope_base(&text)
+}
+
+fn scope_base(text: &str) -> anyhow::Result<String> {
+    let base = text.trim();
+
+    if base == "empty" {
+        anyhow::bail!("ocr-smoke: scope: ocr-scope found no unreviewed change");
+    }
+
+    Ok(base.to_string())
 }
 
 fn check_graft(path: &Path, history: &History) -> anyhow::Result<()> {
