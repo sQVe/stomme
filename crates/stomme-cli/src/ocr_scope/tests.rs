@@ -1087,6 +1087,41 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
         |folder| write_files(folder, &[("src/other.rs", "other\n")]),
         |folder| write_file(folder, "src/new.rs", b"new first\nnew second"),
         |_| {},
+        |folder| write_file(folder, "src/new.rs", b"new first\nnew added\nnew second"),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    // The added line sits before the last retained line, which is also head's
+    // unterminated final line, so it keeps its missing newline.
+    assert_eq!(
+        blob_bytes(folder.path(), &format!("{base}:src/new.rs")),
+        b"new first\nnew second"
+    );
+    assert_eq!(
+        changed_paths(folder.path(), &base, &history.head),
+        ["src/new.rs"]
+    );
+}
+
+#[test]
+fn terminates_the_last_retained_line_when_the_head_ends_with_a_scoped_addition() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/other.rs", "other\n")]),
+        |folder| write_file(folder, "src/new.rs", b"new first\nnew second\n"),
+        |_| {},
         |folder| write_file(folder, "src/new.rs", b"new first\nnew second\nnew third"),
     );
 
@@ -1102,8 +1137,8 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     };
 
     assert_eq!((files, added, removed), (1, 1, 0));
-    // `rebuild` keeps the newline that follows every retained head line, so the last
-    // retained line stays terminated when the added line after it is dropped.
+    // The scoped addition is head's unterminated last line, so the last retained
+    // line before it stays terminated.
     assert_eq!(
         blob_bytes(folder.path(), &format!("{base}:src/new.rs")),
         b"new first\nnew second\n"
