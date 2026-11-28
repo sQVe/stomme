@@ -32,11 +32,12 @@ const REPOSITORY_VARIABLES: &[&str] = &[
     "GIT_WORK_TREE",
 ];
 
-const OCR_PASSED_LINES: [&str; 4] = [
+const OCR_PASSED_LINES: [&str; 5] = [
     "ocr-smoke: repository: admission passed",
     "ocr-smoke: repository: precedence passed",
     "ocr-smoke: typescript consumer: admission passed",
     "ocr-smoke: typescript consumer: precedence passed",
+    "ocr-smoke: scope: admission passed",
 ];
 
 fn git(folder: &Path, arguments: &[&str]) {
@@ -59,6 +60,11 @@ fn assert_ocr_passed(stderr: &str) {
     for line in OCR_PASSED_LINES {
         assert!(stderr.contains(line), "{stderr}");
     }
+
+    assert!(
+        !stderr.contains("ocr-smoke: scope: precedence passed"),
+        "{stderr}"
+    );
 }
 
 #[test]

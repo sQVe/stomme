@@ -4,7 +4,8 @@ use std::path::Path;
 use super::check;
 use crate::check::cargo_manifest::read_root;
 use crate::check::{Problem, Rule};
-use crate::test_support::{complete_project, write_file};
+use crate::test_project::complete_project;
+use crate::test_support::write_file;
 
 const MEMBER_WITHOUT_LINTS: &str = "[package]\nname = \"two\"\nversion = \"0.0.0\"\n";
 

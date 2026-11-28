@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
 
 use anyhow::Context as _;
 use serde::Deserialize;
@@ -8,9 +8,13 @@ use tempfile::TempDir;
 
 use crate::git_isolation::isolate_git;
 
+mod scope;
+
 const USAGE: &str = "Usage:\n  cargo xtask ocr-smoke";
 
 const OCR_BINARY: &str = "node_modules/.bin/ocr";
+const OCR_PACKAGE: &str = "@alibaba-group/open-code-review";
+const PACKAGE_JSON: &str = "package.json";
 const RULES: &str = "docs/stomme/ocr-rules.json";
 const CUSTOM_RULE_SOURCE: &str = "Custom (--rule)";
 const COMMIT_DATE: &str = "2020-01-01T00:00:00Z";
@@ -112,7 +116,7 @@ const TYPESCRIPT_CASE: Case = Case {
 struct CaseOutcome {
     name: &'static str,
     admission: Vec<String>,
-    precedence: Vec<String>,
+    precedence: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,6 +127,14 @@ struct Preview {
 impl Preview {
     fn file(&self, path: &str) -> Option<&PreviewFile> {
         self.files.iter().find(|file| file.path == path)
+    }
+
+    fn reviewed_paths(&self) -> Vec<&str> {
+        self.files
+            .iter()
+            .filter(|file| file.will_review)
+            .map(|file| file.path.as_str())
+            .collect()
     }
 }
 
@@ -193,13 +205,14 @@ fn check(root: &Path) -> anyhow::Result<Vec<CaseOutcome>> {
     }
 
     let home = temporary_folder("stomme-ocr-smoke-home-")?;
-    let repository = build_repository()?;
-    let typescript = build_typescript_consumer(root)?;
     let ocr = Ocr {
         binary,
         root: root.to_path_buf(),
         home: home.path().to_path_buf(),
     };
+    check_ocr_version(&ocr, root)?;
+    let repository = build_repository()?;
+    let typescript = build_typescript_consumer(root)?;
 
     let cases = [
         (&REPOSITORY_CASE, root.join(RULES)),
@@ -217,6 +230,8 @@ fn check(root: &Path) -> anyhow::Result<Vec<CaseOutcome>> {
             case,
         )?);
     }
+
+    outcomes.push(scope::run_scope_case(&ocr)?);
 
     Ok(outcomes)
 }
@@ -248,7 +263,7 @@ fn run_case(
     Ok(CaseOutcome {
         name: case.name,
         admission,
-        precedence,
+        precedence: Some(precedence),
     })
 }
 
@@ -330,13 +345,15 @@ fn report(outcomes: &[CaseOutcome]) -> bool {
             }
         }
 
-        if outcome.precedence.is_empty() {
-            eprintln!("ocr-smoke: {}: precedence passed", outcome.name);
-        } else {
-            passed = false;
+        if let Some(precedence) = &outcome.precedence {
+            if precedence.is_empty() {
+                eprintln!("ocr-smoke: {}: precedence passed", outcome.name);
+            } else {
+                passed = false;
 
-            for failure in &outcome.precedence {
-                eprintln!("{failure}");
+                for failure in precedence {
+                    eprintln!("{failure}");
+                }
             }
         }
     }
@@ -431,20 +448,69 @@ fn field(text: &str, prefix: &str, stderr: &str) -> anyhow::Result<String> {
     Ok(value.trim().to_string())
 }
 
+fn check_ocr_version(ocr: &Ocr, root: &Path) -> anyhow::Result<()> {
+    let pinned = pinned_ocr_version(root)?;
+    let installed = installed_ocr_version(ocr)?;
+
+    match version_failure(&installed, &pinned) {
+        None => Ok(()),
+        Some(message) => anyhow::bail!(message),
+    }
+}
+
+fn version_failure(installed: &str, pinned: &str) -> Option<String> {
+    if installed == pinned {
+        return None;
+    }
+
+    Some(format!(
+        "{OCR_BINARY} is version {installed}, but {PACKAGE_JSON} pins {pinned}; run pnpm install --frozen-lockfile"
+    ))
+}
+
+fn pinned_ocr_version(root: &Path) -> anyhow::Result<String> {
+    let path = root.join(PACKAGE_JSON);
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("Could not read {}", path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", path.display()))?;
+    let version = manifest["devDependencies"][OCR_PACKAGE]
+        .as_str()
+        .with_context(|| format!("{PACKAGE_JSON} does not pin {OCR_PACKAGE}"))?;
+
+    Ok(version.to_string())
+}
+
+fn installed_ocr_version(ocr: &Ocr) -> anyhow::Result<String> {
+    let output = run_ocr(ocr, &["--version".to_string()])?;
+
+    version_in(&output.stdout).with_context(|| {
+        format!(
+            "ocr --version printed no version:\nstdout:\n{}\nstderr:\n{}",
+            output.stdout, output.stderr
+        )
+    })
+}
+
+fn version_in(text: &str) -> Option<String> {
+    text.lines().next()?.split_whitespace().find_map(|token| {
+        let version = token.strip_prefix('v')?;
+        let starts_with_digit = version.starts_with(|character: char| character.is_ascii_digit());
+
+        starts_with_digit.then(|| version.to_string())
+    })
+}
+
 fn build_repository() -> anyhow::Result<Repository> {
     let folder = temporary_folder("stomme-ocr-smoke-repository-")?;
     let path = folder.path();
 
     init_repository(path)?;
 
-    write_files(path, BASE_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let base_tree = git_text(path, &["write-tree"])?;
+    let base_tree = stage_tree(path, BASE_FILES)?;
     let base = git_text(path, &["commit-tree", &base_tree, "-m", "base"])?;
 
-    write_files(path, HEAD_FILES)?;
-    git_text(path, &["add", "-A"])?;
-    let head_tree = git_text(path, &["write-tree"])?;
+    let head_tree = stage_tree(path, HEAD_FILES)?;
     let head = git_text(
         path,
         &["commit-tree", &head_tree, "-p", &base, "-m", "head"],
@@ -483,32 +549,39 @@ fn stomme_version(root: &Path) -> anyhow::Result<String> {
 }
 
 fn sync_typescript_consumer(root: &Path, folder: &Path) -> anyhow::Result<()> {
-    let output = sync_command(root, folder)
-        .output()
-        .context("Could not run cargo run -p stomme -- sync")?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "cargo run -p stomme -- sync failed with {}:\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    stomme_output(&mut stomme_command(root, folder, "sync"), "sync")?;
 
     Ok(())
 }
 
-fn sync_command(root: &Path, folder: &Path) -> Command {
+fn stomme_command(root: &Path, folder: &Path, subcommand: &str) -> Command {
     let mut command = Command::new("cargo");
 
     command
         .args(["run", "--locked", "--quiet", "--manifest-path"])
         .arg(root.join("Cargo.toml"))
-        .args(["-p", "stomme", "--", "sync"])
+        .args(["-p", "stomme", "--", subcommand])
         .current_dir(folder);
     isolate_git(&mut command);
 
     command
+}
+
+fn stomme_output(command: &mut Command, subcommand: &str) -> anyhow::Result<Output> {
+    let description = format!("cargo run -p stomme -- {subcommand}");
+    let output = command
+        .output()
+        .with_context(|| format!("Could not run {description}"))?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "{description} failed with {}:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(output)
 }
 
 fn init_repository(folder: &Path) -> anyhow::Result<()> {
@@ -530,6 +603,13 @@ fn write_files(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn stage_tree(folder: &Path, files: &[(&str, &str)]) -> anyhow::Result<String> {
+    write_files(folder, files)?;
+    git_text(folder, &["add", "-A"])?;
+
+    git_text(folder, &["write-tree"])
+}
+
 fn git_command(folder: &Path) -> Command {
     let mut command = Command::new("git");
 
@@ -547,8 +627,9 @@ fn git_command(folder: &Path) -> Command {
 }
 
 fn git_text(folder: &Path, arguments: &[&str]) -> anyhow::Result<String> {
+    let mut command = git_command(folder);
     let description = format!("git {}", arguments.join(" "));
-    let output = git_command(folder)
+    let output = command
         .args(arguments)
         .output()
         .with_context(|| format!("Could not run {description}"))?;

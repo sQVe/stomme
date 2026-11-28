@@ -744,7 +744,7 @@ fn shared_module_table_fixtures_accept_and_reject_by_folder() {
             let root = tempfile::tempdir().expect("create a temporary directory");
 
             let config = fs::read_to_string(case.join(CONFIG_FILE)).expect("read stomme.toml");
-            let config = crate::test_support::with_crate_version(&config);
+            let config = crate::test_fixtures::with_crate_version(&config);
 
             fs::write(root.path().join(CONFIG_FILE), config).expect("write stomme.toml");
 

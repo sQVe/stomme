@@ -57,6 +57,11 @@
   `.opencodereview/rule.json`, as [ADR 0017](./adr/0017-open-code-review.md) records.
   `stomme ocr-coverage <result-file>` reads one Open Code Review JSON result and exits 0 when every
   selected file was reviewed, 2 for a partial review, and 1 for a failed run or an unusable file.
+  `stomme ocr-scope --reviewed <ref> --reviewed-base <ref> --base <ref> --head <ref>` builds the
+  review scope since the last complete OCR review. It prints the base commit, or `empty` when the
+  scope is empty, and grafts the head onto that base so `ocr review --from <base> --to <head>`
+  reviews only the new lines. The graft writes `refs/replace/<head>` in the clone, so a caller that
+  runs OCR after the command removes it with `git replace -d <head>` when the review is done.
   Run `stomme check` on this repository with `cargo run -q -p stomme -- check`.
   `stomme init` creates a project in the current directory, which must be empty apart from `.git`:
 
@@ -112,7 +117,8 @@ files. The check does not install dependencies; run `pnpm install --frozen-lockf
 The `ocr-smoke` step runs the pinned Open Code Review binary against a temporary Git repository.
 It needs `pnpm install --frozen-lockfile` and runs no model. It proves that the repository rule
 admits ordinary source and a Rust test, that the TypeScript consumer rule admits a TypeScript test,
-and that the language rule takes precedence in both cases.
+and that the language rule takes precedence in both cases. It also checks that OCR reviews only the
+new lines when the head is grafted onto a base commit that holds the rest.
 
 `cargo xtask check build` runs checks that compile code or need the JavaScript toolchain.
 `cargo xtask check tidy` runs the remaining checks without that toolchain.

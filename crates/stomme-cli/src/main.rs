@@ -1,5 +1,6 @@
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -16,11 +17,16 @@ mod init;
 mod layer;
 mod ocr_coverage;
 mod ocr_rules;
+mod ocr_scope;
 mod owned;
 mod packages;
 mod rule;
 mod sync;
 mod synced_tree;
+#[cfg(test)]
+mod test_fixtures;
+#[cfg(test)]
+mod test_project;
 #[cfg(test)]
 mod test_support;
 
@@ -30,7 +36,7 @@ fn sync_project(root: &std::path::Path) {
         .expect("sync the fixture project");
 }
 
-const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]|ocr-coverage <result-file>>\n\nCheck or sync the project in the current directory, write the guides to a folder, create a project, or classify an Open Code Review result. The ocr-coverage command exits 0 when every selected file was reviewed, 2 for a partial review, and 1 for a failed run or an unusable file.";
+const USAGE: &str = "Usage: stomme <check [--base <ref>]|sync|guides <dir>|init --name <name> --language <language> [--layers <layers>] [--roles <roles>]|ocr-coverage <result-file>|ocr-scope --reviewed <ref> --reviewed-base <ref> --base <ref> --head <ref>>\n\nCheck or sync the project in the current directory, write the guides to a folder, create a project, classify an Open Code Review result, or build the review scope since the last complete OCR review. The ocr-coverage command exits 0 when every selected file was reviewed, 2 for a partial review, and 1 for a failed run or an unusable file.";
 
 #[expect(
     clippy::print_stderr,
@@ -61,6 +67,21 @@ fn main() -> ExitCode {
         [command, directory] if command == "guides" => run_guides(Path::new(directory)),
         [command, options @ ..] if command == "init" => run_init(options),
         [command, path] if command == "ocr-coverage" => run_ocr_coverage(Path::new(path)),
+        [
+            command,
+            reviewed_flag,
+            reviewed,
+            reviewed_base_flag,
+            reviewed_base,
+            base_flag,
+            base,
+            head_flag,
+            head,
+        ] if command == "ocr-scope"
+            && is_ocr_scope_invocation(reviewed_flag, reviewed_base_flag, base_flag, head_flag) =>
+        {
+            run_ocr_scope(reviewed, reviewed_base, base, head)
+        }
         _ => {
             let non_text = arguments
                 .iter()
@@ -75,6 +96,21 @@ fn main() -> ExitCode {
             }
         }
     }
+}
+
+fn is_ocr_scope_invocation(
+    reviewed_flag: &OsStr,
+    reviewed_base_flag: &OsStr,
+    base_flag: &OsStr,
+    head_flag: &OsStr,
+) -> bool {
+    let flags = [reviewed_flag, reviewed_base_flag, base_flag, head_flag];
+    let expected = ["--reviewed", "--reviewed-base", "--base", "--head"];
+
+    flags
+        .iter()
+        .zip(expected)
+        .all(|(flag, expected)| flag.to_str() == Some(expected))
 }
 
 #[expect(clippy::print_stderr, reason = "errors are the command's output")]
@@ -198,6 +234,80 @@ fn run_init(arguments: &[OsString]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn run_ocr_scope(reviewed: &OsStr, reviewed_base: &OsStr, base: &OsStr, head: &OsStr) -> ExitCode {
+    let Some(reviewed) = reviewed.to_str() else {
+        return refuse_non_text(reviewed);
+    };
+    let Some(reviewed_base) = reviewed_base.to_str() else {
+        return refuse_non_text(reviewed_base);
+    };
+    let Some(base) = base.to_str() else {
+        return refuse_non_text(base);
+    };
+    let Some(head) = head.to_str() else {
+        return refuse_non_text(head);
+    };
+    let request = ocr_scope::Request {
+        reviewed: reviewed.to_string(),
+        reviewed_base: reviewed_base.to_string(),
+        base: base.to_string(),
+        head: head.to_string(),
+    };
+    let root = match env::current_dir().context("Could not read the current directory") {
+        Ok(root) => root,
+        Err(error) => return fail(&format!("stomme: {error:#}")),
+    };
+
+    match ocr_scope::run(&root, &request) {
+        Ok(ocr_scope::Outcome::Empty) => {
+            report_scope("empty", "scope: 0 files, 0 added lines, 0 removed lines")
+        }
+        Ok(ocr_scope::Outcome::Base {
+            commit,
+            files,
+            added,
+            removed,
+        }) => {
+            let status =
+                format!("scope: {files} files, {added} added lines, {removed} removed lines");
+
+            report_scope(&commit, &status)
+        }
+        Err(error) => fail(&format!("stomme: {error}")),
+    }
+}
+
+fn report_scope(base: &str, status: &str) -> ExitCode {
+    if let Err(error) = write_stdout(&format!("{base}\n")) {
+        return fail(&format!("stomme: could not write the scope base: {error}"));
+    }
+
+    // The base commit is already on stdout, so a broken status stream must not discard it.
+    match write_stderr(&format!("stomme: {status}\n")) {
+        Ok(()) | Err(_) => ExitCode::SUCCESS,
+    }
+}
+
+fn fail(message: &str) -> ExitCode {
+    match write_stderr(&format!("{message}\n")) {
+        Ok(()) | Err(_) => ExitCode::FAILURE,
+    }
+}
+
+fn write_stdout(text: &str) -> io::Result<()> {
+    let mut stdout = io::stdout().lock();
+
+    stdout.write_all(text.as_bytes())?;
+    stdout.flush()
+}
+
+fn write_stderr(text: &str) -> io::Result<()> {
+    let mut stderr = io::stderr().lock();
+
+    stderr.write_all(text.as_bytes())?;
+    stderr.flush()
 }
 
 #[expect(

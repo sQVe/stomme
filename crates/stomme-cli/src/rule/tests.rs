@@ -4,7 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::test_support::{commit, copy_tree, git};
+use crate::test_fixtures::{copy_tree, with_crate_version};
+use crate::test_support::{commit, git};
 use crate::{check, layer};
 
 const RULES_FILE: &str = "../../foundation/shared/rules.md";
@@ -370,7 +371,7 @@ fn rewrite_fixture_version(root: &Path) {
 
     if config.is_file() {
         let text = fs::read_to_string(&config).expect("read the fixture config");
-        let rewritten = crate::test_support::with_crate_version(&text);
+        let rewritten = with_crate_version(&text);
 
         if rewritten != text {
             fs::write(&config, rewritten).expect("write the fixture config");
