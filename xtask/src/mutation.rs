@@ -19,7 +19,7 @@ mod request;
 mod survivors;
 
 use report::{ran_report, report_value};
-use request::{Mode, Request, Target, parse_request};
+use request::{Mode, Request, Shard, Target, parse_request};
 use survivors::{Survivor, read_survivors};
 
 struct Scope {
@@ -224,37 +224,57 @@ fn empty_scratch(root: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn mutants_command(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> Command {
-    let (jobs, threads) = job_counts(available_cores());
-    // Each job's nextest run defaults to one test process per core, so the jobs together would
-    // start jobs times cores test processes. Cap the test threads so the jobs together keep to
-    // the core count.
-    let mut command = Command::new(cargo);
-
-    command
-        .env("TMPDIR", scratch_directory(root))
-        .env("NEXTEST_TEST_THREADS", threads.to_string())
-        .args(["mutants", "--workspace", "--no-shuffle", "--jobs"])
-        .arg(jobs.to_string())
-        .arg("--output")
-        .arg(output)
-        .args(scope.arguments())
-        .current_dir(root)
-        .stdout(std::io::stderr());
-
-    command
+struct Mutants<'a> {
+    cargo: &'a str,
+    root: &'a Path,
+    output: &'a Path,
+    shard: Option<Shard>,
 }
 
-fn run_mutants(cargo: &str, root: &Path, output: &Path, scope: &Scope) -> anyhow::Result<()> {
-    empty_scratch(root)?;
-    let status = mutants_command(cargo, root, output, scope)
-        .status()
-        .context("Could not start cargo mutants")?;
+impl Mutants<'_> {
+    fn command(&self, scope: &Scope) -> Command {
+        let (jobs, threads) = job_counts(available_cores());
+        // Each job's nextest run defaults to one test process per core, so the jobs together would
+        // start jobs times cores test processes. Cap the test threads so the jobs together keep to
+        // the core count.
+        let mut command = Command::new(self.cargo);
 
-    match status.code() {
-        Some(0 | 2 | 3) => Ok(()),
-        Some(4) => anyhow::bail!("The unmutated tree fails to build or pass its tests."),
-        _ => anyhow::bail!("cargo mutants failed with {status}."),
+        command
+            .env("TMPDIR", scratch_directory(self.root))
+            .env("NEXTEST_TEST_THREADS", threads.to_string())
+            .args(["mutants", "--workspace", "--no-shuffle", "--jobs"])
+            .arg(jobs.to_string())
+            .arg("--output")
+            .arg(self.output);
+
+        if let Some(shard) = self.shard {
+            let argument = format!("{}/{}", shard.index, shard.count);
+
+            // Round-robin spreads each file's mutants over the shards, so one slow file does not
+            // lengthen a single shard.
+            command.args(["--shard", &argument, "--sharding", "round-robin"]);
+        }
+
+        command
+            .args(scope.arguments())
+            .current_dir(self.root)
+            .stdout(std::io::stderr());
+
+        command
+    }
+
+    fn run(&self, scope: &Scope) -> anyhow::Result<()> {
+        empty_scratch(self.root)?;
+        let status = self
+            .command(scope)
+            .status()
+            .context("Could not start cargo mutants")?;
+
+        match status.code() {
+            Some(0 | 2 | 3) => Ok(()),
+            Some(4) => anyhow::bail!("The unmutated tree fails to build or pass its tests."),
+            _ => anyhow::bail!("cargo mutants failed with {status}."),
+        }
     }
 }
 
@@ -299,12 +319,18 @@ fn mutate(root: &Path, request: &Request, cargo: &str, git: &str) -> anyhow::Res
         });
     }
 
+    let mutants = Mutants {
+        cargo,
+        root,
+        output: &output,
+        shard: request.shard,
+    };
     let selected_scope = Scope {
         files: selected,
         ..scope
     };
 
-    run_mutants(cargo, root, &output, &selected_scope)?;
+    mutants.run(&selected_scope)?;
 
     let survivors = read_survivors(root, &output)?;
 

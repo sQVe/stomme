@@ -151,6 +151,19 @@ fn report_reads_the_exit_code_of_the_mutants_run() {
 }
 
 #[test]
+fn report_names_the_unmutated_tree() {
+    let fixture = Fixture::new();
+    let cargo = fixture.cargo(LISTING, 0, "exit 4");
+    let (report, exit) = fixture.audit(&cargo);
+
+    assert_eq!(exit, 1);
+    assert_eq!(
+        report["error"],
+        "The unmutated tree fails to build or pass its tests."
+    );
+}
+
+#[test]
 fn report_builds_mutants_in_an_empty_scratch_folder_on_disk() {
     let fixture = Fixture::new();
     let scratch = fixture.folder.path().join("target/mutants/scratch");
@@ -402,7 +415,13 @@ fn mutants_command_caps_the_test_threads_of_each_job() {
     };
     let cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
     let (jobs, threads) = job_counts(cores);
-    let command = mutants_command("cargo", root, &output, &scope);
+    let command = Mutants {
+        cargo: "cargo",
+        root,
+        output: &output,
+        shard: None,
+    }
+    .command(&scope);
     let environment: Vec<(&OsStr, Option<&OsStr>)> = command.get_envs().collect();
     let arguments: Vec<&OsStr> = command.get_args().collect();
     let received_threads = environment
@@ -435,6 +454,44 @@ fn mutants_command_caps_the_test_threads_of_each_job() {
         "{received_jobs} jobs x {received_threads} threads on {} cores",
         cores.get()
     );
+}
+
+#[test]
+fn mutants_command_forwards_the_shard() {
+    let fixture = Fixture::new();
+    let root = fixture.folder.path();
+    let output = root.join(OUTPUT_DIRECTORY);
+    let scope = Scope {
+        diff: None,
+        files: strings(&["a.rs"]),
+    };
+    let cases = [
+        (None, None),
+        (
+            Some(Shard { index: 1, count: 4 }),
+            Some("--shard 1/4 --sharding round-robin"),
+        ),
+    ];
+
+    for (shard, expected) in cases {
+        let command = Mutants {
+            cargo: "cargo",
+            root,
+            output: &output,
+            shard,
+        }
+        .command(&scope);
+        let arguments: Vec<String> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+        let arguments = arguments.join(" ");
+
+        match expected {
+            Some(expected) => assert!(arguments.contains(expected), "{arguments}"),
+            None => assert!(!arguments.contains("--shard"), "{arguments}"),
+        }
+    }
 }
 
 #[test]

@@ -6,10 +6,17 @@ pub(super) enum Mode {
     Audit,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Shard {
+    pub(super) index: usize,
+    pub(super) count: usize,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Request {
     pub(super) target: Target,
     pub(super) max_mutants: Option<usize>,
+    pub(super) shard: Option<Shard>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -37,6 +44,14 @@ pub(super) enum RequestError {
     InvalidCap { value: String },
     #[error("--max-mutants must be at least 1.")]
     ZeroCap,
+    #[error("--shard needs an index/count pair.")]
+    MissingShard,
+    #[error("--shard needs an index/count pair, not {value}.")]
+    InvalidShard { value: String },
+    #[error("--shard count must be at least 1.")]
+    ZeroShardCount,
+    #[error("--shard index {index} is not below its count {count}.")]
+    ShardIndexOutOfRange { index: usize, count: usize },
     #[error("Unknown option {option}.")]
     UnknownOption { option: String },
     #[error("Changed mode needs exactly one base commit.")]
@@ -52,11 +67,14 @@ pub(super) fn parse_request(arguments: &[String]) -> Result<Request, RequestErro
 
     let mut targets = Vec::new();
     let mut max_mutants = None;
+    let mut shard = None;
     let mut remaining = rest.iter();
 
     while let Some(argument) = remaining.next() {
         if argument == "--max-mutants" {
             max_mutants = Some(parse_max_mutants(remaining.next().map(String::as_str))?);
+        } else if argument == "--shard" {
+            shard = Some(parse_shard(remaining.next().map(String::as_str))?);
         } else if argument.starts_with('-') {
             return Err(RequestError::UnknownOption {
                 option: argument.clone(),
@@ -81,7 +99,28 @@ pub(super) fn parse_request(arguments: &[String]) -> Result<Request, RequestErro
     Ok(Request {
         target,
         max_mutants,
+        shard,
     })
+}
+
+fn parse_shard(value: Option<&str>) -> Result<Shard, RequestError> {
+    let value = value.ok_or(RequestError::MissingShard)?;
+    let invalid = || RequestError::InvalidShard {
+        value: value.to_string(),
+    };
+    let (index, count) = value.split_once('/').ok_or_else(invalid)?;
+    let index = index.parse().map_err(|_| invalid())?;
+    let count = count.parse().map_err(|_| invalid())?;
+
+    if count == 0 {
+        return Err(RequestError::ZeroShardCount);
+    }
+
+    if index >= count {
+        return Err(RequestError::ShardIndexOutOfRange { index, count });
+    }
+
+    Ok(Shard { index, count })
 }
 
 fn parse_max_mutants(value: Option<&str>) -> Result<usize, RequestError> {
@@ -116,6 +155,7 @@ mod tests {
                     base: "main".to_string()
                 },
                 max_mutants: Some(5),
+                shard: None,
             }
         );
         assert_eq!(
@@ -170,6 +210,58 @@ mod tests {
     }
 
     #[test]
+    fn parse_request_reads_the_shard() {
+        let cases = [("0/4", 0, 4), ("3/4", 3, 4), ("0/1", 0, 1)];
+
+        for (value, index, count) in cases {
+            let request = parse_request(&strings(&["changed", "main", "--shard", value]))
+                .expect("the shard parses");
+
+            assert_eq!(request.shard, Some(Shard { index, count }), "{value}");
+        }
+    }
+
+    #[test]
+    fn parse_request_rejects_bad_shards() {
+        let cases = [
+            (
+                strings(&["changed", "main", "--shard"]),
+                RequestError::MissingShard,
+            ),
+            (
+                strings(&["changed", "main", "--shard", "4"]),
+                RequestError::InvalidShard {
+                    value: "4".to_string(),
+                },
+            ),
+            (
+                strings(&["changed", "main", "--shard", "one/four"]),
+                RequestError::InvalidShard {
+                    value: "one/four".to_string(),
+                },
+            ),
+            (
+                strings(&["changed", "main", "--shard", "1/4/2"]),
+                RequestError::InvalidShard {
+                    value: "1/4/2".to_string(),
+                },
+            ),
+            (
+                strings(&["changed", "main", "--shard", "1/0"]),
+                RequestError::ZeroShardCount,
+            ),
+            (
+                strings(&["changed", "main", "--shard", "4/4"]),
+                RequestError::ShardIndexOutOfRange { index: 4, count: 4 },
+            ),
+        ];
+
+        for (arguments, expected) in cases {
+            assert_eq!(parse_request(&arguments), Err(expected), "{arguments:?}");
+        }
+    }
+
+    #[test]
     fn options_are_checked_before_the_mode_and_target_count() {
         let cases = [
             (
@@ -185,6 +277,10 @@ mod tests {
             (
                 strings(&["other", "--max-mutants", "0"]),
                 RequestError::ZeroCap,
+            ),
+            (
+                strings(&["other", "--shard", "2/2"]),
+                RequestError::ShardIndexOutOfRange { index: 2, count: 2 },
             ),
         ];
 

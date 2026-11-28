@@ -76,11 +76,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: cargo xtask check build
 
-  mutation:
-    name: Mutation (changed)
+  mutation-shard:
+    name: Mutation (changed) shard ${{ matrix.shard }}
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # One runner cannot finish a large diff before the timeout, so the mutants are split across
+    # four runners and one job merges their reports.
     timeout-minutes: 180
+    strategy:
+      # A failed shard must not cancel the others, so every report still reaches the aggregate.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,19 +122,81 @@ jobs:
       - name: Mutate the pull request's diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SHARD: ${{ matrix.shard }}
         run: |
+          # Log memory and disk at both ends, so a lost runner leaves a record of its use.
+          free -m
+          df -h
           status=0
-          cargo xtask mutation changed "$BASE_SHA" > mutation-report.json || status=$?
+          cargo xtask mutation changed "$BASE_SHA" --shard "$SHARD/${{ strategy.job-total }}" > mutation-report.json || status=$?
+          free -m
+          df -h
           cat mutation-report.json
+          if [ -s mutation-report.json ]; then
+            {
+              echo "### Mutation testing (shard $SHARD)"
+              echo
+              jq -r '"Status: \(.status), \(.survivors | length) survivors"' mutation-report.json
+              jq -r '.survivors[] | "- `\(.file):\(.line)`: \(.original) -> \(.replacement)"' mutation-report.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            exit "$status"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation-shard-${{ matrix.shard }}
+          path: |
+            mutation-report.json
+            target/mutants/mutants.out/debug.log
+          if-no-files-found: warn
+
+  mutation:
+    name: Mutation (changed)
+    if: always() && github.event_name == 'pull_request'
+    needs: [mutation-shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutation-shard-*
+          path: shards
+      - name: Merge the shard reports
+        run: |
+          shopt -s nullglob
+          reports=(shards/mutation-shard-*/mutation-report.json)
+          if [ "${#reports[@]}" -eq 0 ]; then
+            echo "No shard wrote a report." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          jq -s '
+            def overall:
+              if any(.[]; .status == "error") then "error"
+              elif any(.[]; (.survivors | length) > 0) then "survivors"
+              elif all(.[]; .status == "nothing") then "nothing"
+              else "pass" end;
+            . as $reports
+            | {
+                status: ($reports | overall),
+                survivors: ($reports | map(.survivors) | add),
+                unmutated: ($reports | map(.unmutated) | add | unique),
+              }
+          ' "${reports[@]}" > mutation-report.json
           {
             echo "### Mutation testing"
             echo
             jq -r '"Status: \(.status), \(.survivors | length) survivors"' mutation-report.json
             jq -r '.survivors[] | "- `\(.file):\(.line)`: \(.original) -> \(.replacement)"' mutation-report.json
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-            exit "$status"
-          fi
+      - name: Fail when a shard failed
+        if: needs.mutation-shard.result != 'success'
+        env:
+          SHARD_RESULT: ${{ needs.mutation-shard.result }}
+        run: |
+          echo "::error::The mutation shards finished as $SHARD_RESULT."
+          exit 1
 
   mutation-audit:
     name: Mutation audit
