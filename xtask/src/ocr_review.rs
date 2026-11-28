@@ -23,6 +23,7 @@ const REPORT_STEP: &str = "Report the OCR result";
 const HEAD_SHA: &str = "8c6c9a2f49891c7f86c7a82f380f5c32519c52a6";
 const OTHER_HEAD: &str = "0b836765f754d4d652906821e5d850a9c90d778f";
 const SCOPED_BASE: &str = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d";
+const OTHER_BASE: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c";
 const MERGE_BASE: &str = "aabbccddeeff00112233445566778899aabbccdd";
 const SESSION_RESULT: &str = r#"{"session_id":"session-1"}"#;
 const EMPTY_RESULT: &str = "{}";
@@ -216,19 +217,6 @@ module.exports = {
     }));
     return JSON.parse(process.env.CHECKPOINT_RESULT);
   },
-  // The pinned helper's own validation, so the workflow is judged by the rule
-  // that ships with the action it pins.
-  validateCheckpointPayload: (payload, { prNumber } = {}) => {
-    if (!payload) return 'no payload';
-    if (payload.v !== 1) return 'unsupported version';
-    if (prNumber != null && payload.pr !== prNumber) return 'belongs to another pull request';
-    if (!/^[0-9a-f]{40}$/.test(payload.head)) return 'head is not a 40-hex sha';
-    if (payload.terminal_state !== 'complete') return 'terminal_state is not complete';
-    if (typeof payload.base_ref !== 'string' || payload.base_ref === '') return 'missing base_ref';
-    if (typeof payload.merge_base !== 'string' || payload.merge_base === '') return 'missing merge_base';
-    if (typeof payload.fingerprint !== 'string' || payload.fingerprint === '') return 'missing fingerprint';
-    return null;
-  },
 };
 "#;
 
@@ -303,18 +291,20 @@ module.exports = {
 };
 "#;
 
-const RUNNER_PREFIX: &str = r#"const fs = require('fs');
+// Only the bindings `actions/github-script` injects: a script that uses `fs`
+// without importing it must fail here as it does on the runner.
+const RUNNER_PREFIX: &str = r#"const nodeFs = require('fs');
 const chunks = [];
 globalThis.core = {
-  info: (line) => fs.appendFileSync(process.env.INFO_LOG, `${line}\n`),
-  warning: (line) => fs.appendFileSync(process.env.WARNING_LOG, `${line}\n`),
-  setOutput: (name, value) => fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`),
+  info: (line) => nodeFs.appendFileSync(process.env.INFO_LOG, `${line}\n`),
+  warning: (line) => nodeFs.appendFileSync(process.env.WARNING_LOG, `${line}\n`),
+  setOutput: (name, value) => nodeFs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`),
   summary: {
     addRaw: (text) => {
       chunks.push(text);
       return {
         write: async () => {
-          fs.writeFileSync(process.env.SUMMARY_LOG, chunks.join('\n'));
+          nodeFs.writeFileSync(process.env.SUMMARY_LOG, chunks.join('\n'));
         },
       };
     },
@@ -328,13 +318,13 @@ globalThis.github = {
   rest: {
     issues: {
       getComment: async ({ comment_id }) => {
-        fs.appendFileSync(process.env.GET_LOG, `${comment_id}\n`);
-        const comment = JSON.parse(fs.readFileSync(process.env.COMMENT_FILE, 'utf8'));
+        nodeFs.appendFileSync(process.env.GET_LOG, `${comment_id}\n`);
+        const comment = JSON.parse(nodeFs.readFileSync(process.env.COMMENT_FILE, 'utf8'));
         return { data: comment };
       },
       updateComment: async ({ comment_id, body }) => {
-        fs.appendFileSync(process.env.UPDATE_LOG, `${comment_id}\n`);
-        fs.writeFileSync(process.env.UPDATED_BODY, body);
+        nodeFs.appendFileSync(process.env.UPDATE_LOG, `${comment_id}\n`);
+        nodeFs.writeFileSync(process.env.UPDATED_BODY, body);
       },
     },
   },
@@ -1834,6 +1824,7 @@ impl Range {
             ("OCR_APP_SLUG", "github-actions".to_string()),
             ("PR_NUMBER", "7".to_string()),
             ("HEAD_SHA", HEAD_SHA.to_string()),
+            ("MERGE_BASE", MERGE_BASE.to_string()),
         ];
         let completed = run_github_script(root, &environment);
 
@@ -1934,6 +1925,21 @@ fn range_skips_a_head_the_marker_already_records() {
 
     assert_eq!(observation.output("mode"), "noop");
     assert_eq!(observation.output("reason"), "same_head_noop");
+}
+
+#[test]
+fn range_scopes_a_head_reviewed_against_another_base() {
+    let range = Range::new();
+    let fingerprint = range.run(None, Some("rules")).output("fingerprint");
+    let marker = checkpoint_result(&fingerprint, HEAD_SHA, OTHER_BASE, "complete");
+    let observation = range.run(Some(&marker), Some("rules"));
+
+    assert_eq!(
+        observation.output("mode"),
+        "scoped",
+        "the same head against another base exposes lines the earlier review never saw"
+    );
+    assert_eq!(observation.output("reviewed_base"), OTHER_BASE);
 }
 
 #[test]
@@ -3004,6 +3010,23 @@ impl Post {
                 .map(|text| serde_json::from_str(&text).expect("the helper records JSON")),
         }
     }
+}
+
+#[test]
+fn the_posts_advance_the_marker_only_on_a_complete_coverage() {
+    let post = step_text(OCR_REVIEW, POST_STEP);
+    let resumed = step_text(OCR_REVIEW, RESUME_POST_STEP);
+
+    assert!(
+        post.contains(
+            "steps.outcome.outputs.first_final == '0' && steps.range.outputs.fingerprint"
+        ),
+        "the first post advances the marker only past its own complete coverage:\n{post}"
+    );
+    assert!(
+        resumed.contains("steps.outcome.outputs.final == '0' && steps.range.outputs.fingerprint"),
+        "the resumed post advances the marker only past the resumed coverage:\n{resumed}"
+    );
 }
 
 #[test]

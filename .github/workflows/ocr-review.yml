@@ -170,7 +170,12 @@ jobs:
                 decide('full', 'config_changed');
                 return;
               }
-              if (existing.payload.head === process.env.HEAD_SHA) {
+              // The same head is only a no-op when it was reviewed against the
+              // same base. A retargeted pull request exposes lines that the
+              // earlier review never saw, so it builds a scope instead.
+              const sameHead = existing.payload.head === process.env.HEAD_SHA;
+              const sameBase = existing.payload.merge_base === process.env.MERGE_BASE;
+              if (sameHead && sameBase) {
                 decide('noop', 'same_head_noop', { carry: existing.raw });
                 return;
               }
@@ -228,14 +233,18 @@ jobs:
           {"status":"complete","manifest":{"schema_version":"ocr.run-manifest/v1","terminal_state":"complete","input":{"resolved_head":"${HEAD_SHA}"},"coverage":{"selected":[],"completed":[],"reused":[],"failed":[],"waived":[],"excluded":[]}}}
           JSON
             echo "OCR_EXIT_CODE=0" >> "$GITHUB_ENV"
-            echo "mode=empty" >> "$GITHUB_OUTPUT"
-            echo "note=Scope since the last complete review: no new lines" >> "$GITHUB_OUTPUT"
+            {
+              echo "mode=empty"
+              echo "note=Scope since the last complete review: no new lines"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "mode=scoped" >> "$GITHUB_OUTPUT"
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "note=Scope since the last complete review: ${counts:-no new lines}" >> "$GITHUB_OUTPUT"
+          {
+            echo "mode=scoped"
+            echo "base=$base"
+            echo "note=Scope since the last complete review: ${counts:-no new lines}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install the pinned OpenCodeReview
         if: steps.range.outputs.mode != 'noop'
@@ -261,7 +270,9 @@ jobs:
           ocr config set llm.use_anthropic "false"
           ocr config set llm.protocol "openai"
           ocr config set llm.auth_header ""
-          ocr config set llm.auth_token_cmd 'printf "%s" "$OCR_LLM_TOKEN"'
+          # The command OCR runs at request time, so the token never reaches the
+          # config file. The escaped dollar keeps it unexpanded here.
+          ocr config set llm.auth_token_cmd "printf \"%s\" \"\$OCR_LLM_TOKEN\""
           ocr config set llm.extra_body "$OCR_EXTRA_BODY"
           ocr config set language "English"
 
@@ -294,6 +305,16 @@ jobs:
           cat /tmp/ocr-result.json
           echo "=== OCR stderr ==="
           cat /tmp/ocr-stderr.log
+
+      - name: Upload the review result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ocr-review-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/ocr-result.json
+            /tmp/ocr-stderr.log
+          if-no-files-found: warn
 
       - name: Classify and resume the review
         id: outcome
@@ -571,6 +592,7 @@ jobs:
           CHECKPOINT_CARRY: ${{ steps.range.outputs.carry }}
         with:
           script: |
+            const fs = require('fs');
             const path = require('path');
             const helper = path.join(
               process.env.GITHUB_WORKSPACE,
@@ -618,6 +640,7 @@ jobs:
           CHECKPOINT_CARRY: ${{ steps.range.outputs.carry }}
         with:
           script: |
+            const fs = require('fs');
             const path = require('path');
             const helper = path.join(
               process.env.GITHUB_WORKSPACE,

@@ -202,15 +202,16 @@ the token comes from the `MORPH_API_KEY` repository secret.
   it reused. It reviews the same synthetic base, and its summary advances the checkpoint marker
   only when the coverage command reports every selected file as reviewed; otherwise it re-emits the
   marker this run read, so the next range only widens.
-- A push whose head the checkpoint already records is a no-op run: the workflow runs no review and
-  writes nothing. The checkpoint moves on OCR's own completeness, which is a different measure from
-  the coverage record: `stomme ocr-coverage` counts a selected file that the record does not list
-  as reviewed, so a checkpointed head can hold files that the check counts as unreviewed. A rerun
-  of that head therefore has no new evidence to offer. Instead the workflow reads the coverage
+- A push whose head the checkpoint already records is a no-op run, as long as the marker's merge
+  base is still this run's merge base: the workflow runs no review and writes nothing. A different
+  base exposes lines that the earlier review never saw, so that run builds a scope instead.
+- A no-op run still has to prove that this head was reviewed, so the workflow reads the coverage
   section that this head's run inserted into the summary comment, copies that section to the top of
   the job summary, and passes only when the section reports every selected file as reviewed. A
   missing section, unreviewed files, or a failed run fails the check, and its error says that the
-  same head cannot be reviewed again, so the change needs a new commit.
+  same head cannot be reviewed again, so the change needs a new commit. A marker that an earlier
+  workflow wrote can name a head that the coverage command counts as partly unreviewed, because
+  OCR's own completeness allows waived files, and this read is what catches it.
 - The summary comment starts with the coverage section that the command prints, under the scope
   note that names the files and lines this run reviewed. The workflow writes a hidden verdict line
   above both that names the run's classification and the head the section covers, so a later run
