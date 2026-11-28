@@ -8,7 +8,13 @@ use super::scopes::{self, ExportVisibility, Scope, Target};
 use super::use_paths::{BindingTable, Namespace};
 use super::{Module, is_crate_root, is_under_bin, keeps_exports, module_path, owner_module};
 use crate::check::source_files::{SourceFile, Tree};
-use walk::Walk;
+use walk::{MAX_DEPTH, Walk};
+
+#[derive(Debug, thiserror::Error)]
+#[error("a module path needs more than {limit} nested lookups")]
+pub(super) struct DepthLimit {
+    pub(super) limit: usize,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Place {
@@ -84,7 +90,7 @@ impl<'a> Resolver<'a> {
         caller_path: &[String],
         resolved: &[String],
         namespace: Namespace,
-    ) -> BTreeSet<String> {
+    ) -> Result<BTreeSet<String>, DepthLimit> {
         let visibility = if caller_path.starts_with(&target.path) {
             Visibility::All
         } else {
@@ -93,7 +99,7 @@ impl<'a> Resolver<'a> {
         let segments = resolved.get(target.path.len()..).unwrap_or_default();
         let mut reached = BTreeSet::new();
         let Some((last, middle)) = segments.split_last() else {
-            return reached;
+            return Ok(reached);
         };
         let mut walk = Walk::new(target);
         let mut places = BTreeSet::from([entry_place(target)]);
@@ -119,11 +125,17 @@ impl<'a> Resolver<'a> {
             reached.extend(terminal_files(place, &meanings));
         }
 
-        if walk.exhausted {
-            return BTreeSet::new();
+        // A deeper chain hides which file a use reaches, and no real module path is that deep,
+        // so the run fails. The budget only caps work on a readable graph, so it reports nothing.
+        if walk.depth_exceeded {
+            return Err(DepthLimit { limit: MAX_DEPTH });
         }
 
-        reached
+        if walk.exhausted {
+            return Ok(BTreeSet::new());
+        }
+
+        Ok(reached)
     }
 
     fn lookup(
@@ -152,13 +164,6 @@ impl<'a> Resolver<'a> {
             return BTreeSet::from([Meaning::Item]);
         }
 
-        let memo_key = (place.clone(), name.to_string(), visibility, namespace);
-        let remembered = self.memo.borrow().get(&memo_key).cloned();
-
-        if let Some(meanings) = remembered {
-            return meanings;
-        }
-
         let children = self.child_meanings(module, place, name);
         let Some(scope) = scope else {
             return children;
@@ -167,6 +172,19 @@ impl<'a> Resolver<'a> {
 
         if walk.cut_if_open(&pair) {
             return children;
+        }
+
+        // A memo hit must not answer a pair that is already open; the cached value came from a
+        // different context.
+        let memo_key = (place.clone(), name.to_string(), visibility, namespace);
+        let remembered = self.memo.borrow().get(&memo_key).cloned();
+
+        if let Some(meanings) = remembered {
+            return meanings;
+        }
+
+        if !walk.can_look_up() {
+            return BTreeSet::new();
         }
 
         let open = walk.enter(pair);
@@ -179,8 +197,9 @@ impl<'a> Resolver<'a> {
             meanings.extend(self.glob_meanings(place, scope, name, visibility, namespace, walk));
         }
 
+        let child_module_returned = !children.is_empty();
         meanings.extend(children);
-        let cacheable = walk.leave(open);
+        let cacheable = walk.leave(open, child_module_returned);
 
         if cacheable && !walk.exhausted {
             self.memo.borrow_mut().insert(memo_key, meanings.clone());

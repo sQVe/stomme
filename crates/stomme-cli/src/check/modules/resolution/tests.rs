@@ -1,6 +1,7 @@
-use super::Resolver;
+use super::{DepthLimit, Resolver};
 use crate::check::Problem;
 use crate::check::modules::tests::{assert_problem, problems};
+use crate::check::modules::use_paths::Namespace;
 use crate::check::modules::{read_modules, read_sources};
 use crate::check::source_files;
 use crate::check::test_support::project;
@@ -1245,6 +1246,136 @@ fn glob_reexport_cycles_terminate() {
 
         assert_keys(&problems, &keys, name);
     }
+}
+
+#[test]
+fn a_lookup_after_a_self_cut_lookup_reports_the_keys_it_reports_alone() {
+    let files = [
+        ("src/fact.rs", "pub mod x;\n"),
+        ("src/fact/b.rs", "pub use super::c::*;\n"),
+        (
+            "src/fact/c.rs",
+            "pub use super::*;\npub use super::b::x as x;\n",
+        ),
+        ("src/fact/d.rs", "pub use super::b::x as x;\n"),
+        ("src/fact/x.rs", "pub fn helper() {}\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.other]\nentry = \"src/other.rs\"\nimports = [\"fact\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let first = "use crate::fact::d::x;\n";
+    let second = "use crate::fact::b::x;\n";
+    let expected = [(
+        Rule::ModulePrivateFile,
+        Some("ticket:src/fact/x.rs".to_string()),
+    )];
+
+    let keys_of = |other: &str, ticket: &str| {
+        let mut all: Vec<(&str, &str)> = files.to_vec();
+        all.push(("src/other.rs", other));
+        all.push(("src/ticket.rs", ticket));
+        let root = project(&all, table);
+
+        problems(root.path())
+            .into_iter()
+            .filter(|problem| problem.path == "src/ticket.rs")
+            .map(|problem| (problem.rule, problem.key))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        keys_of(first, second),
+        expected,
+        "the second lookup after the self-cut lookup"
+    );
+    assert_eq!(keys_of("", second), expected, "the second lookup alone");
+}
+
+#[test]
+fn a_re_export_chain_deeper_than_the_depth_limit_returns_the_limit() {
+    let links = 10_000;
+    let mut fact_entry = "pub mod attention;\npub use attention as a1;\n".to_string();
+
+    for link in 2..=links {
+        fact_entry.push_str(&format!("pub use a{} as a{link};\n", link - 1));
+    }
+
+    let ticket = format!("use crate::fact::a{links}::helper;\n");
+    let files = [
+        ("src/fact.rs", fact_entry.as_str()),
+        ("src/fact/attention.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", ticket.as_str()),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+    let Installation::Valid(selection) = config::read(
+        root.path(),
+        layer::catalog(),
+        &config::FileRead::filesystem(),
+    ) else {
+        panic!("expected a valid installation");
+    };
+    let (modules, _) = read_modules(root.path(), &selection.modules).expect("read the modules");
+    let src_folders = modules
+        .iter()
+        .map(|module| module.src_folder.clone())
+        .collect();
+    let tree = source_files::walk(root.path(), Language::Rust).expect("walk the project");
+    let sources = read_sources(&tree, &modules, &src_folders).expect("read the sources");
+    let resolver = Resolver::new(&tree, &modules, &sources);
+    let fact = modules
+        .iter()
+        .find(|module| module.name == "fact")
+        .expect("the fact row");
+    let resolved = vec![
+        "fact".to_string(),
+        format!("a{links}"),
+        "helper".to_string(),
+    ];
+
+    let error = resolver
+        .reached_files(fact, &["ticket".to_string()], &resolved, Namespace::Type)
+        .expect_err("the depth limit error");
+
+    assert!(matches!(error, DepthLimit { limit: 256 }));
+}
+
+#[test]
+fn a_self_cut_that_returned_a_module_is_not_cached() {
+    let files = [
+        (
+            "src/fact.rs",
+            "pub use b::*;\npub use c::*;\npub use c::x as x;\n",
+        ),
+        ("src/fact/b.rs", "pub use super::*;\n"),
+        ("src/fact/c.rs", "pub use super::b::*;\n"),
+        ("src/fact/x.rs", "pub fn helper() {}\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.other]\nentry = \"src/other.rs\"\nimports = [\"fact\"]\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let first = "use crate::fact::x;\n";
+    let second = "use crate::fact::b::x;\n";
+    let expected = [(
+        Rule::ModulePrivateFile,
+        Some("ticket:src/fact/b.rs".to_string()),
+    )];
+
+    let keys_of = |other: &str, ticket: &str| {
+        let mut all: Vec<(&str, &str)> = files.to_vec();
+        all.push(("src/other.rs", other));
+        all.push(("src/ticket.rs", ticket));
+        let root = project(&all, table);
+
+        problems(root.path())
+            .into_iter()
+            .filter(|problem| problem.path == "src/ticket.rs")
+            .map(|problem| (problem.rule, problem.key))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        keys_of(first, second),
+        expected,
+        "the second lookup after the self-cut lookup"
+    );
+    assert_eq!(keys_of("", second), expected, "the second lookup alone");
 }
 
 #[test]
