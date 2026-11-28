@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.2.6
+
+- `stomme` 0.2.6.
+- `@sqve/stomme-ts-style` 0.4.0.
+- `@sqve/stomme-ts-imports` 0.2.6.
+- `@sqve/mutation` 0.2.0.
+
+Changes:
+
+- Add `stomme ocr-scope --reviewed <ref> --reviewed-base <ref> --base <ref> --head <ref>`, which
+  builds the review base since the last complete Open Code Review run and grafts it onto the head,
+  so a force push or a rebase leaves only the new lines in scope.
+- Normalize a module entry and public path when the config is read, so `./src/a.rs` and
+  `src//a.rs` reach the module check instead of matching no file and passing silently.
+- Reject an invalid dependency, lock, and Clippy config value, and follow the documented precedence
+  between the config files.
+- Count a package in `optionalDependencies` as a layer dependency, as for the other dependency
+  fields.
+- Name `.clippy.toml` first as the effective Clippy config, and describe the runtime search from the
+  crate manifest directory or `CLIPPY_CONF_DIR`.
+- Accept an acronym stem as PascalCase, so `ReportUI` sits in the family of `Report`.
+- Reject a TOML date or timestamp in place of a Cargo dependency, which Cargo refuses when a
+  package inherits it.
+- Read a fence after the list markers of a line and inside a block quote, so a fenced link on a
+  list marker line is not an ADR index entry and its sample is not an invalid entry.
+- Read the ADR index section and the retired table through the shared scanner, so a heading or a
+  table row inside a fence or an HTML comment no longer ends the section or retires a number. The
+  check also reads the index lines once and hands them to both readers.
+- Report an ADR file-name problem only for a file, and read the ADR heading only from a line that is
+  a heading, so a folder named like an ADR and a `#hashtag` line above the title are not problems.
+- Start the Release workflow only on a `v` tag, so a Changesets package tag such as
+  `@sqve/stomme-ts-imports@0.2.6` no longer starts a run whose plan job cannot parse its version.
+- Read a trigger form the release tag guard used to skip, such as a `tags-ignore:` filter or a
+  commented trigger key, as a tag push, and fail on a trigger line it cannot read, so the guard
+  rejects every workflow that can start on a tag outside the `v` family.
+- Run the sync workflow's branch code without the app token, and push from a separate job that
+  reads only the bundle entry from the artifact, so a push by another actor cannot use the token.
+- Add timeouts, concurrency groups, and least-privilege tokens to the workflows.
+
 ## 0.2.5
 
 - `stomme` 0.2.5.
