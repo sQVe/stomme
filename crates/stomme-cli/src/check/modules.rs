@@ -85,7 +85,7 @@ pub(super) fn check(
         }
 
         let file_is_test = test_files.contains(&file.path);
-        problems.extend(check_file(&resolver, owner, file, source, file_is_test));
+        problems.extend(check_file(&resolver, owner, file, source, file_is_test)?);
     }
 
     Ok(problems)

@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+use anyhow::Context as _;
+
 use super::resolution::Resolver;
 use super::use_paths::{Namespace, UsePath, paths};
 use super::{Module, module_path};
@@ -13,7 +15,7 @@ pub(super) fn check_file(
     file: &SourceFile,
     source: &str,
     file_is_test: bool,
-) -> Vec<Problem> {
+) -> anyhow::Result<Vec<Problem>> {
     let file_path = module_path(&file.path, &module.src_folder);
     let table = resolver.bindings(module, &file_path);
     let mut problems = Vec::new();
@@ -26,7 +28,7 @@ pub(super) fn check_file(
         let Some(resolved) = resolve(&use_path, &current) else {
             continue;
         };
-        let found = classify(resolver, module, file, &resolved, &use_path, in_test_module);
+        let found = classify(resolver, module, file, &resolved, &use_path, in_test_module)?;
 
         for problem in found {
             let key = (problem.rule.id(), problem.key.clone());
@@ -37,7 +39,7 @@ pub(super) fn check_file(
         }
     }
 
-    problems
+    Ok(problems)
 }
 
 fn resolve(use_path: &UsePath, file_path: &[String]) -> Option<Vec<String>> {
@@ -74,17 +76,17 @@ fn classify(
     resolved: &[String],
     use_path: &UsePath,
     in_test_module: bool,
-) -> Vec<Problem> {
+) -> anyhow::Result<Vec<Problem>> {
     let parent = value_path_parent(resolver, module, resolved, use_path);
     let resolved = parent.as_deref().unwrap_or(resolved);
     let Some(found) = longest_prefix(resolver.modules, module, resolved) else {
         let unlisted = classify_unlisted(resolver.tree, module, file, resolved, use_path);
 
-        return unlisted.into_iter().collect();
+        return Ok(unlisted.into_iter().collect());
     };
 
     if found.name == module.name {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     if !module.imports.contains(&found.name) {
@@ -94,11 +96,11 @@ fn classify(
         );
         let key = format!("{}:{}", module.name, found.name);
 
-        return vec![problem(file, Rule::ModuleImports, message, key)];
+        return Ok(vec![problem(file, Rule::ModuleImports, message, key)]);
     }
 
     if in_test_module {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     private_file_problems(resolver, module, found, file, resolved, use_path)
@@ -140,10 +142,12 @@ fn private_file_problems(
     file: &SourceFile,
     resolved: &[String],
     use_path: &UsePath,
-) -> Vec<Problem> {
-    let reached = resolver.reached_files(found, &module.path, resolved, use_path.namespace);
+) -> anyhow::Result<Vec<Problem>> {
+    let reached = resolver
+        .reached_files(found, &module.path, resolved, use_path.namespace)
+        .with_context(|| format!("checking {}", file.path))?;
 
-    reached
+    let problems = reached
         .into_iter()
         .filter(|used_file| !found.public.contains(used_file))
         .map(|used_file| {
@@ -155,7 +159,9 @@ fn private_file_problems(
 
             problem(file, Rule::ModulePrivateFile, message, key)
         })
-        .collect()
+        .collect();
+
+    Ok(problems)
 }
 
 fn classify_unlisted(

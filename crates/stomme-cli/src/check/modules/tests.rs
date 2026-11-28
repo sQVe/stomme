@@ -6,13 +6,17 @@ use crate::config::{self, Installation};
 use crate::layer;
 
 pub(super) fn problems(root: &Path) -> Vec<Problem> {
+    check_result(root).expect("check the project")
+}
+
+fn check_result(root: &Path) -> anyhow::Result<Vec<Problem>> {
     let Installation::Valid(selection) =
         config::read(root, layer::catalog(), &config::FileRead::filesystem())
     else {
         panic!("expected a valid installation");
     };
 
-    check(root, &selection.modules).expect("check the project")
+    check(root, &selection.modules)
 }
 
 pub(super) fn assert_problem(problems: &[Problem], path: &str, rule: Rule, key: &str, case: &str) {
@@ -1040,4 +1044,102 @@ fn a_type_annotation_before_a_leading_colon_reports_no_crate_root_path() {
     let root = project(&files, table);
 
     assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+fn inline_glob_chain(links: usize, last: &str) -> String {
+    let mut entry = "pub use m1::*;\n".to_string();
+
+    for link in 1..links {
+        entry.push_str(&format!(
+            "pub mod m{link} {{ pub use super::m{}::*; }}\n",
+            link + 1
+        ));
+    }
+
+    entry.push_str(&format!("pub mod m{links} {{ {last} }}\n"));
+
+    entry
+}
+
+fn assert_depth_error(error: anyhow::Error) {
+    let limit = error.downcast_ref::<super::resolution::DepthLimit>();
+
+    assert_eq!(limit.map(|depth_limit| depth_limit.limit), Some(256));
+    assert!(format!("{error:#}").contains("src/ticket.rs"), "{error:#}");
+}
+
+#[test]
+fn a_re_export_chain_deeper_than_the_depth_limit_fails_the_check() {
+    let links = 10_000;
+    let mut fact_entry = "pub mod attention;\npub use attention as a1;\n".to_string();
+
+    for link in 2..=links {
+        fact_entry.push_str(&format!("pub use a{} as a{link};\n", link - 1));
+    }
+
+    let ticket = format!("use crate::fact::a{links}::helper;\n");
+    let files = [
+        ("src/fact.rs", fact_entry.as_str()),
+        ("src/fact/attention.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", ticket.as_str()),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let error = check_result(root.path()).expect_err("the depth limit fails the check");
+
+    assert_depth_error(error);
+}
+
+#[test]
+fn a_cut_at_the_depth_limit_does_not_fail_the_check() {
+    let entry = inline_glob_chain(255, "pub use super::*;");
+    let files = [
+        ("src/fact.rs", entry.as_str()),
+        ("src/ticket.rs", "use crate::fact::x;\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    assert!(check_result(root.path()).is_ok());
+}
+
+#[test]
+fn a_memo_hit_at_the_depth_limit_does_not_fail_the_check() {
+    let entry = format!(
+        "{}pub use actual::x as warm;\n",
+        inline_glob_chain(255, "pub use super::actual::*;")
+    );
+    let files = [
+        ("src/fact.rs", entry.as_str()),
+        ("src/fact/actual.rs", "pub mod x;\n"),
+        ("src/fact/actual/x.rs", "pub fn helper() {}\n"),
+        (
+            "src/ticket.rs",
+            "use crate::fact::actual::x;\nuse crate::fact::warm;\nuse crate::fact::x;\n",
+        ),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let result = check_result(root.path());
+
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn a_lookup_that_opens_the_frame_after_the_depth_limit_fails_the_check() {
+    let entry = inline_glob_chain(255, "pub use super::actual::*;");
+    let files = [
+        ("src/fact.rs", entry.as_str()),
+        ("src/fact/actual.rs", "pub mod x;\n"),
+        ("src/fact/actual/x.rs", "pub fn helper() {}\n"),
+        ("src/ticket.rs", "use crate::fact::x;\n"),
+    ];
+    let table = "[modules.fact]\nentry = \"src/fact.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"fact\"]\n";
+    let root = project(&files, table);
+
+    let error = check_result(root.path()).expect_err("the depth limit fails the check");
+
+    assert_depth_error(error);
 }
