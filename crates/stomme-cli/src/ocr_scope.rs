@@ -182,10 +182,20 @@ fn range_changes(
     let mut changes = BTreeMap::new();
 
     for change in statuses {
-        if change.status == 'D'
-            || is_non_regular(&change.old_mode)
-            || is_non_regular(&change.new_mode)
-        {
+        if change.status == 'D' {
+            continue;
+        }
+
+        // A type change keeps its entry so its covered lines stay unmappable instead of
+        // claiming the old position in a file of another type.
+        if is_non_regular(&change.old_mode) || is_non_regular(&change.new_mode) {
+            changes.insert(
+                change.old_path,
+                RangeChange {
+                    new_path: change.new_path,
+                    hunks: None,
+                },
+            );
             continue;
         }
 

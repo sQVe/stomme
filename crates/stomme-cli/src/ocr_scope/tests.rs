@@ -345,6 +345,39 @@ fn scopes_a_deletion_after_a_prior_symlink_conversion() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn scopes_a_deletion_after_a_prior_regular_file_conversion() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/a.txt", "keep\ntoken\nlast\n")]),
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_symlink(folder, "src/a.txt", "token");
+        },
+        |folder| write_files(folder, &[("src/a.txt", "keep\ntoken\nlast\n")]),
+        |folder| write_files(folder, &[("src/a.txt", "keep\nlast\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 0, 1));
+    assert_eq!(
+        removed_texts(folder.path(), &base, &history.head),
+        ["token"]
+    );
+}
+
 #[test]
 fn gives_the_same_scope_from_a_nested_folder() {
     let folder = repository_folder();
@@ -649,6 +682,65 @@ fn keeps_the_head_entry_when_a_regular_file_becomes_a_symlink() {
         tree_entry(folder.path(), &base, "src/a.txt"),
         tree_entry(folder.path(), &history.head, "src/a.txt")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn scopes_a_new_line_after_a_reviewed_symlink_becomes_regular() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/a.txt", "keep\n")]),
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_symlink(folder, "src/a.txt", "token");
+        },
+        |_| {},
+        |folder| write_files(folder, &[("src/a.txt", "new\nkeep\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(added_texts(folder.path(), &base, &history.head), ["new"]);
+}
+
+#[test]
+fn scopes_a_new_line_after_a_reviewed_submodule_becomes_regular() {
+    let folder = repository_folder();
+    let history = build_history(
+        folder.path(),
+        |folder| write_files(folder, &[("src/a.txt", "keep\n")]),
+        |folder| {
+            remove_files(folder, &["src/a.txt"]);
+            write_submodule(folder, "src/a.txt", "inner one\n");
+        },
+        |_| {},
+        |folder| write_files(folder, &[("src/a.txt", "new\nkeep\n")]),
+    );
+
+    let outcome = run_scope(folder.path(), &history).expect("build the scope base");
+    let Outcome::Base {
+        commit: base,
+        files,
+        added,
+        removed,
+    } = outcome
+    else {
+        panic!("expected a base commit, got {outcome:?}");
+    };
+
+    assert_eq!((files, added, removed), (1, 1, 0));
+    assert_eq!(added_texts(folder.path(), &base, &history.head), ["new"]);
 }
 
 #[test]
