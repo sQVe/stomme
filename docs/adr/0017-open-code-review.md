@@ -30,19 +30,67 @@ required check whose findings are advice.
   commit with a version comment, as
   [ADR 0016 (Pin the sync workflow by release commit)](./0016-pin-the-sync-workflow-by-release-commit.md)
   says. The project holds one reference and no copy.
+- The workflow runs the review itself. It installs the pinned OCR CLI, writes the provider
+  settings with `ocr config set`, and runs
+  `ocr review --from <base> --to <head> --rule docs/stomme/ocr-rules.json --format json`. It posts
+  with the pinned helper's `runPostReviewComments`, and the same helper reads and writes the
+  checkpoint. The action's review run and its range decision live in the workflow, so the range
+  rule can change without an input the action does not have.
 - Renovate bumps that pin in its `stomme` group, with the `stomme.toml` version and the binary pin,
   so the review settings move with the rules they enforce.
 - Every caller, stomme included, classifies the review with the released `stomme` binary that
   its `mise.toml` pins. Renovate moves that pin with the release commit the workflow calls, so the
   classification matches the workflow. No step in the job runs code built from the change; OCR
   reads the change only as data.
-- The Action's checkout step passes no `ref`, so a pull request run checks out the merge commit.
-  The rule file comes from the change, not from the base branch.
+- The checkout step passes no `ref`, so a pull request run checks out the merge commit. The rule
+  file comes from the change, not from the base branch. The clone keeps its full history, because
+  the range needs the merge base and the scope command refuses a shallow clone.
 - A fork pull request gets no secrets, so it cannot run the review. Fork pull requests are not
   supported.
 - The workflow trusts whoever can push to the repository, because a branch pusher can edit the
   caller workflow in the change. It does not trust the code that a dependency update builds, so a
   dependency update cannot run next to the model token and a write token.
+
+### The review range
+
+- The first review of a pull request reviews the whole pull request from its merge base. A later
+  run reviews only the lines that the last complete review did not cover, whatever kind of push
+  came before it: fast-forward, amend, force push, or rebase.
+- The run reads the checkpoint marker from the sticky summary with the pinned helper's
+  `readCheckpointComment`. Every doubt reviews the whole pull request, and no doubt fails the job:
+  - No valid marker, or a marker whose payload is not a complete review of this pull request.
+  - A changed configuration. The fingerprint holds the OCR version, the model, the endpoint URL,
+    and the digest of the rule file. The workflow compares it before it looks at the base, so a
+    moved base never forces a full review on its own.
+  - A marker head that the clone cannot fetch by SHA, because a force push removed its ref. The
+    run fetches it with `git fetch --filter=blob:none origin <sha>`, which keeps the history the
+    scope command needs.
+  - A `stomme ocr-scope` that is missing, fails, or prints no base commit.
+- The scope is computed from the two pull request diffs, `reviewed-base..reviewed` and
+  `base..head`, and a line keeps its coverage when the same text maps across, including a unique
+  moved copy. A plain range from the old head would include the base branch's own changes after a
+  rebase, and the review would then post on lines outside the pull request.
+- The scope is line-level, not file-level. A file-level reuse would hide the new lines of a file
+  that an earlier review already covered.
+- OCR sees the scope through a synthetic local parent of the head, made with `git replace --graft`,
+  so `ocr review --from <synthetic> --to <head>` reviews only the scope. This keeps OCR's ordinary
+  from/to interface, so stomme needs no custom diff reader, and the head SHA stays real, so inline
+  posts and the marker need no translation.
+- An empty scope runs no review. The workflow records that this head is covered, so the next push
+  narrows from it, and the coverage section reports that the scope holds no new lines. An empty
+  scope builds no synthetic commit and no graft.
+- The command takes the checkpoint refs from its caller and does not classify the review. It prints
+  the synthetic base commit and the scope counts, and the workflow classifies the result with
+  `stomme ocr-coverage` as it does for every run.
+- The checkpoint advances only when `stomme ocr-coverage` reports every selected file as reviewed.
+  A waived or oversize-excluded file blocks the advance. The workflow passes the fingerprint to the
+  posting helper only then; an empty fingerprint keeps the previous marker, so a partial run makes
+  the next range wider, never narrower.
+- A budget resume reviews the same synthetic base, because OCR seals the range into its session and
+  a rebuilt base is a new commit.
+- The range note names the scope, in files and lines, in the coverage section. It never names the
+  synthetic base, which exists only in the runner's clone. When the count line cannot be read, the
+  note says the counts are unavailable instead of claiming the scope was empty.
 
 ### The rule file
 
@@ -152,20 +200,23 @@ the token comes from the `MORPH_API_KEY` repository secret.
 - The job passes only when the last classification reports every selected file as reviewed. A
   partial result fails and names the unreviewed files, and a failed run fails with its error.
 - The resumed review posts its result once, including the comments of the first run for the files
-  it reused. Its summary keeps the previous checkpoint marker, so the next push reviews from the
-  old head: a wider range, never a wrong one.
-- A push whose head the checkpoint already records is a no-op run: OCR reviews an empty range and
-  writes nothing. The checkpoint moves on OCR's own completeness, which is a different measure from
-  the coverage record: `stomme ocr-coverage` counts a selected file that the record does not list
-  as reviewed, so a checkpointed head can hold files that the check counts as unreviewed. A rerun
-  of that head therefore has no new evidence to offer. Instead the workflow reads the coverage
+  it reused. It reviews the same synthetic base, and its summary advances the checkpoint marker
+  only when the coverage command reports every selected file as reviewed; otherwise it re-emits the
+  marker this run read, so the next range only widens.
+- A push whose head the checkpoint already records is a no-op run, as long as the marker's merge
+  base is still this run's merge base: the workflow runs no review and writes nothing. A different
+  base exposes lines that the earlier review never saw, so that run builds a scope instead.
+- A no-op run still has to prove that this head was reviewed, so the workflow reads the coverage
   section that this head's run inserted into the summary comment, copies that section to the top of
   the job summary, and passes only when the section reports every selected file as reviewed. A
   missing section, unreviewed files, or a failed run fails the check, and its error says that the
-  same head cannot be reviewed again, so the change needs a new commit.
-- The summary comment starts with the coverage section that the command prints. The workflow writes
-  a hidden verdict line above it that names the run's classification and the head the section
-  covers, so a later run reads the result and its head from the comment instead of its prose. A
+  same head cannot be reviewed again, so the change needs a new commit. A marker that an earlier
+  workflow wrote can name a head that the coverage command counts as partly unreviewed, because
+  OCR's own completeness allows waived files, and this read is what catches it.
+- The summary comment starts with the coverage section that the command prints, under the scope
+  note that names the files and lines this run reviewed. The workflow writes a hidden verdict line
+  above both that names the run's classification and the head the section covers, so a later run
+  reads the result and its head from the comment instead of its prose. A
   section that names another head is not evidence for this one. The section names each unreviewed
   file with OCR's reason, and it lists the excluded files in a collapsed block. The workflow puts
   the same section at the top of the job summary, and inserts it after the marker of the summary
@@ -186,6 +237,8 @@ the token comes from the `MORPH_API_KEY` repository secret.
 ### Positive
 
 - Every project reviews each push against the same guides, with no rule copy to maintain.
+- A later push reviews only the lines it adds, so a force push or a rebase reviews the new lines
+  instead of the whole pull request.
 - A finding never blocks a merge, so the review stays a signal and not a step to clear.
 - A project's own rule text joins the shared rules in one file, so OCR applies both.
 
@@ -197,6 +250,12 @@ the token comes from the `MORPH_API_KEY` repository secret.
 - An OCR or provider outage fails the check, so merges wait until the review runs.
 - A review that leaves files unreviewed after its resume blocks the merge until a new commit
   reviews them, because a rerun of the same head reviews nothing.
+- The model sees fewer lines per run, so a defect that shows only across an old line and a new one
+  can escape a later review.
+- A force-pushed-away commit that GitHub has already collected cannot be fetched, so that run
+  reviews the whole pull request, as the first run does.
+- The review follows the action's internal helper API on each pin bump, for the checkpoint reader
+  and the posting helper, as it already did for posting.
 - A model that stops early while OCR records the file as completed passes the check, because the
   check trusts OCR's coverage record.
 - Findings depend on a model, so the review does not replace a person's review.
@@ -263,3 +322,15 @@ finding loses the line it describes, so the reader has to find that line by hand
 Classify the result with `jq` in the workflow instead of the binary. Rejected because the
 classification then has no tests against real result files, and a change in OCR's format breaks
 the check only at run time.
+
+### Fork the action and add a range input
+
+Fork `alibaba/open-code-review`, add an input for the start of the range, and let stomme build the
+scope. Rejected because it adds a second repository to keep on the upstream action and still needs
+the same scope builder, so it buys no control over the review itself.
+
+### Contribute content-mapped checkpoints upstream
+
+Send the line mapping to `alibaba/open-code-review` as a change to its checkpoint logic. Rejected
+because the acceptance is unknown and nothing changes until a release, while the workflow can own
+the range without it. It stays an option for later and blocks nothing.
