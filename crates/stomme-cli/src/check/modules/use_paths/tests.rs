@@ -1,4 +1,32 @@
+use super::super::scopes::{self, Scope};
 use super::*;
+
+const NESTED_FILE_DEPTH: usize = 2;
+
+fn paths(source: &str) -> Vec<UsePath> {
+    paths_in(source, Edition::Other)
+}
+
+fn paths_in(source: &str, edition: Edition) -> Vec<UsePath> {
+    // Bindings ignore visibility, so the depth only has to name a file below the crate root.
+    let table = binding_table(scopes::scopes(source, edition, NESTED_FILE_DEPTH));
+
+    super::paths(source, edition, &table)
+}
+
+fn binding_table(scopes: Vec<Scope>) -> BindingTable {
+    let mut table = BindingTable::new();
+
+    for scope in scopes {
+        let bindings = table.entry(scope.inline_path).or_default();
+
+        for binding in scope.bindings {
+            bindings.insert(binding.name.clone(), binding);
+        }
+    }
+
+    table
+}
 
 fn segments(source: &str) -> Vec<Vec<String>> {
     paths(source)
@@ -218,4 +246,204 @@ fn in_test_module_follows_cfg_test_attributes_and_nesting() {
     assert_eq!(paths.len(), 2);
     assert!(paths[0].in_test_module);
     assert!(!paths[1].in_test_module);
+}
+
+#[test]
+fn a_use_alias_prefixes_a_later_value_path() {
+    let paths = paths("use crate::config as cfg;\ncfg::parse::read();\n");
+
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[0].segments, expected(&[&["crate", "config"]])[0]);
+    assert_eq!(paths[0].namespace, Namespace::Type);
+    assert_eq!(
+        paths[1].segments,
+        expected(&[&["crate", "config", "parse", "read"]])[0]
+    );
+    assert_eq!(paths[1].namespace, Namespace::Value);
+    assert_eq!(paths[1].line, 2);
+}
+
+#[test]
+fn crate_and_parent_aliases_prefix_later_paths() {
+    let paths = paths(
+        "use crate as root;\nroot::store::read();\nuse super as parent;\nparent::other::read();\n",
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(
+        segments,
+        expected(&[&["crate", "store", "read"], &["super", "other", "read"]])
+    );
+}
+
+#[test]
+fn a_use_alias_binds_only_inside_its_inline_module() {
+    let paths = paths("mod a {\n    use crate::config as cfg;\n}\ncfg::parse();\n");
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config"]]));
+}
+
+#[test]
+fn a_glob_is_not_bound_as_a_prefix() {
+    let paths = paths("use crate::config::*;\nconfig::parse();\n");
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "*"]]));
+}
+
+#[test]
+fn a_value_path_is_a_value_namespace_path() {
+    let paths = paths("crate::store::read();\n");
+
+    assert_eq!(paths[0].namespace, Namespace::Value);
+}
+
+#[test]
+fn edition_2015_emits_a_leading_colon_path_inside_the_crate() {
+    let paths = paths_in("use ::config::parse::read;\n", Edition::Rust2015);
+
+    assert_eq!(paths.len(), 1);
+    assert_eq!(
+        paths[0].segments,
+        expected(&[&["crate", "config", "parse", "read"]])[0]
+    );
+}
+
+#[test]
+fn a_leading_colon_path_is_skipped_without_edition_2015() {
+    assert!(paths_in("use ::config::parse::read;\n", Edition::Other).is_empty());
+}
+
+#[test]
+fn a_multiline_value_path_reports_the_line_of_its_first_segment_after_the_root() {
+    assert_eq!(lines("crate::\n    store::read();\n"), [2]);
+}
+
+#[test]
+fn edition_2015_binds_a_leading_colon_alias() {
+    let paths = paths_in(
+        "use ::config as cfg;\ncfg::parse::read();\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(
+        segments,
+        expected(&[&["crate", "config"], &["crate", "config", "parse", "read"],])
+    );
+}
+
+#[test]
+fn a_type_annotation_before_a_leading_colon_is_not_a_path_start() {
+    assert!(segments("use super as parent;\nfn f(parent: ::std::sync::Arc<u8>) {}\n").is_empty());
+}
+
+#[test]
+fn edition_2015_reads_a_leading_colon_after_a_generic_close() {
+    let paths = paths_in(
+        "fn f() {\n    x > ::config::LIMIT;\n    Foo::<{ N }>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
+fn edition_2015_reads_a_leading_colon_after_a_comparison_following_a_generic_call() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = x.foo::<u8>() > ::config::LIMIT;\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
+fn edition_2015_ignores_an_earlier_comparison_when_reading_a_leading_colon() {
+    let paths = paths_in(
+        "fn smaller(a: u8, b: u8) -> bool {\n    a < b\n}\n\nfn compare() {\n    if 2 > ::config::LIMIT {\n        println!(\"big\");\n    }\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
+fn edition_2015_ignores_a_same_block_comparison_when_reading_a_leading_colon() {
+    let paths = paths_in(
+        "fn compare(a: u8, b: u8, c: u8) {\n    if a < b && c > ::config::LIMIT {\n        println!(\"big\");\n    }\n}\n",
+        Edition::Rust2015,
+    );
+    let segments: Vec<Vec<String>> = paths.into_iter().map(|path| path.segments).collect();
+
+    assert_eq!(segments, expected(&[&["crate", "config", "LIMIT"]]));
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_a_nested_generic() {
+    let paths = paths_in(
+        "fn f() {\n    Foo<Bar<u8>>::baz();\n    Foo::<{ N }>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_a_double_reference_generic() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = Foo<&&u8>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_an_associated_type_binding() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = Foo<Item = &&u8>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_reads_no_leading_colon_after_a_function_pointer_return() {
+    let paths = paths_in(
+        "fn f() {\n    let _ = Foo<fn() -> &&u8>::bar();\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert!(paths.is_empty());
+}
+
+#[test]
+fn edition_2015_marks_an_external_absolute_alias_as_an_implicit_crate_root() {
+    let paths = paths_in(
+        "use ::std as std_alias;\nstd_alias::mem();\n",
+        Edition::Rust2015,
+    );
+
+    assert_eq!(paths[1].segments, expected(&[&["crate", "std", "mem"]])[0]);
+    assert!(paths[1].implicit_crate_root);
+}
+
+#[test]
+fn a_leading_colon_after_a_cast_is_a_path_in_edition_2015() {
+    let paths = paths_in(
+        "fn f() {\n    let value = 0 as ::config::Ty;\n}\n",
+        Edition::Rust2015,
+    );
+
+    assert_eq!(paths.len(), 1);
+    assert_eq!(
+        paths[0].segments,
+        expected(&[&["crate", "config", "Ty"]])[0]
+    );
 }

@@ -1,5 +1,16 @@
 use super::*;
 
+const CRATE_ROOT_CHILD_DEPTH: usize = 1;
+const NESTED_FILE_DEPTH: usize = 2;
+
+fn scopes(source: &str) -> Vec<Scope> {
+    scopes_at_depth(source, CRATE_ROOT_CHILD_DEPTH)
+}
+
+fn scopes_at_depth(source: &str, module_depth: usize) -> Vec<Scope> {
+    super::scopes(source, Edition::Other, module_depth)
+}
+
 fn strings(segments: &[&str]) -> Vec<String> {
     segments.iter().map(|segment| segment.to_string()).collect()
 }
@@ -40,6 +51,10 @@ fn relative(supers: usize, segments: &[&str]) -> Target {
 
 fn named(name: &str, target: Target) -> (String, Target) {
     (name.to_string(), target)
+}
+
+fn glob(target: Target, visibility: ExportVisibility) -> Glob {
+    Glob { target, visibility }
 }
 
 #[test]
@@ -134,6 +149,7 @@ fn inline_modules_get_their_own_scope() {
         [Export {
             name: "renamed".to_string(),
             target: relative(1, &["attention"]),
+            visibility: ExportVisibility::Public,
         }]
     );
 }
@@ -256,6 +272,14 @@ fn public_module_declarations_are_listed_per_scope() {
 }
 
 #[test]
+fn restricted_module_declarations_are_not_public() {
+    let scope =
+        file_scope("pub(self) mod a;\npub(in crate::x) mod b;\npub(crate) mod c;\npub mod d;\n");
+
+    assert_eq!(scope.public_modules, names(&["c", "d"]));
+}
+
+#[test]
 fn glob_exports_are_listed_as_targets() {
     let source = "pub use attention::*;\npub use self::*;\npub use super::*;\npub use crate::fact::*;\npub use ::std::*;\npub use self::{score, attention::*};\nuse private::*;\n";
     let scope = file_scope(source);
@@ -263,17 +287,46 @@ fn glob_exports_are_listed_as_targets() {
     assert_eq!(
         scope.globs,
         [
-            Target::Bare(strings(&["attention"])),
-            relative(0, &[]),
-            relative(1, &[]),
-            Target::Crate(strings(&["fact"])),
-            Target::External,
-            relative(0, &["attention"]),
+            glob(
+                Target::Bare(strings(&["attention"])),
+                ExportVisibility::Public
+            ),
+            glob(relative(0, &[]), ExportVisibility::Public),
+            glob(relative(1, &[]), ExportVisibility::Public),
+            glob(Target::Crate(strings(&["fact"])), ExportVisibility::Public),
+            glob(Target::External, ExportVisibility::Public),
+            glob(relative(0, &["attention"]), ExportVisibility::Public),
         ]
     );
     assert_eq!(
         file_exports(source),
         [named("score", relative(0, &["score"]))]
+    );
+}
+
+#[test]
+fn restricted_globs_keep_their_visibility() {
+    let scope = file_scope(
+        "pub(self) use path::*;\npub(in crate::x) use other::*;\npub(crate) use crate_wide::*;\npub use public::*;\nuse private::*;\n",
+    );
+
+    assert_eq!(
+        scope.globs,
+        [
+            glob(
+                Target::Bare(strings(&["path"])),
+                ExportVisibility::Restricted
+            ),
+            glob(
+                Target::Bare(strings(&["other"])),
+                ExportVisibility::Restricted
+            ),
+            glob(
+                Target::Bare(strings(&["crate_wide"])),
+                ExportVisibility::Crate
+            ),
+            glob(Target::Bare(strings(&["public"])), ExportVisibility::Public),
+        ]
     );
 }
 
@@ -296,4 +349,129 @@ fn globs_and_public_modules_inside_functions_are_skipped() {
         assert_eq!(scope.globs, []);
         assert_eq!(scope.public_modules, names(&[]));
     }
+}
+
+#[test]
+fn value_items_are_recorded_at_item_level() {
+    let scope = file_scope(
+        "fn a() {}\n\
+         const B: u8 = 0;\n\
+         static mut C: u8 = 0;\n\
+         static D: u8 = 0;\n\
+         const fn d() {}\n\
+         struct E;\n\
+         trait T { fn f(); }\n\
+         impl E { fn g() {} }\n\
+         fn h() { fn i() {} static J: u8 = 0; }\n",
+    );
+
+    assert_eq!(scope.value_items, names(&["a", "B", "C", "D", "d", "h"]));
+}
+
+#[test]
+fn an_export_records_its_visibility() {
+    let exports: Vec<(String, ExportVisibility)> = file_scope(
+        "pub use a as public;\n\
+         pub(self) use a as private;\n\
+         pub(in self) use a as in_self;\n\
+         pub(crate) use a as crate_wide;\n\
+         pub(in crate) use a as in_crate_root;\n\
+         pub(in crate::x) use a as in_crate_path;\n\
+         pub(in super) use a as in_super;\n\
+         pub(in super::x) use a as in_super_path;\n\
+         use a as plain;\n",
+    )
+    .exports
+    .into_iter()
+    .map(|export| (export.name, export.visibility))
+    .collect();
+
+    assert_eq!(
+        exports,
+        [
+            ("public".to_string(), ExportVisibility::Public),
+            ("private".to_string(), ExportVisibility::Restricted),
+            ("in_self".to_string(), ExportVisibility::Restricted),
+            ("crate_wide".to_string(), ExportVisibility::Crate),
+            ("in_crate_root".to_string(), ExportVisibility::Crate),
+            ("in_crate_path".to_string(), ExportVisibility::Restricted),
+            ("in_super".to_string(), ExportVisibility::Crate),
+            ("in_super_path".to_string(), ExportVisibility::Restricted),
+        ]
+    );
+}
+
+#[test]
+fn pub_super_is_crate_visible_when_its_parent_is_the_crate_root() {
+    let cases = [
+        (
+            "crate root file scope",
+            0,
+            "pub(super) use a as b;",
+            ExportVisibility::Restricted,
+        ),
+        (
+            "inline module in the crate root file",
+            0,
+            "mod inner { pub(super) use a as b; }",
+            ExportVisibility::Crate,
+        ),
+        (
+            "crate root child file scope",
+            1,
+            "pub(super) use a as b;",
+            ExportVisibility::Crate,
+        ),
+        (
+            "inline module in a crate root child",
+            1,
+            "mod inner { pub(super) use a as b; }",
+            ExportVisibility::Restricted,
+        ),
+        (
+            "nested file scope",
+            2,
+            "pub(super) use a as b;",
+            ExportVisibility::Restricted,
+        ),
+    ];
+
+    for (name, module_depth, source, expected) in cases {
+        let scopes = scopes_at_depth(source, module_depth);
+        let visibility = scopes.last().expect("a scope holds the export").exports[0].visibility;
+
+        assert_eq!(visibility, expected, "{name}");
+    }
+}
+
+#[test]
+fn const_generics_and_modifiers_are_not_value_items() {
+    let scope = file_scope(
+        "struct S<const N: usize>;\n\
+         fn f<const M: usize>() {}\n\
+         const unsafe fn g() {}\n\
+         const extern \"C\" fn h() {}\n\
+         const I: u8 = 0;\n",
+    );
+
+    assert_eq!(scope.value_items, names(&["f", "g", "h", "I"]));
+}
+
+#[test]
+fn a_leading_colon_target_is_a_crate_target_in_edition_2015() {
+    let mut scopes = super::scopes(
+        "pub use ::std::mem as a;",
+        Edition::Rust2015,
+        NESTED_FILE_DEPTH,
+    );
+    let exports = scopes.remove(0).exports;
+
+    assert_eq!(
+        exports,
+        [Export {
+            name: "a".to_string(),
+            target: Target::Crate(strings(&["std", "mem"])),
+            visibility: ExportVisibility::Public,
+        }]
+    );
 }

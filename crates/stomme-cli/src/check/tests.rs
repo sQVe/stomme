@@ -438,6 +438,36 @@ fn check_reports_a_missing_root_manifest() {
 }
 
 #[test]
+fn a_malformed_member_manifest_is_reported_once() {
+    let root = complete_project();
+
+    write_file(
+        root.path(),
+        CONFIG_FILE,
+        &format!(
+            "schema = 1\nversion = \"{}\"\nlanguage = \"rust\"\n\n[roles]\ncli = \"crates/cli\"\n\n[modules.ticket]\nentry = \"crates/cli/src/ticket.rs\"\n",
+            env!("CARGO_PKG_VERSION")
+        ),
+    );
+    write_file(
+        root.path(),
+        "crates/cli/Cargo.toml",
+        "[package\nname = \"cli\"\n",
+    );
+    write_file(root.path(), "crates/cli/src/ticket.rs", "");
+
+    let problems = check_project(root.path());
+
+    assert_single_problem(
+        &problems,
+        "crates/cli/Cargo.toml",
+        Rule::RustConfigFile,
+        &["is not a valid manifest"],
+        "malformed member manifest",
+    );
+}
+
+#[test]
 fn invalid_lock_is_reported_once() {
     let cases = [
         (

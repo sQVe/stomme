@@ -1,8 +1,11 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter::Peekable;
 use std::slice::Iter;
 
 use ra_ap_rustc_lexer::{FrontmatterAllowed, TokenKind, strip_shebang, tokenize};
 
+use super::Edition;
+use super::scopes::Binding;
 use super::test_code::{InlineModules, test_modules};
 
 pub(super) type TokenStream<'a> = Peekable<Iter<'a, Token<'a>>>;
@@ -19,6 +22,16 @@ pub(super) struct UsePath {
     pub(super) line: usize,
     pub(super) inline_modules: Vec<String>,
     pub(super) in_test_module: bool,
+    pub(super) namespace: Namespace,
+    // A crate prefix the edition supplied, so a first segment with no local file or folder is
+    // external.
+    pub(super) implicit_crate_root: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Namespace {
+    Type,
+    Value,
 }
 
 pub(super) struct Declaration<'source> {
@@ -30,6 +43,13 @@ pub(super) struct UseLeaf {
     pub(super) absolute: bool,
     pub(super) segments: Vec<String>,
     pub(super) alias: Option<String>,
+    pub(super) line: usize,
+    pub(super) has_separator: bool,
+}
+
+struct RootPath {
+    segments: Vec<String>,
+    implicit_crate_root: bool,
 }
 
 struct Leaf {
@@ -37,6 +57,7 @@ struct Leaf {
     segments: Vec<String>,
     alias: Option<String>,
     line: usize,
+    has_separator: bool,
 }
 
 struct Parser<'tokens, 'source> {
@@ -86,14 +107,18 @@ pub(super) fn read_use_tree(tokens: &mut TokenStream<'_>) -> Vec<UseLeaf> {
             absolute: leaf.absolute,
             segments: leaf.segments,
             alias: leaf.alias,
+            line: leaf.line,
+            has_separator: leaf.has_separator,
         })
         .collect()
 }
 
-pub(super) fn paths(source: &str) -> Vec<UsePath> {
-    let tokens = code_tokens(source);
-    let test_modules = test_modules(&tokens);
-    let mut tokens = tokens.iter().peekable();
+pub(super) type BindingTable = BTreeMap<Vec<String>, BTreeMap<String, Binding>>;
+
+pub(super) fn paths(source: &str, edition: Edition, table: &BindingTable) -> Vec<UsePath> {
+    let all_tokens = code_tokens(source);
+    let test_modules = test_modules(&all_tokens);
+    let mut tokens = all_tokens.iter().peekable();
     let mut paths = Vec::new();
     let mut inline_modules = InlineModules::default();
 
@@ -106,34 +131,472 @@ pub(super) fn paths(source: &str) -> Vec<UsePath> {
 
         inline_modules.advance(token);
 
-        if is_path_start(token, &tokens) {
-            let modules = inline_modules.names();
-            let in_test_module = inline_modules.in_test();
-            tokens
-                .next()
-                .expect("a checked path start has its first colon");
-            tokens
-                .next()
-                .expect("a checked path start has its second colon");
-            let mut parser = Parser {
-                tokens: &mut tokens,
-            };
-            let leaves = parser.parse_segments();
-
-            for leaf in leaves {
-                let mut segments = vec![token.text.to_string()];
-                segments.extend(leaf.segments);
-                paths.push(UsePath {
-                    segments,
-                    line: leaf.line,
-                    inline_modules: modules.clone(),
-                    in_test_module,
-                });
-            }
+        if is_use_keyword(token) {
+            read_use_declaration(&mut tokens, &mut paths, &inline_modules, table, edition);
+            continue;
         }
+
+        if is_leading_colon_colon(token, &tokens, &all_tokens) {
+            push_leading_colon_paths(&mut tokens, &mut paths, &inline_modules, edition);
+            continue;
+        }
+
+        if previous_is_colon_colon(token, &all_tokens) {
+            continue;
+        }
+
+        push_value_path(
+            token,
+            &mut tokens,
+            &mut paths,
+            &inline_modules,
+            table,
+            edition,
+        );
     }
 
     paths
+}
+
+fn push_leading_colon_paths(
+    tokens: &mut TokenStream<'_>,
+    paths: &mut Vec<UsePath>,
+    inline_modules: &InlineModules,
+    edition: Edition,
+) {
+    tokens.next().expect("a leading path has its second colon");
+
+    if !edition.is_2015() {
+        return;
+    }
+
+    let modules = inline_modules.names();
+    let in_test_module = inline_modules.in_test();
+    let mut parser = Parser { tokens };
+    let leaves = parser.parse_segments();
+
+    for leaf in leaves {
+        let mut segments = vec!["crate".to_string()];
+        segments.extend(leaf.segments);
+        paths.push(UsePath {
+            segments,
+            line: leaf.line,
+            inline_modules: modules.clone(),
+            in_test_module,
+            namespace: Namespace::Value,
+            implicit_crate_root: true,
+        });
+    }
+}
+
+fn push_value_path(
+    token: &Token<'_>,
+    tokens: &mut TokenStream<'_>,
+    paths: &mut Vec<UsePath>,
+    inline_modules: &InlineModules,
+    table: &BindingTable,
+    edition: Edition,
+) {
+    if !followed_by_colon_colon(tokens) {
+        return;
+    }
+
+    let inline_path = inline_modules.names();
+    let Some(root) = path_root(token, tokens, &inline_path, table, edition) else {
+        return;
+    };
+    let from_binding = !is_root_segment(token);
+    let in_test_module = inline_modules.in_test();
+    tokens
+        .next()
+        .expect("a checked path start has its first colon");
+    tokens
+        .next()
+        .expect("a checked path start has its second colon");
+    let mut parser = Parser { tokens };
+    let leaves = parser.parse_segments();
+
+    for leaf in leaves {
+        let mut segments = root.segments.clone();
+        segments.extend(leaf.segments);
+        let line = if from_binding { token.line } else { leaf.line };
+        paths.push(UsePath {
+            segments,
+            line,
+            inline_modules: inline_path.clone(),
+            in_test_module,
+            namespace: Namespace::Value,
+            implicit_crate_root: root.implicit_crate_root,
+        });
+    }
+}
+
+fn read_use_declaration(
+    tokens: &mut TokenStream<'_>,
+    paths: &mut Vec<UsePath>,
+    inline_modules: &InlineModules,
+    table: &BindingTable,
+    edition: Edition,
+) {
+    let modules = inline_modules.names();
+    let in_test_module = inline_modules.in_test();
+
+    for leaf in read_use_tree(tokens) {
+        let Some(segments) = use_path_segments(&leaf, edition, &modules, table) else {
+            continue;
+        };
+        let implicit_crate_root = edition.is_2015()
+            && leaf
+                .segments
+                .first()
+                .is_some_and(|first| !is_root_name(first));
+        paths.push(UsePath {
+            segments,
+            line: leaf.line,
+            inline_modules: modules.clone(),
+            in_test_module,
+            namespace: Namespace::Type,
+            implicit_crate_root,
+        });
+    }
+}
+
+fn is_use_keyword(token: &Token<'_>) -> bool {
+    token.kind == TokenKind::Ident && token.text == "use"
+}
+
+fn is_root_segment(token: &Token<'_>) -> bool {
+    token.kind == TokenKind::Ident && matches!(token.text, "crate" | "self" | "super")
+}
+
+fn is_leading_colon_colon(
+    token: &Token<'_>,
+    tokens: &TokenStream<'_>,
+    all_tokens: &[Token<'_>],
+) -> bool {
+    if token.kind != TokenKind::Colon {
+        return false;
+    }
+
+    let mut lookahead = tokens.clone();
+    let next_is_colon = lookahead
+        .peek()
+        .is_some_and(|next| next.kind == TokenKind::Colon);
+
+    if !next_is_colon {
+        return false;
+    }
+
+    let previous = token
+        .index
+        .checked_sub(1)
+        .and_then(|index| all_tokens.get(index));
+    let previous_ends_a_path = previous.is_some_and(|previous| ends_a_path(previous, all_tokens));
+    let previous_is_identifier = previous.is_some_and(|previous| {
+        matches!(previous.kind, TokenKind::Ident | TokenKind::RawIdent)
+            && !is_expression_keyword(previous)
+    });
+
+    !previous_ends_a_path && !previous_is_identifier
+}
+
+fn ends_a_path(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
+    match token.kind {
+        TokenKind::CloseBracket | TokenKind::CloseParen => true,
+        TokenKind::Gt => closes_generic_arguments(token, all_tokens),
+        _ => false,
+    }
+}
+
+fn closes_generic_arguments(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
+    let mut angles = 0usize;
+    let mut braces = 0usize;
+    let mut parens = 0usize;
+    let mut brackets = 0usize;
+    let mut right = token;
+
+    for before in all_tokens[..token.index].iter().rev() {
+        let nested = braces > 0 || parens > 0 || brackets > 0;
+        let left = token_before(all_tokens, before.index);
+        let follows_opener = follows_a_type_argument_opener(all_tokens, before.index);
+        // The `>` of a `->` return type closes no generic.
+        let arrow =
+            before.kind == TokenKind::Gt && left.is_some_and(|left| left.kind == TokenKind::Minus);
+
+        if !nested && starts_an_expression_operator(before, right, follows_opener) {
+            return false;
+        }
+
+        match before.kind {
+            TokenKind::Gt if !nested && !arrow => angles += 1,
+            TokenKind::Lt if !nested => {
+                if angles == 0 {
+                    return true;
+                }
+
+                angles -= 1;
+            }
+            TokenKind::CloseBrace => braces += 1,
+            TokenKind::OpenBrace if braces == 0 => return false,
+            TokenKind::OpenBrace => braces -= 1,
+            TokenKind::CloseParen => parens += 1,
+            TokenKind::OpenParen if parens == 0 => return false,
+            TokenKind::OpenParen => parens -= 1,
+            TokenKind::CloseBracket => brackets += 1,
+            TokenKind::OpenBracket if brackets == 0 => return false,
+            TokenKind::OpenBracket => brackets -= 1,
+            _ => {}
+        }
+
+        right = before;
+    }
+
+    false
+}
+
+// A comparison or a statement boundary means the scan left the generic argument list. The
+// lexer emits two-character operators as two tokens, so each one is checked as a pair. A
+// logical pair after a type-argument opener is a double reference instead.
+fn starts_an_expression_operator(
+    before: &Token<'_>,
+    right: &Token<'_>,
+    follows_opener: bool,
+) -> bool {
+    if before.kind == TokenKind::Semi {
+        return true;
+    }
+
+    let pair = (before.kind, right.kind);
+    let logical = matches!(
+        pair,
+        (TokenKind::And, TokenKind::And) | (TokenKind::Or, TokenKind::Or)
+    );
+
+    if logical && follows_opener {
+        return false;
+    }
+
+    matches!(
+        pair,
+        (TokenKind::And, TokenKind::And)
+            | (TokenKind::Or, TokenKind::Or)
+            | (TokenKind::Eq, TokenKind::Eq)
+            | (TokenKind::Bang, TokenKind::Eq)
+            | (TokenKind::Lt, TokenKind::Eq)
+            | (TokenKind::Gt, TokenKind::Eq)
+            | (TokenKind::Eq, TokenKind::Gt)
+    )
+}
+
+fn follows_a_type_argument_opener(all_tokens: &[Token<'_>], index: usize) -> bool {
+    let Some(left) = token_before(all_tokens, index) else {
+        return false;
+    };
+
+    match left.kind {
+        TokenKind::Lt
+        | TokenKind::Comma
+        | TokenKind::OpenParen
+        | TokenKind::OpenBracket
+        | TokenKind::Colon
+        | TokenKind::Eq => true,
+        TokenKind::Gt => {
+            token_before(all_tokens, left.index).is_some_and(|token| token.kind == TokenKind::Minus)
+        }
+        _ => false,
+    }
+}
+
+fn token_before<'tokens, 'source>(
+    all_tokens: &'tokens [Token<'source>],
+    index: usize,
+) -> Option<&'tokens Token<'source>> {
+    index.checked_sub(1).and_then(|index| all_tokens.get(index))
+}
+
+fn is_expression_keyword(token: &Token<'_>) -> bool {
+    token.kind == TokenKind::Ident
+        && matches!(
+            token.text,
+            "as" | "break"
+                | "continue"
+                | "else"
+                | "for"
+                | "if"
+                | "impl"
+                | "in"
+                | "let"
+                | "match"
+                | "return"
+                | "while"
+                | "yield"
+        )
+}
+
+fn previous_is_colon_colon(token: &Token<'_>, all_tokens: &[Token<'_>]) -> bool {
+    let Some(index) = token.index.checked_sub(2) else {
+        return false;
+    };
+    let Some(first) = all_tokens.get(index) else {
+        return false;
+    };
+    let Some(second) = all_tokens.get(index + 1) else {
+        return false;
+    };
+
+    first.kind == TokenKind::Colon && second.kind == TokenKind::Colon
+}
+
+fn path_root(
+    token: &Token<'_>,
+    tokens: &TokenStream<'_>,
+    inline_path: &[String],
+    table: &BindingTable,
+    edition: Edition,
+) -> Option<RootPath> {
+    if !followed_by_colon_colon(tokens) {
+        return None;
+    }
+
+    if is_root_segment(token) {
+        return Some(RootPath {
+            segments: vec![token.text.to_string()],
+            implicit_crate_root: false,
+        });
+    }
+
+    expand_root(item_name(token)?, inline_path, table, edition)
+}
+
+fn use_path_segments(
+    leaf: &UseLeaf,
+    edition: Edition,
+    inline_path: &[String],
+    table: &BindingTable,
+) -> Option<Vec<String>> {
+    if leaf.absolute {
+        if !edition.is_2015() {
+            return None;
+        }
+
+        let mut segments = vec!["crate".to_string()];
+        segments.extend(leaf.segments.iter().cloned());
+
+        return Some(segments);
+    }
+
+    let first = leaf.segments.first()?;
+
+    if is_root_name(first) {
+        if !leaf.has_separator {
+            return None;
+        }
+
+        return Some(leaf.segments.clone());
+    }
+
+    if edition.is_2015() {
+        let mut segments = vec!["crate".to_string()];
+        segments.extend(leaf.segments.iter().cloned());
+
+        return Some(segments);
+    }
+
+    if !leaf.has_separator {
+        return None;
+    }
+
+    let mut segments = expand_root(first, inline_path, table, edition)?.segments;
+    segments.extend(leaf.segments[1..].iter().cloned());
+
+    Some(segments)
+}
+
+fn is_root_name(name: &str) -> bool {
+    matches!(name, "crate" | "self" | "super")
+}
+
+fn expand_root(
+    name: &str,
+    inline_path: &[String],
+    table: &BindingTable,
+    edition: Edition,
+) -> Option<RootPath> {
+    let mut visited = BTreeSet::new();
+    let scope = inline_path.to_vec();
+    let mut current = name.to_string();
+    let mut suffix: Vec<String> = Vec::new();
+
+    loop {
+        let binding = lookup_binding(table, &scope, &current)?;
+        let key = (scope.clone(), current.clone());
+
+        if !visited.insert(key) {
+            return None;
+        }
+
+        let mut segments = binding.segments.clone();
+        segments.extend(suffix.iter().cloned());
+
+        if binding.absolute {
+            if !edition.is_2015() {
+                return None;
+            }
+
+            segments.insert(0, "crate".to_string());
+
+            return Some(RootPath {
+                segments,
+                implicit_crate_root: true,
+            });
+        }
+
+        let first = segments.first()?.clone();
+
+        if is_root_name(&first) {
+            return Some(RootPath {
+                segments,
+                implicit_crate_root: false,
+            });
+        }
+
+        if edition.is_2015() {
+            segments.insert(0, "crate".to_string());
+
+            return Some(RootPath {
+                segments,
+                implicit_crate_root: true,
+            });
+        }
+
+        suffix = segments[1..].to_vec();
+        current = first;
+    }
+}
+
+fn lookup_binding<'a>(
+    table: &'a BindingTable,
+    inline_path: &[String],
+    name: &str,
+) -> Option<&'a Binding> {
+    table.get(inline_path)?.get(name)
+}
+
+fn followed_by_colon_colon(tokens: &TokenStream<'_>) -> bool {
+    let mut lookahead = tokens.clone();
+    let Some(first_colon) = lookahead.next() else {
+        return false;
+    };
+    let Some(second_colon) = lookahead.next() else {
+        return false;
+    };
+    let follows_another_colon = lookahead
+        .peek()
+        .is_some_and(|next| next.kind == TokenKind::Colon);
+
+    first_colon.kind == TokenKind::Colon
+        && second_colon.kind == TokenKind::Colon
+        && !follows_another_colon
 }
 
 pub(super) fn module_declaration<'source>(
@@ -165,25 +628,6 @@ pub(super) fn module_declaration<'source>(
     })
 }
 
-fn is_path_start<'source>(token: &Token<'source>, tokens: &TokenStream<'source>) -> bool {
-    let starts_path =
-        token.kind == TokenKind::Ident && (token.text == "crate" || token.text == "super");
-
-    if !starts_path {
-        return false;
-    }
-
-    let mut lookahead = tokens.clone();
-    let Some(first_colon) = lookahead.next() else {
-        return false;
-    };
-    let Some(second_colon) = lookahead.next() else {
-        return false;
-    };
-
-    first_colon.kind == TokenKind::Colon && second_colon.kind == TokenKind::Colon
-}
-
 impl Parser<'_, '_> {
     fn parse_segments(&mut self) -> Vec<Leaf> {
         let mut leaves = vec![Leaf {
@@ -191,6 +635,7 @@ impl Parser<'_, '_> {
             segments: Vec::new(),
             alias: None,
             line: 0,
+            has_separator: false,
         }];
 
         while let Some(kind) = self.tokens.peek().map(|token| token.kind) {
@@ -215,6 +660,10 @@ impl Parser<'_, '_> {
             }
 
             if self.colon_colon() {
+                for leaf in &mut leaves {
+                    leaf.has_separator = true;
+                }
+
                 self.tokens.next().expect("a peeked token is present");
                 self.tokens.next().expect("a peeked token is present");
             } else {
@@ -278,6 +727,10 @@ impl Parser<'_, '_> {
 
         for leaf in &mut leaves {
             leaf.absolute |= absolute;
+
+            if absolute {
+                leaf.has_separator = true;
+            }
 
             if alias.is_some() {
                 leaf.alias.clone_from(&alias);
@@ -354,6 +807,7 @@ fn combine(prefixes: Vec<Leaf>, alternatives: Vec<Leaf>) -> Vec<Leaf> {
                 segments,
                 alias: alternative.alias.clone(),
                 line,
+                has_separator: prefix.has_separator || alternative.has_separator,
             });
         }
     }
