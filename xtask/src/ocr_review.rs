@@ -16,7 +16,6 @@ const SCOPE_STEP: &str = "Build the review scope";
 const REVIEW_STEP: &str = "Run the review";
 const CLASSIFY_STEP: &str = "Classify and resume the review";
 const POST_STEP: &str = "Post the review";
-const RESUME_POST_STEP: &str = "Post the resumed review";
 const COVERAGE_STEP: &str = "Add the coverage section";
 const CHECKPOINT_STEP: &str = "Read the checkpointed coverage";
 const REPORT_STEP: &str = "Report the OCR result";
@@ -25,6 +24,7 @@ const OTHER_HEAD: &str = "0b836765f754d4d652906821e5d850a9c90d778f";
 const SCOPED_BASE: &str = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d";
 const OTHER_BASE: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c";
 const MERGE_BASE: &str = "aabbccddeeff00112233445566778899aabbccdd";
+const FINGERPRINT: &str = "0123456789abcdef";
 const SESSION_RESULT: &str = r#"{"session_id":"session-1"}"#;
 const EMPTY_RESULT: &str = "{}";
 const MIXED_RESULT: &str = r#"{
@@ -154,7 +154,7 @@ const MULTILINE_RESULT: &str = r#"{
 
 const ASSIGNMENT_REASON_RESULT: &str = r#"{
   "manifest": {
-    "run_failure": {"classification": "timeout", "reason": "first line\nfinal=0\ncoverage_source=resumed"}
+    "run_failure": {"classification": "timeout", "reason": "first line\nfinal=0\nroute_severity_below=low"}
   }
 }"#;
 
@@ -541,6 +541,8 @@ struct Run<'a> {
     first_unusable: bool,
     stderr_line: Option<&'a str>,
     range_from: &'a str,
+    scope_mode: &'a str,
+    fingerprint: &'a str,
 }
 
 impl Default for Run<'_> {
@@ -558,6 +560,8 @@ impl Default for Run<'_> {
             first_unusable: false,
             stderr_line: None,
             range_from: "range-from",
+            scope_mode: "",
+            fingerprint: "",
         }
     }
 }
@@ -585,7 +589,7 @@ impl Observation {
     }
 
     fn resumed(&self) -> bool {
-        self.output.lines().any(|line| line == "resumed=true")
+        self.resume_calls() > 0
     }
 
     fn post_resumed(&self) -> bool {
@@ -602,12 +606,20 @@ impl Observation {
             .map_or(0, |arguments| arguments.lines().count())
     }
 
-    fn coverage_source(&self) -> Option<String> {
-        last_output(&self.output, "coverage_source")
-    }
-
     fn coverage_verdict(&self) -> Option<String> {
         last_output(&self.output, "coverage_verdict")
+    }
+
+    fn post_fingerprint(&self) -> Option<String> {
+        last_output(&self.output, "post_fingerprint")
+    }
+
+    fn route_severity_below(&self) -> Option<String> {
+        last_output(&self.output, "route_severity_below")
+    }
+
+    fn coverage_outside_comment(&self) -> Option<String> {
+        last_output(&self.output, "coverage_outside_comment")
     }
 }
 
@@ -669,6 +681,8 @@ impl Classifier {
             .env("HEAD_SHA", "head-sha")
             .env("EFFORT", "medium")
             .env("RANGE_FROM", run.range_from)
+            .env("SCOPE_MODE", run.scope_mode)
+            .env("FINGERPRINT", run.fingerprint)
             .env("OCR_RULE", "docs/stomme/ocr-rules.json")
             .env("STOMME_FIRST_CODE", run.first.to_string())
             .env("STOMME_RESUME_CODE", run.resumed.to_string())
@@ -841,8 +855,8 @@ fn workflow_guards_each_route_from_the_range_decision() {
     );
     assert_eq!(
         step_guard(&post),
-        "steps.review.outputs.exit_code == '0' || steps.scope.outputs.mode == 'empty'",
-        "an empty scope posts the result that advances the marker"
+        "steps.review.outputs.exit_code == '0' || steps.scope.outputs.mode == 'empty' || steps.outcome.outputs.post_resumed == 'true'",
+        "an empty scope posts the result that advances the marker, and a resumed review posts its own result"
     );
     assert_eq!(
         step_guard(&coverage),
@@ -861,24 +875,38 @@ fn workflow_classifies_the_review_of_every_run() {
     assert!(classify.contains("steps.range.outputs.mode != 'noop'"));
     assert!(classify.contains("RANGE_FROM: ${{ steps.scope.outputs.base }}"));
     assert!(
-        classify.contains("echo \"first_final=$final\""),
-        "the first result's own verdict decides whether the marker may advance"
+        classify.contains("SCOPE_MODE: ${{ steps.scope.outputs.mode }}"),
+        "the routing floor follows the kind of review this run made"
+    );
+    assert!(
+        classify.contains("FINGERPRINT: ${{ steps.range.outputs.fingerprint }}"),
+        "the classifier decides whether the marker may advance"
     );
     assert!(!classify.contains("build-stomme"));
 }
 
 #[test]
 fn workflow_posts_and_reports_the_resumed_result() {
-    let post = step_text(OCR_REVIEW, RESUME_POST_STEP);
+    let post = step_text(OCR_REVIEW, POST_STEP);
 
-    assert!(post.contains("id: resume-post"));
-    assert!(post.contains("if: steps.outcome.outputs.post_resumed == 'true'"));
+    assert!(
+        !OCR_REVIEW.contains("Post the resumed review"),
+        "one step posts both the first and the resumed result"
+    );
+    assert!(
+        post.contains(
+            "RESULT_PATH: ${{ steps.outcome.outputs.post_resumed == 'true' && '/tmp/ocr-resume.json' || '/tmp/ocr-result.json' }}"
+        ),
+        "the post of a resumed run reads the resumed result:\n{post}"
+    );
 
     let coverage = step_text(OCR_REVIEW, COVERAGE_STEP);
 
     assert!(coverage.contains("steps.post.outputs.summary_comment_url"));
-    assert!(coverage.contains("steps.resume-post.outputs.summary_comment_url"));
-    assert!(coverage.contains("steps.outcome.outputs.coverage_source"));
+    assert!(
+        !coverage.contains("resume-post"),
+        "the single post names the one summary comment the coverage goes into"
+    );
     assert!(coverage.contains("#issuecomment-"));
     assert!(coverage.contains("steps.scope.outputs.note"));
     assert!(!coverage.contains("findSummaryIssueComment"));
@@ -1254,7 +1282,6 @@ fn classifier_retries_a_provider_failure() {
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("0"));
     assert_eq!(observation.resume_calls(), 1);
-    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert_eq!(observation.coverage_verdict().as_deref(), Some("complete"));
     assert!(observation.post_resumed());
     assert_eq!(observation.reason(), None);
@@ -1289,7 +1316,6 @@ fn classifier_fails_a_provider_failure_that_survives_the_retries() {
         reason,
         "the review provider could not review 1 file after 3 attempts: src/b.rs"
     );
-    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert_eq!(observation.coverage_verdict().as_deref(), Some("partial"));
 
     let (exit, stdout) = classifier.report(Report {
@@ -1376,7 +1402,6 @@ fn classifier_retries_a_failed_run_whose_files_all_failed_on_the_provider() {
 
     assert_eq!(observation.final_status().as_deref(), Some("0"));
     assert_eq!(observation.resume_calls(), 1);
-    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert!(observation.post_resumed());
 }
 
@@ -1525,7 +1550,6 @@ fn classifier_takes_the_reason_from_an_unusable_retry() {
         Some("the global deadline elapsed"),
         "the failed retry names its own reason"
     );
-    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
     assert!(!observation.post_resumed());
 }
 
@@ -1595,10 +1619,9 @@ fn classifier_ignores_assignments_inside_a_reason_body() {
     });
 
     assert_eq!(observation.final_status().as_deref(), Some("1"));
-    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
     assert_eq!(
         observation.reason().as_deref(),
-        Some("first line\nfinal=0\ncoverage_source=resumed")
+        Some("first line\nfinal=0\nroute_severity_below=low")
     );
 }
 
@@ -1704,7 +1727,6 @@ fn classifier_posts_a_partial_resume_that_exits_nonzero() {
         1,
         "a budget partial resumes once"
     );
-    assert_eq!(observation.coverage_source().as_deref(), Some("resumed"));
     assert!(
         observation.post_resumed(),
         "a usable partial result is posted even when the resume exits nonzero"
@@ -1740,7 +1762,6 @@ fn classifier_keeps_the_first_coverage_when_the_resume_is_unusable() {
     assert_eq!(observation.exit, 0);
     assert_eq!(observation.final_status().as_deref(), Some("1"));
     assert!(!observation.post_resumed());
-    assert_eq!(observation.coverage_source().as_deref(), Some("first"));
     assert_eq!(
         observation.coverage_verdict().as_deref(),
         Some("partial"),
@@ -2448,9 +2469,7 @@ struct CoverageObservation {
 struct CoverageRun<'a> {
     coverage: Option<&'a str>,
     comment: Option<&'a str>,
-    first_url: Option<&'a str>,
-    resumed_url: Option<&'a str>,
-    from_resume: bool,
+    comment_url: Option<&'a str>,
     verdict: &'a str,
     head: &'a str,
     note: Option<&'a str>,
@@ -2461,9 +2480,7 @@ impl Default for CoverageRun<'_> {
         Self {
             coverage: None,
             comment: None,
-            first_url: None,
-            resumed_url: None,
-            from_resume: false,
+            comment_url: None,
             verdict: "complete",
             head: HEAD_SHA,
             note: None,
@@ -2603,16 +2620,8 @@ impl Coverage {
             ("WARNING_LOG", warning),
             ("SUMMARY_LOG", summary),
             (
-                "FIRST_COMMENT_URL",
-                run.first_url.unwrap_or_default().to_string(),
-            ),
-            (
-                "RESUMED_COMMENT_URL",
-                run.resumed_url.unwrap_or_default().to_string(),
-            ),
-            (
-                "COVERAGE_SOURCE",
-                if run.from_resume { "resumed" } else { "first" }.to_string(),
+                "COMMENT_URL",
+                run.comment_url.unwrap_or_default().to_string(),
             ),
             ("COVERAGE_VERDICT", run.verdict.to_string()),
             ("HEAD_SHA", run.head.to_string()),
@@ -2630,7 +2639,7 @@ fn coverage_names_the_scope_above_the_coverage_section() {
     let observation = coverage.run(CoverageRun {
         coverage: Some("### Review coverage\n\nOCR reviewed 2 of 2 selected files."),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         note: Some(note),
         ..CoverageRun::default()
     });
@@ -2656,7 +2665,7 @@ fn coverage_inserts_the_block_after_the_summary_marker() {
     let observation = coverage.run(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         ..CoverageRun::default()
     });
 
@@ -2675,7 +2684,7 @@ fn coverage_inserts_the_block_after_the_run_tag() {
     let observation = coverage.run(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\n<!-- ocr-summary-run: 123 -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         ..CoverageRun::default()
     });
 
@@ -2696,7 +2705,7 @@ fn coverage_replaces_an_existing_block() {
         comment: Some(
             "<!-- ocr-summary -->\n<!-- ocr-coverage:start -->\nold\n<!-- ocr-coverage:end -->\nSummary",
         ),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         ..CoverageRun::default()
     });
 
@@ -2728,7 +2737,7 @@ fn coverage_replaces_the_whole_section_around_a_quoted_end_marker() {
         let observation = coverage.run(CoverageRun {
             coverage: Some(&format!("### Review coverage\n\n{fragment}")),
             comment: Some(&comment),
-            first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+            comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
             verdict: "partial",
             ..CoverageRun::default()
         });
@@ -2774,7 +2783,7 @@ fn coverage_replaces_a_section_whose_marker_line_ends_with_whitespace() {
         let observation = coverage.run(CoverageRun {
             coverage: Some("Covered: src/lib.rs"),
             comment: Some(comment),
-            first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+            comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
             ..CoverageRun::default()
         });
 
@@ -2802,7 +2811,7 @@ fn coverage_names_the_verdict_and_head_of_the_run() {
         let observation = coverage.run(CoverageRun {
             coverage: Some("Covered: src/lib.rs"),
             comment: Some("<!-- ocr-summary -->\nSummary text"),
-            first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+            comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
             verdict,
             head,
             ..CoverageRun::default()
@@ -2824,7 +2833,7 @@ fn coverage_refuses_a_run_without_a_full_head_before_it_writes() {
     let (stderr, observation) = coverage.run_refused(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         head: "",
         ..CoverageRun::default()
     });
@@ -2853,7 +2862,7 @@ fn coverage_edits_the_comment_this_run_posted() {
     let observation = coverage.run(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         ..CoverageRun::default()
     });
 
@@ -2869,13 +2878,13 @@ fn coverage_edits_the_comment_this_run_posted() {
 
 #[test]
 fn coverage_uses_the_resumed_post_url() {
+    // One post reports one summary comment, so the coverage section of a
+    // resumed run edits the comment that post reported.
     let coverage = Coverage::new();
     let observation = coverage.run(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("<!-- ocr-summary -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-41"),
-        resumed_url: Some("https://github.com/owner/repository/pull/7#issuecomment-43"),
-        from_resume: true,
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-43"),
         ..CoverageRun::default()
     });
 
@@ -2885,23 +2894,53 @@ fn coverage_uses_the_resumed_post_url() {
 
 #[test]
 fn coverage_ignores_the_first_comment_for_an_unposted_resume() {
-    let coverage = Coverage::new();
-    let observation = coverage.run(CoverageRun {
-        coverage: Some("Covered: src/lib.rs"),
-        comment: Some("<!-- ocr-summary -->\nSummary text"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-41"),
-        from_resume: true,
-        ..CoverageRun::default()
+    let coverage = step_text(OCR_REVIEW, COVERAGE_STEP);
+
+    assert_eq!(
+        coverage.matches("summary_comment_url").count(),
+        1,
+        "the coverage section names one comment:\n{coverage}"
+    );
+    assert!(
+        coverage.contains(
+            "steps.outcome.outputs.coverage_outside_comment != 'true' && steps.post.outputs.summary_comment_url"
+        ),
+        "the coverage of an unposted resume cannot edit the comment of the first result:\n{coverage}"
+    );
+}
+
+#[test]
+fn classifier_keeps_an_unposted_resume_out_of_the_comment() {
+    let classifier = Classifier::new();
+    let rejected = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resumed: 1,
+        ..Run::default()
+    });
+    let unusable = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        resume_unusable: true,
+        ..Run::default()
+    });
+    let posted = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        ..Run::default()
     });
 
-    assert_eq!(observation.get, None);
-    assert_eq!(observation.update, None);
-    assert!(
-        observation
-            .summary
-            .expect("the coverage goes to the job summary")
-            .contains("Covered: src/lib.rs")
+    assert_eq!(
+        rejected.coverage_outside_comment().as_deref(),
+        Some("true"),
+        "the coverage command rejected the resumed result, so no comment describes it"
     );
+    assert_eq!(
+        unusable.coverage_outside_comment(),
+        None,
+        "an unusable resume keeps the first result's coverage in the comment it posted"
+    );
+    assert_eq!(posted.coverage_outside_comment(), None);
 }
 
 #[test]
@@ -2935,7 +2974,7 @@ fn coverage_leaves_the_comment_alone_without_coverage() {
     let url = Some("https://github.com/owner/repository/pull/7#issuecomment-42");
     let missing = coverage.run(CoverageRun {
         comment,
-        first_url: url,
+        comment_url: url,
         ..CoverageRun::default()
     });
 
@@ -2950,7 +2989,7 @@ fn coverage_leaves_the_comment_alone_without_coverage() {
     let empty = coverage.run(CoverageRun {
         coverage: Some("  \n"),
         comment,
-        first_url: url,
+        comment_url: url,
         ..CoverageRun::default()
     });
 
@@ -2969,7 +3008,7 @@ fn coverage_warns_when_the_summary_has_no_marker() {
     let observation = coverage.run(CoverageRun {
         coverage: Some("Covered: src/lib.rs"),
         comment: Some("No marker here"),
-        first_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
+        comment_url: Some("https://github.com/owner/repository/pull/7#issuecomment-42"),
         ..CoverageRun::default()
     });
 
@@ -2998,6 +3037,7 @@ struct PostRun<'a> {
     stderr: &'a str,
     fingerprint: &'a str,
     carry: &'a str,
+    route: &'a str,
 }
 
 impl Default for PostRun<'_> {
@@ -3007,16 +3047,17 @@ impl Default for PostRun<'_> {
             stderr: "/tmp/ocr-stderr.log",
             fingerprint: "",
             carry: "",
+            route: "low",
         }
     }
 }
 
 impl Post {
-    fn new(step: &str) -> Self {
+    fn new() -> Self {
         let folder = temporary_directory();
         let workspace = folder.path().join("workspace");
         write_posting_helper(&workspace, POSTING_HELPER_RECORD);
-        write_github_script(folder.path(), step);
+        write_github_script(folder.path(), POST_STEP);
 
         Post { folder, workspace }
     }
@@ -3042,6 +3083,7 @@ impl Post {
             ("STDERR_PATH", run.stderr.to_string()),
             ("CHECKPOINT_FINGERPRINT", run.fingerprint.to_string()),
             ("CHECKPOINT_CARRY", run.carry.to_string()),
+            ("ROUTE_SEVERITY_BELOW", run.route.to_string()),
         ];
         let completed = run_github_script(root, &environment);
 
@@ -3062,35 +3104,143 @@ impl Post {
 #[test]
 fn the_posts_advance_the_marker_only_on_a_complete_coverage() {
     let post = step_text(OCR_REVIEW, POST_STEP);
-    let resumed = step_text(OCR_REVIEW, RESUME_POST_STEP);
 
     assert!(
-        post.contains(
-            "steps.outcome.outputs.first_final == '0' && steps.range.outputs.fingerprint"
-        ),
-        "the first post advances the marker only past its own complete coverage:\n{post}"
+        post.contains("CHECKPOINT_FINGERPRINT: ${{ steps.outcome.outputs.post_fingerprint }}"),
+        "the post advances the marker only past a result whose coverage is complete:\n{post}"
     );
-    assert!(
-        resumed.contains("steps.outcome.outputs.final == '0' && steps.range.outputs.fingerprint"),
-        "the resumed post advances the marker only past the resumed coverage:\n{resumed}"
+
+    let classifier = Classifier::new();
+    let complete = classifier.run(Run {
+        result: Some(SESSION_RESULT),
+        fingerprint: FINGERPRINT,
+        ..Run::default()
+    });
+    let resumed = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        fingerprint: FINGERPRINT,
+        ..Run::default()
+    });
+    let partial = classifier.run(Run {
+        first: 2,
+        result: Some(SESSION_RESULT),
+        fingerprint: FINGERPRINT,
+        resumed: 2,
+        ..Run::default()
+    });
+
+    assert_eq!(complete.post_fingerprint().as_deref(), Some(FINGERPRINT));
+    assert_eq!(
+        resumed.post_fingerprint().as_deref(),
+        Some(FINGERPRINT),
+        "a resume that covered every selected file advances the marker"
+    );
+    assert_eq!(
+        partial.post_fingerprint().as_deref(),
+        Some(""),
+        "a partial review keeps the previous marker, so the next range only widens"
+    );
+}
+
+#[test]
+fn a_full_review_routes_only_low_findings_to_the_summary() {
+    let threshold = route_threshold(Run {
+        result: Some(SESSION_RESULT),
+        ..Run::default()
+    });
+
+    assert_eq!(threshold, "low");
+    assert_eq!(
+        routed(&threshold),
+        ["low"],
+        "a medium finding is at the floor and stays inline"
+    );
+}
+
+#[test]
+fn a_scoped_review_routes_medium_findings_to_the_summary() {
+    let threshold = route_threshold(Run {
+        result: Some(SESSION_RESULT),
+        scope_mode: "scoped",
+        ..Run::default()
+    });
+
+    assert_eq!(threshold, "medium");
+    assert_eq!(
+        routed(&threshold),
+        ["medium", "low"],
+        "a high finding is at the floor and stays inline"
+    );
+}
+
+// The pinned helper's severity order, most severe first. It routes a finding
+// whose severity ranks at or below the threshold.
+const SEVERITIES: [&str; 4] = ["critical", "high", "medium", "low"];
+
+fn route_threshold(run: Run<'_>) -> String {
+    Classifier::new()
+        .run(run)
+        .route_severity_below()
+        .expect("the classifier names the severity below which it routes")
+}
+
+fn routed(threshold: &str) -> Vec<&'static str> {
+    let rank = SEVERITIES
+        .iter()
+        .position(|severity| *severity == threshold)
+        .expect("the threshold is one of the helper's severities");
+
+    SEVERITIES[rank..].to_vec()
+}
+
+#[test]
+fn post_passes_the_posting_helper_its_options() {
+    let post = Post::new();
+    let observation = post.run(PostRun::default());
+    let recorded = observation
+        .recorded
+        .expect("the helper records its options");
+
+    assert_eq!(observation.exit, 0);
+    assert_eq!(recorded["resultPath"], "/tmp/ocr-result.json");
+    assert_eq!(recorded["stderrPath"], "/tmp/ocr-stderr.log");
+    assert_eq!(recorded["prNumber"], 7);
+    assert_eq!(recorded["stickySummary"], true);
+    assert_eq!(recorded["checkpointEnabled"], true);
+    assert_eq!(
+        recorded["checkpointMergeBase"],
+        "aabbccddeeff00112233445566778899aabbccdd"
+    );
+    assert_eq!(
+        recorded["routeSeverityBelow"], "low",
+        "the helper moves findings below the floor to the summary comment"
     );
 }
 
 #[test]
 fn the_two_posts_share_one_script() {
     assert_eq!(
-        step_block(OCR_REVIEW, POST_STEP, "script"),
-        step_block(OCR_REVIEW, RESUME_POST_STEP, "script"),
-        "the first post and the resumed post differ only in their inputs"
+        OCR_REVIEW.matches("runPostReviewComments({").count(),
+        1,
+        "one script posts the first result and the resumed result"
+    );
+
+    let post = step_text(OCR_REVIEW, POST_STEP);
+
+    assert!(
+        post.contains("post_resumed == 'true' && '/tmp/ocr-resume.json'"),
+        "the one script reads the resumed result when the resume posted it:\n{post}"
     );
 }
 
 #[test]
 fn resumed_post_passes_the_posting_helper_its_options() {
-    let post = Post::new(RESUME_POST_STEP);
+    let post = Post::new();
     let observation = post.run(PostRun {
         result: "/tmp/ocr-resume.json",
         stderr: "/tmp/ocr-resume.err",
+        route: "medium",
         ..PostRun::default()
     });
 
@@ -3107,6 +3257,7 @@ fn resumed_post_passes_the_posting_helper_its_options() {
             "stderrPath": "/tmp/ocr-resume.err",
             "stickySummary": true,
             "incremental": true,
+            "routeSeverityBelow": "medium",
             "checkpointEnabled": true,
             "checkpointCarry": "",
             "checkpointBaseRef": "main",
@@ -3123,30 +3274,10 @@ fn resumed_post_passes_the_posting_helper_its_options() {
 }
 
 #[test]
-fn post_passes_the_posting_helper_its_options() {
-    let post = Post::new(POST_STEP);
-    let observation = post.run(PostRun::default());
-    let recorded = observation
-        .recorded
-        .expect("the helper records its options");
-
-    assert_eq!(observation.exit, 0);
-    assert_eq!(recorded["resultPath"], "/tmp/ocr-result.json");
-    assert_eq!(recorded["stderrPath"], "/tmp/ocr-stderr.log");
-    assert_eq!(recorded["prNumber"], 7);
-    assert_eq!(recorded["stickySummary"], true);
-    assert_eq!(recorded["checkpointEnabled"], true);
-    assert_eq!(
-        recorded["checkpointMergeBase"],
-        "aabbccddeeff00112233445566778899aabbccdd"
-    );
-}
-
-#[test]
 fn post_advances_the_marker_of_a_complete_review() {
-    let post = Post::new(POST_STEP);
+    let post = Post::new();
     let observation = post.run(PostRun {
-        fingerprint: "0123456789abcdef",
+        fingerprint: FINGERPRINT,
         carry: "<!-- ocr-checkpoint:v1 marker -->",
         ..PostRun::default()
     });
@@ -3154,7 +3285,7 @@ fn post_advances_the_marker_of_a_complete_review() {
         .recorded
         .expect("the helper records its options");
 
-    assert_eq!(recorded["checkpointFingerprint"], "0123456789abcdef");
+    assert_eq!(recorded["checkpointFingerprint"], FINGERPRINT);
     assert_eq!(
         recorded["checkpointCarry"], "<!-- ocr-checkpoint:v1 marker -->",
         "the marker read this run is re-emitted when the review does not advance"
@@ -3163,12 +3294,13 @@ fn post_advances_the_marker_of_a_complete_review() {
 
 #[test]
 fn post_keeps_the_old_marker_of_a_partial_review() {
-    let post = Post::new(RESUME_POST_STEP);
+    let post = Post::new();
     let observation = post.run(PostRun {
         result: "/tmp/ocr-resume.json",
         stderr: "/tmp/ocr-resume.err",
         fingerprint: "",
         carry: "<!-- ocr-checkpoint:v1 marker -->",
+        ..PostRun::default()
     });
     let recorded = observation
         .recorded

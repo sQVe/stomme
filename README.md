@@ -128,9 +128,10 @@ jobs:
 ```
 
 Set the `MORPH_API_KEY` repository secret to the Morph token. The caller grants `contents: write`
-and `pull-requests: write`. The review posts every finding as an inline comment on the pull request,
-beside the line it describes, whatever its severity. A finding with no line, or an inline post that
-GitHub rejects, still lands in the summary comment with the reason.
+and `pull-requests: write`. The review posts a finding at or above the severity floor as an inline
+comment beside the line it describes, and a finding below the floor in the summary comment. The
+floor is `medium` on a full review and `high` on a scoped one. A finding with no line, or an inline
+post that GitHub rejects, still lands in the summary comment with the reason.
 
 Require the `review / OCR review` check in branch protection, so a pull request merges only after
 the review covers every selected file. The check fails until the secret is set. A fork pull request

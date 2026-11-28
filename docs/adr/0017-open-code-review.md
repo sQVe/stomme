@@ -199,10 +199,11 @@ the token comes from the `MORPH_API_KEY` repository secret.
   and that result is not posted.
 - The job passes only when the last classification reports every selected file as reviewed. A
   partial result fails and names the unreviewed files, and a failed run fails with its error.
-- The resumed review posts its result once, including the comments of the first run for the files
-  it reused. It reviews the same synthetic base, and its summary advances the checkpoint marker
-  only when the coverage command reports every selected file as reviewed; otherwise it re-emits the
-  marker this run read, so the next range only widens.
+- One posting step posts the result of every run: the resumed result when a resume produced a
+  usable one, because it also holds the comments of the first run for the files it reused, and the
+  first result otherwise. A resume reviews the same synthetic base. The post advances the
+  checkpoint marker only when the coverage command reports the posted result's selected files as
+  reviewed; otherwise it re-emits the marker this run read, so the next range only widens.
 - A push whose head the checkpoint already records is a no-op run, as long as the marker's merge
   base is still this run's merge base: the workflow runs no review and writes nothing. A different
   base exposes lines that the earlier review never saw, so that run builds a scope instead.
@@ -221,15 +222,22 @@ the token comes from the `MORPH_API_KEY` repository secret.
   file with OCR's reason, and it lists the excluded files in a collapsed block. The workflow puts
   the same section at the top of the job summary, and inserts it after the marker of the summary
   comment that this run posted, found by that post's URL, so the comment stays findable and keeps
-  its single checkpoint marker. When the run posted no summary comment, the coverage goes only to
-  the job summary.
+  its single checkpoint marker. A section that describes a result the run did not post goes only to
+  the job summary, and so does the section of a run that posted no summary comment.
 - Findings stay advisory, as with the size and mutation signals in
   [ADR 0009 (Advisory mutation testing and size as a review signal)](../stomme/shared/adr/0009-advisory-review-signals.md).
-- Every finding is posted as an inline comment, whatever its severity. The workflow sets no
-  severity or category routing, and the resumed post passes none, because the posting helper routes
-  nothing without a threshold. Routing would move a finding into the summary comment, away from the
-  line it describes. A finding with no line, and an inline post that GitHub rejects, still land in
-  the summary comment with the reason.
+- A finding at or above the severity floor is posted as an inline comment on its line. A finding
+  below the floor goes to the summary comment, which names its file, its lines, and the reason it
+  was routed. The floor is `medium` on a full review and `high` on a scoped one, so the workflow
+  passes the helper's `routeSeverityBelow` the value `low` or `medium`.
+- The floor keeps a first review's findings inline, where a reader meets them on the line they
+  describe, and moves the medium and low findings of a scoped review to the summary, because those
+  describe the lines a fix push added. A thread blocks the merge under the ruleset's required
+  thread resolution, so a finding below the floor would make every fix push commission another
+  review. Pull request #91 ran 13 reviewed heads in 90 minutes and opened 83 threads, and 103 of
+  the 176 findings across pull requests #83 to #93 were low.
+- A finding with no line, and an inline post that GitHub rejects, still land in the summary comment
+  with the reason.
 - Tau needs no review-bot entry, because OCR reviews every push without a request.
 
 ## Consequences
@@ -259,6 +267,8 @@ the token comes from the `MORPH_API_KEY` repository secret.
 - A model that stops early while OCR records the file as completed passes the check, because the
   check trusts OCR's coverage record.
 - Findings depend on a model, so the review does not replace a person's review.
+- A finding below the floor loses its line anchor in the conversation, so a reader scrolls to the
+  summary comment to find the line it names.
 - A file under two role roots matches two clauses, and a role root that is a symlink matches no
   clause for the real Git path, because the clause is a lexical prefix of the configured path.
   `stomme check` accepts both shapes today.
@@ -311,11 +321,6 @@ Rejected because the workflow is live at merge while the classifier comes from t
 `mise.toml` holds. A project, stomme included, would then run the new reader against an older
 binary that prints no verdict and fail every no-op run until the next release. The workflow writes
 the line from the classification it already reads, so the writer and the reader ship in one file.
-
-### Route findings by severity to the summary comment
-
-Move findings at or below a severity threshold into the summary comment. Rejected because a routed
-finding loses the line it describes, so the reader has to find that line by hand.
 
 ### Read the result with a script in the workflow
 

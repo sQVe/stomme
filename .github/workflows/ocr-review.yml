@@ -323,6 +323,8 @@ jobs:
           STOMME: stomme
           MODEL_TOKEN: ${{ secrets.model-token }}
           RANGE_FROM: ${{ steps.scope.outputs.base }}
+          SCOPE_MODE: ${{ steps.scope.outputs.mode }}
+          FINGERPRINT: ${{ steps.range.outputs.fingerprint }}
           OCR_EXIT_CODE: ${{ env.OCR_EXIT_CODE }}
         run: |
           token="$MODEL_TOKEN"
@@ -433,6 +435,7 @@ jobs:
           classified=0
           final=0
           posted=0
+          coverage_source=first
           ocr_exit="${OCR_EXIT_CODE:-}"
 
           if [ -f "$result" ]; then
@@ -446,15 +449,20 @@ jobs:
           else
             final=1
           fi
-          cp /tmp/ocr-coverage.md /tmp/ocr-first-coverage.md 2>/dev/null || true
-          {
-            echo "final=$final"
-            echo "first_final=$final"
-            echo "coverage_source=first"
-          } >> "$GITHUB_OUTPUT"
+          first_final="$final"
+          echo "final=$final" >> "$GITHUB_OUTPUT"
           # The verdict names the classification of the coverage file that the
           # insert step puts into the summary comment, not the job result.
           echo "coverage_verdict=$(verdict "$final")" >> "$GITHUB_OUTPUT"
+          # Findings below the floor go to the summary comment. A scoped review
+          # posts only the lines a fix push added, so its medium findings are
+          # that push's own noise, while the first full review keeps them
+          # inline.
+          if [ "$SCOPE_MODE" = "scoped" ]; then
+            echo "route_severity_below=medium" >> "$GITHUB_OUTPUT"
+          else
+            echo "route_severity_below=low" >> "$GITHUB_OUTPUT"
+          fi
 
           session_id="$(jq -r '.session_id // empty' "$result" 2>/dev/null || true)"
 
@@ -539,21 +547,38 @@ jobs:
             final="$resumed"
             classified=1
             posted=1
+            coverage_source=resumed
             mv /tmp/ocr-resume-coverage.md /tmp/ocr-coverage.md
             mv /tmp/ocr-resume-coverage.err /tmp/ocr-coverage.err 2>/dev/null || true
-            {
-              echo "coverage_source=resumed"
-              echo "resumed=true"
-            } >> "$GITHUB_OUTPUT"
             echo "coverage_verdict=$(verdict "$resumed")" >> "$GITHUB_OUTPUT"
             session_id="$(jq -r '.session_id // empty' "$result" 2>/dev/null || true)"
           done
 
           # Only a result this run can post reaches the posting helper.
+          post_resumed=0
           if [ "$posted" = "1" ]; then
             if [ "$final" = "0" ] || [ "$final" = "2" ]; then
+              post_resumed=1
               echo "post_resumed=true" >> "$GITHUB_OUTPUT"
             fi
+          fi
+
+          # The marker advances only past the result this run posts, and only
+          # when that result covered every selected file.
+          post_final="$first_final"
+          if [ "$post_resumed" = "1" ]; then
+            post_final="$final"
+          fi
+          post_fingerprint=""
+          if [ "$post_final" = "0" ]; then
+            post_fingerprint="$FINGERPRINT"
+          fi
+          echo "post_fingerprint=$post_fingerprint" >> "$GITHUB_OUTPUT"
+          # The coverage section describes the result this run classified last.
+          # A resumed result the coverage command rejects is reported, but never
+          # posted, so its section goes only to the job summary.
+          if [ "$coverage_source" = "resumed" ] && [ "$post_resumed" = "0" ]; then
+            echo "coverage_outside_comment=true" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "$final" = "0" ] && [ "$ocr_exit" = "0" ]; then
@@ -580,16 +605,20 @@ jobs:
 
       - name: Post the review
         id: post
-        if: steps.review.outputs.exit_code == '0' || steps.scope.outputs.mode == 'empty'
+        if: steps.review.outputs.exit_code == '0' || steps.scope.outputs.mode == 'empty' || steps.outcome.outputs.post_resumed == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          RESULT_PATH: /tmp/ocr-result.json
-          STDERR_PATH: /tmp/ocr-stderr.log
+          # One post, of whichever result this run can post: the resumed result
+          # when the resume produced a usable one, because it also holds the
+          # findings of the first run for the files it reused.
+          RESULT_PATH: ${{ steps.outcome.outputs.post_resumed == 'true' && '/tmp/ocr-resume.json' || '/tmp/ocr-result.json' }}
+          STDERR_PATH: ${{ steps.outcome.outputs.post_resumed == 'true' && '/tmp/ocr-resume.err' || '/tmp/ocr-stderr.log' }}
           # The marker advances only past a run whose coverage command reported
           # every selected file as reviewed. A waived or oversize-excluded file
           # leaves the previous marker, so the next range only widens.
-          CHECKPOINT_FINGERPRINT: ${{ steps.outcome.outputs.first_final == '0' && steps.range.outputs.fingerprint || '' }}
+          CHECKPOINT_FINGERPRINT: ${{ steps.outcome.outputs.post_fingerprint }}
           CHECKPOINT_CARRY: ${{ steps.range.outputs.carry }}
+          ROUTE_SEVERITY_BELOW: ${{ steps.outcome.outputs.route_severity_below }}
         with:
           script: |
             const fs = require('fs');
@@ -612,56 +641,9 @@ jobs:
               stderrPath: process.env.STDERR_PATH,
               stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
               incremental: process.env.OCR_INCREMENTAL === 'true',
-              // No routing option: the helper routes nothing without a
-              // threshold, so no finding moves to the summary.
-              checkpointEnabled: process.env.OCR_CHECKPOINT_RANGE === 'true',
-              checkpointCarry: process.env.CHECKPOINT_CARRY || '',
-              checkpointBaseRef: process.env.BASE_REF || '',
-              checkpointMergeBase: process.env.MERGE_BASE || '',
-              checkpointFingerprint: process.env.CHECKPOINT_FINGERPRINT || '',
-              checkpointNoop: false,
-              // The range note names the scope, which the coverage section
-              // reports, so the helper renders no range line of its own.
-              rangeMode: '',
-              rangeFrom: '',
-              rangeTo: '',
-              resolveOutdated: process.env.RESOLVE_OUTDATED,
-              appSlug: process.env.OCR_APP_SLUG,
-            });
-
-      - name: Post the resumed review
-        id: resume-post
-        if: steps.outcome.outputs.post_resumed == 'true'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          RESULT_PATH: /tmp/ocr-resume.json
-          STDERR_PATH: /tmp/ocr-resume.err
-          CHECKPOINT_FINGERPRINT: ${{ steps.outcome.outputs.final == '0' && steps.range.outputs.fingerprint || '' }}
-          CHECKPOINT_CARRY: ${{ steps.range.outputs.carry }}
-        with:
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const helper = path.join(
-              process.env.GITHUB_WORKSPACE,
-              '.ocr-action',
-              'scripts',
-              'github-actions',
-              'post-review-comments.js',
-            );
-            const { runPostReviewComments } = require(helper);
-            await runPostReviewComments({
-              github,
-              context,
-              core,
-              fs,
-              prNumber: Number(process.env.PR_NUMBER),
-              resultPath: process.env.RESULT_PATH,
-              stderrPath: process.env.STDERR_PATH,
-              stickySummary: process.env.OCR_STICKY_SUMMARY === 'true',
-              incremental: process.env.OCR_INCREMENTAL === 'true',
-              // No routing option: the helper routes nothing without a
-              // threshold, so no finding moves to the summary.
+              // A finding below the floor goes to the summary comment, where
+              // it names its file and line without opening a thread.
+              routeSeverityBelow: process.env.ROUTE_SEVERITY_BELOW || '',
               checkpointEnabled: process.env.OCR_CHECKPOINT_RANGE === 'true',
               checkpointCarry: process.env.CHECKPOINT_CARRY || '',
               checkpointBaseRef: process.env.BASE_REF || '',
@@ -680,9 +662,10 @@ jobs:
       - name: Add the coverage section
         if: always() && steps.range.outputs.mode != 'noop'
         env:
-          FIRST_COMMENT_URL: ${{ steps.post.outputs.summary_comment_url }}
-          RESUMED_COMMENT_URL: ${{ steps.resume-post.outputs.summary_comment_url }}
-          COVERAGE_SOURCE: ${{ steps.outcome.outputs.coverage_source }}
+          # The section describes the result this run classified last, so it
+          # goes into a comment only when that result is the one the post
+          # posted.
+          COMMENT_URL: ${{ steps.outcome.outputs.coverage_outside_comment != 'true' && steps.post.outputs.summary_comment_url || '' }}
           COVERAGE_VERDICT: ${{ steps.outcome.outputs.coverage_verdict }}
           SCOPE_NOTE: ${{ steps.scope.outputs.note }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -705,10 +688,7 @@ jobs:
             // synthetic commit of this clone, not a commit of the pull request.
             const note = (process.env.SCOPE_NOTE || '').trim();
             const section = note ? `### Review scope\n\n${note}\n\n${coverage}` : coverage;
-            const fromResume = process.env.COVERAGE_SOURCE === 'resumed';
-            const commentUrl = fromResume
-              ? process.env.RESUMED_COMMENT_URL || ''
-              : process.env.FIRST_COMMENT_URL || '';
+            const commentUrl = process.env.COMMENT_URL || '';
             const urlMatch = /#issuecomment-(\d+)$/.exec(commentUrl);
             const head = process.env.HEAD_SHA || '';
             if (urlMatch && !/^[0-9a-f]{40}$/.test(head)) {
