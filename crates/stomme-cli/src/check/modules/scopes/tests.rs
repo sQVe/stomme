@@ -1,7 +1,14 @@
 use super::*;
 
+const CRATE_ROOT_CHILD_DEPTH: usize = 1;
+const NESTED_FILE_DEPTH: usize = 2;
+
 fn scopes(source: &str) -> Vec<Scope> {
-    super::scopes(source, Edition::Other, false)
+    scopes_at_depth(source, CRATE_ROOT_CHILD_DEPTH)
+}
+
+fn scopes_at_depth(source: &str, module_depth: usize) -> Vec<Scope> {
+    super::scopes(source, Edition::Other, module_depth)
 }
 
 fn strings(segments: &[&str]) -> Vec<String> {
@@ -327,7 +334,10 @@ fn an_export_records_its_visibility() {
          pub(self) use a as private;\n\
          pub(in self) use a as in_self;\n\
          pub(crate) use a as crate_wide;\n\
-         pub(in crate::x) use a as in_crate;\n\
+         pub(in crate) use a as in_crate_root;\n\
+         pub(in crate::x) use a as in_crate_path;\n\
+         pub(in super) use a as in_super;\n\
+         pub(in super::x) use a as in_super_path;\n\
          use a as plain;\n",
     )
     .exports
@@ -342,29 +352,55 @@ fn an_export_records_its_visibility() {
             ("private".to_string(), ExportVisibility::Restricted),
             ("in_self".to_string(), ExportVisibility::Restricted),
             ("crate_wide".to_string(), ExportVisibility::Crate),
-            ("in_crate".to_string(), ExportVisibility::Restricted),
+            ("in_crate_root".to_string(), ExportVisibility::Crate),
+            ("in_crate_path".to_string(), ExportVisibility::Restricted),
+            ("in_super".to_string(), ExportVisibility::Crate),
+            ("in_super_path".to_string(), ExportVisibility::Restricted),
         ]
     );
 }
 
 #[test]
-fn pub_super_is_crate_visible_only_at_a_crate_root_module_file_scope() {
-    let at_crate_root = super::scopes("pub(super) use a as b;", Edition::Other, true);
-    let nested_file = super::scopes("pub(super) use a as b;", Edition::Other, false);
-    let inline_module = super::scopes("mod inner { pub(super) use a as b; }", Edition::Other, true);
+fn pub_super_is_crate_visible_when_its_parent_is_the_crate_root() {
+    let cases = [
+        (
+            "crate root file scope",
+            0,
+            "pub(super) use a as b;",
+            ExportVisibility::Restricted,
+        ),
+        (
+            "inline module in the crate root file",
+            0,
+            "mod inner { pub(super) use a as b; }",
+            ExportVisibility::Crate,
+        ),
+        (
+            "crate root child file scope",
+            1,
+            "pub(super) use a as b;",
+            ExportVisibility::Crate,
+        ),
+        (
+            "inline module in a crate root child",
+            1,
+            "mod inner { pub(super) use a as b; }",
+            ExportVisibility::Restricted,
+        ),
+        (
+            "nested file scope",
+            2,
+            "pub(super) use a as b;",
+            ExportVisibility::Restricted,
+        ),
+    ];
 
-    assert_eq!(
-        at_crate_root[0].exports[0].visibility,
-        ExportVisibility::Crate
-    );
-    assert_eq!(
-        nested_file[0].exports[0].visibility,
-        ExportVisibility::Restricted
-    );
-    assert_eq!(
-        inline_module[1].exports[0].visibility,
-        ExportVisibility::Restricted
-    );
+    for (name, module_depth, source, expected) in cases {
+        let scopes = scopes_at_depth(source, module_depth);
+        let visibility = scopes.last().expect("a scope holds the export").exports[0].visibility;
+
+        assert_eq!(visibility, expected, "{name}");
+    }
 }
 
 #[test]
@@ -382,7 +418,11 @@ fn const_generics_and_modifiers_are_not_value_items() {
 
 #[test]
 fn a_leading_colon_target_is_a_crate_target_in_edition_2015() {
-    let mut scopes = super::scopes("pub use ::std::mem as a;", Edition::Rust2015, false);
+    let mut scopes = super::scopes(
+        "pub use ::std::mem as a;",
+        Edition::Rust2015,
+        NESTED_FILE_DEPTH,
+    );
     let exports = scopes.remove(0).exports;
 
     assert_eq!(

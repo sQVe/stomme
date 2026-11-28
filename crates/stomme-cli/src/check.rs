@@ -121,7 +121,22 @@ pub(crate) fn run(
         problems.extend(weakened::check(root, target));
     }
 
-    Ok(problems)
+    Ok(without_duplicates(problems))
+}
+
+// Several checks report the same broken manifest, so only the first report of a problem stays.
+fn without_duplicates(problems: Vec<Problem>) -> Vec<Problem> {
+    let mut unique: Vec<Problem> = Vec::new();
+
+    for problem in problems {
+        if unique.contains(&problem) {
+            continue;
+        }
+
+        unique.push(problem);
+    }
+
+    unique
 }
 
 fn rust_problems(

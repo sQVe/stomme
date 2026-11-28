@@ -1,6 +1,11 @@
+use super::Resolver;
 use crate::check::Problem;
 use crate::check::modules::tests::{assert_problem, problems};
+use crate::check::modules::{read_modules, read_sources};
+use crate::check::source_files;
 use crate::check::test_support::project;
+use crate::config::{self, Installation};
+use crate::layer::{self, Language};
 use crate::rule::Rule;
 
 const ATTENTION: &str = "ticket:src/fact/attention.rs";
@@ -1805,6 +1810,46 @@ fn a_pub_super_use_below_the_crate_root_does_not_reach_the_private_file() {
 }
 
 #[test]
+fn a_pub_super_use_in_a_crate_root_inline_module_reaches_the_private_file() {
+    let files = [
+        (
+            "src/lib.rs",
+            "mod inner {\n    mod hidden;\n    pub(super) use self::hidden as api;\n}\n",
+        ),
+        ("src/lib/inner/hidden.rs", "pub fn read() {}\n"),
+        ("src/ticket.rs", "use crate::lib::inner::api::read;\n"),
+    ];
+    let table = "[modules.root]\nentry = \"src/lib.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"root\"]\n";
+    let root = project(&files, table);
+
+    let problems = problems(root.path());
+
+    assert_problem(
+        &problems,
+        "src/ticket.rs",
+        Rule::ModulePrivateFile,
+        "ticket:src/lib/inner/hidden.rs",
+        "pub(super) in a crate root inline module",
+    );
+}
+
+#[test]
+fn a_pub_super_use_in_a_crate_root_child_inline_module_stays_restricted() {
+    let files = [
+        (
+            "src/config.rs",
+            "mod inner {\n    mod hidden;\n    pub(super) use self::hidden as api;\n}\n",
+        ),
+        ("src/config/inner/hidden.rs", "pub fn read() {}\n"),
+        ("src/ticket.rs", "use crate::config::inner::api::read;\n"),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n\n[modules.ticket]\nentry = \"src/ticket.rs\"\nimports = [\"config\"]\n";
+    let root = project(&files, table);
+
+    assert_eq!(problems(root.path()), Vec::<Problem>::new());
+}
+
+#[test]
 fn a_leading_colon_expression_resolves_in_edition_2015() {
     let files = [
         (
@@ -2071,4 +2116,62 @@ fn an_alias_into_a_deeper_row_keeps_its_self_target() {
             None => assert!(problems.is_empty(), "{name}: {problems:?}"),
         }
     }
+}
+
+#[test]
+fn bindings_hold_the_checked_file_and_its_inline_scopes_only() {
+    let files = [
+        (
+            "src/config.rs",
+            "use crate::config::parse as top;\n\
+             mod inner {\n\
+                 use crate::config::parse as nested;\n\
+                 mod deep { use crate::config::parse as deep_nested; }\n\
+             }\n",
+        ),
+        (
+            "src/config/parse.rs",
+            "use crate::config as submodule;\npub fn read() {}\n",
+        ),
+    ];
+    let table = "[modules.config]\nentry = \"src/config.rs\"\n";
+    let root = project(&files, table);
+    let Installation::Valid(selection) = config::read(
+        root.path(),
+        layer::catalog(),
+        &config::FileRead::filesystem(),
+    ) else {
+        panic!("expected a valid installation");
+    };
+    let (modules, _) = read_modules(root.path(), &selection.modules).expect("read the modules");
+    let src_folders = modules
+        .iter()
+        .map(|module| module.src_folder.clone())
+        .collect();
+    let tree = source_files::walk(root.path(), Language::Rust).expect("walk the project");
+    let sources = read_sources(&tree, &modules, &src_folders).expect("read the sources");
+    let resolver = Resolver::new(&tree, &modules, &sources);
+    let config = modules
+        .iter()
+        .find(|module| module.name == "config")
+        .expect("the config row");
+
+    let bindings = resolver.bindings(config, &["config".to_string()]);
+
+    let names = |inline_path: &[&str]| -> Vec<String> {
+        let path: Vec<String> = inline_path.iter().map(|part| part.to_string()).collect();
+        bindings[&path].keys().cloned().collect()
+    };
+
+    assert_eq!(
+        bindings.keys().cloned().collect::<Vec<Vec<String>>>(),
+        [
+            Vec::<String>::new(),
+            vec!["inner".to_string()],
+            vec!["inner".to_string(), "deep".to_string()],
+        ]
+    );
+    assert_eq!(names(&[]), ["top".to_string()]);
+    assert_eq!(names(&["inner"]), ["nested".to_string()]);
+    assert_eq!(names(&["inner", "deep"]), ["deep_nested".to_string()]);
 }

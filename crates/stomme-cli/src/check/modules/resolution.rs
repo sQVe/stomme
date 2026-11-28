@@ -312,10 +312,11 @@ impl<'a> Resolver<'a> {
         };
 
         for (scope_path, scope) in scopes {
-            let mut expected = file_path.to_vec();
-            expected.extend(scope.inline_path.iter().cloned());
+            let Some(inline_path) = scope_path.strip_prefix(file_path) else {
+                continue;
+            };
 
-            if *scope_path != expected {
+            if inline_path != scope.inline_path {
                 continue;
             }
 
@@ -446,9 +447,13 @@ fn read_scopes(
     table: &mut ScopeTable,
 ) {
     let file_path = module_path(&file.path, &module.src_folder);
-    let crate_root_module = file_path.len() == 1 && !is_crate_root(&file.path, &module.src_folder);
+    let module_depth = if is_crate_root(&file.path, &module.src_folder) {
+        0
+    } else {
+        file_path.len()
+    };
 
-    for mut scope in scopes::scopes(source, module.edition, crate_root_module) {
+    for mut scope in scopes::scopes(source, module.edition, module_depth) {
         // A glob in a private file still binds names inside it, and the walk needs those names
         // to reach the module a use names. Its explicit exports only hide its own globs.
         scope.keeps_exports = keep_exports;

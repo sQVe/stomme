@@ -1,12 +1,15 @@
 use super::super::scopes::{self, Scope};
 use super::*;
 
+const NESTED_FILE_DEPTH: usize = 2;
+
 fn paths(source: &str) -> Vec<UsePath> {
     paths_in(source, Edition::Other)
 }
 
 fn paths_in(source: &str, edition: Edition) -> Vec<UsePath> {
-    let table = binding_table(scopes::scopes(source, edition, false));
+    // Bindings ignore visibility, so the depth only has to name a file below the crate root.
+    let table = binding_table(scopes::scopes(source, edition, NESTED_FILE_DEPTH));
 
     super::paths(source, edition, &table)
 }

@@ -77,7 +77,7 @@ enum Frame {
     Other,
 }
 
-pub(super) fn scopes(source: &str, edition: Edition, crate_root_module: bool) -> Vec<Scope> {
+pub(super) fn scopes(source: &str, edition: Edition, module_depth: usize) -> Vec<Scope> {
     let all_tokens = code_tokens(source);
     let mut tokens = all_tokens.iter().peekable();
     let mut scopes = vec![Scope::file()];
@@ -91,14 +91,13 @@ pub(super) fn scopes(source: &str, edition: Edition, crate_root_module: bool) ->
 
         if at_item_level {
             let current = *open_scopes.last().expect("the file scope stays open");
-            let in_inline_module = !scopes[current].inline_path.is_empty();
-            let super_is_crate_visible = crate_root_module && !in_inline_module;
+            let parent_is_crate_root = module_depth + scopes[current].inline_path.len() == 1;
             let previous = token
                 .index
                 .checked_sub(1)
                 .and_then(|index| all_tokens.get(index));
 
-            if let Some(name) = public_module_name(token, &tokens, super_is_crate_visible) {
+            if let Some(name) = public_module_name(token, &tokens, parent_is_crate_root) {
                 scopes[current].public_modules.insert(name.to_string());
             }
 
@@ -118,7 +117,7 @@ pub(super) fn scopes(source: &str, edition: Edition, crate_root_module: bool) ->
                 continue;
             }
 
-            if let Some(kind) = use_kind(token, &mut tokens, super_is_crate_visible) {
+            if let Some(kind) = use_kind(token, &mut tokens, parent_is_crate_root) {
                 for leaf in read_use_tree(&mut tokens) {
                     if let Some(binding) = binding(&leaf) {
                         scopes[current].bindings.push(binding);
@@ -157,7 +156,7 @@ pub(super) fn scopes(source: &str, edition: Edition, crate_root_module: bool) ->
 fn after_visibility<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
-    super_is_crate_visible: bool,
+    parent_is_crate_root: bool,
 ) -> Option<(TokenStream<'source>, ExportVisibility)> {
     let is_public = token.kind == TokenKind::Ident && token.text == "pub";
 
@@ -174,18 +173,20 @@ fn after_visibility<'source>(
     {
         lookahead.next().expect("a peeked open paren is present");
         let mut first = lookahead.next();
-        let has_in = first.is_some_and(|next| next.kind == TokenKind::Ident && next.text == "in");
 
-        if has_in {
+        if first.is_some_and(|next| next.kind == TokenKind::Ident && next.text == "in") {
             first = lookahead.next();
         }
 
         let keyword = first.and_then(|next| (next.kind == TokenKind::Ident).then_some(next.text));
+        let names_path = lookahead
+            .peek()
+            .is_some_and(|next| next.kind == TokenKind::Colon);
 
         lookahead.position(|next| next.kind == TokenKind::CloseParen);
         visibility = match keyword {
-            Some("crate") if !has_in => ExportVisibility::Crate,
-            Some("super") if !has_in && super_is_crate_visible => ExportVisibility::Crate,
+            Some("crate") if !names_path => ExportVisibility::Crate,
+            Some("super") if !names_path && parent_is_crate_root => ExportVisibility::Crate,
             _ => ExportVisibility::Restricted,
         };
     }
@@ -211,13 +212,13 @@ impl UseKind {
 fn use_kind<'source>(
     token: &Token<'source>,
     tokens: &mut TokenStream<'source>,
-    super_is_crate_visible: bool,
+    parent_is_crate_root: bool,
 ) -> Option<UseKind> {
     if token.kind == TokenKind::Ident && token.text == "use" {
         return Some(UseKind::Plain);
     }
 
-    let (mut lookahead, visibility) = after_visibility(token, tokens, super_is_crate_visible)?;
+    let (mut lookahead, visibility) = after_visibility(token, tokens, parent_is_crate_root)?;
 
     let is_use = lookahead
         .next_if(|next| next.kind == TokenKind::Ident && next.text == "use")
@@ -234,9 +235,9 @@ fn use_kind<'source>(
 fn public_module_name<'source>(
     token: &Token<'source>,
     tokens: &TokenStream<'source>,
-    super_is_crate_visible: bool,
+    parent_is_crate_root: bool,
 ) -> Option<&'source str> {
-    let (mut lookahead, _) = after_visibility(token, tokens, super_is_crate_visible)?;
+    let (mut lookahead, _) = after_visibility(token, tokens, parent_is_crate_root)?;
     let module_token = lookahead.next()?;
     let declaration = module_declaration(module_token, &lookahead)?;
 
