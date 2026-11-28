@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::rule::Rule;
-use crate::test_support::{complete_project, write_file};
+use crate::test_project::complete_project;
+use crate::test_support::write_file;
 
 const INDEX: &str = "docs/adr/README.md";
 const ADR: &str = "docs/adr/0001-documentation-scope.md";

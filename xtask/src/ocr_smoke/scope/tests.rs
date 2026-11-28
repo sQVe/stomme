@@ -4,17 +4,38 @@ use super::{scope_base, selection_failures};
 
 #[test]
 fn scope_base_rejects_the_empty_sentinel() {
-    let error = scope_base("empty\n").expect_err("reject the empty sentinel");
+    let error = scope_base(
+        "empty\n",
+        "stomme: scope: 0 files, 0 added lines, 0 removed lines\n",
+    )
+    .expect_err("reject the empty sentinel");
 
     assert_eq!(
         format!("{error:#}"),
-        "ocr-smoke: scope: ocr-scope found no unreviewed change"
+        "ocr-smoke: scope: ocr-scope found no unreviewed change; stderr:\nstomme: scope: 0 files, 0 added lines, 0 removed lines"
+    );
+}
+
+#[test]
+fn scope_base_rejects_blank_stdout() {
+    let error = scope_base(
+        "\n",
+        "stomme: scope: 0 files, 0 added lines, 0 removed lines\n",
+    )
+    .expect_err("reject blank stdout");
+
+    assert_eq!(
+        format!("{error:#}"),
+        "ocr-smoke: scope: ocr-scope printed no base commit; stderr:\nstomme: scope: 0 files, 0 added lines, 0 removed lines"
     );
 }
 
 #[test]
 fn scope_base_trims_the_printed_commit() {
-    assert_eq!(scope_base(" abc123 \n").expect("read the base"), "abc123");
+    assert_eq!(
+        scope_base(" abc123 \n", "").expect("read the base"),
+        "abc123"
+    );
 }
 
 #[test]

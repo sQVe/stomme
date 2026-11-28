@@ -5,7 +5,7 @@ use std::path::Path;
 use super::*;
 use crate::check::cargo_manifest::read_root;
 use crate::layer;
-use crate::test_support::complete_project;
+use crate::test_project::complete_project;
 
 fn check_project(root: &Path) -> Vec<Problem> {
     let manifest = read_root(root)

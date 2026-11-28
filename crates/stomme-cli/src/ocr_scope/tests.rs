@@ -453,16 +453,23 @@ fn skips_a_head_path_that_is_not_utf8() {
 
     let outcome = run_scope(folder.path(), &history).expect("build the scope base");
     let Outcome::Base {
+        commit: base,
         files,
         added,
         removed,
-        ..
     } = outcome
     else {
         panic!("expected a base commit, got {outcome:?}");
     };
 
     assert_eq!((files, added, removed), (1, 1, 0));
+
+    let output = git_output(
+        folder.path(),
+        &["diff", "--name-only", &base, &history.head],
+    );
+
+    assert_eq!(output.stdout, b"src/file.rs\n");
 }
 
 #[test]
@@ -1078,7 +1085,7 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     let history = build_history(
         folder.path(),
         |folder| write_files(folder, &[("src/other.rs", "other\n")]),
-        |folder| write_file(folder, "src/new.rs", b"new first\nnew third"),
+        |folder| write_file(folder, "src/new.rs", b"new first\nnew second"),
         |_| {},
         |folder| write_file(folder, "src/new.rs", b"new first\nnew second\nnew third"),
     );
@@ -1095,9 +1102,11 @@ fn keeps_no_final_newline_in_a_rebuilt_base_file() {
     };
 
     assert_eq!((files, added, removed), (1, 1, 0));
+    // `rebuild` keeps the newline that follows every retained head line, so the last
+    // retained line stays terminated when the added line after it is dropped.
     assert_eq!(
-        blob_text(folder.path(), &format!("{base}:src/new.rs")),
-        "new first\nnew third"
+        blob_bytes(folder.path(), &format!("{base}:src/new.rs")),
+        b"new first\nnew second\n"
     );
     assert_eq!(
         changed_paths(folder.path(), &base, &history.head),

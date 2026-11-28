@@ -4,7 +4,8 @@ use std::io;
 use super::*;
 use crate::layer;
 use crate::rule::Rule;
-use crate::test_support::{complete_project, write_file};
+use crate::test_project::complete_project;
+use crate::test_support::write_file;
 
 fn assert_single_problem(problems: &[Problem], path: &str, rule: Rule, named: &[&str], case: &str) {
     assert_eq!(problems.len(), 1, "{case}: {problems:?}");

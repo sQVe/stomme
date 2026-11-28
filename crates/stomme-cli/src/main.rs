@@ -24,6 +24,10 @@ mod rule;
 mod sync;
 mod synced_tree;
 #[cfg(test)]
+mod test_fixtures;
+#[cfg(test)]
+mod test_project;
+#[cfg(test)]
 mod test_support;
 
 #[cfg(test)]

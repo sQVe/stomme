@@ -1,12 +1,11 @@
 use std::fs;
 use std::io;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
-use crate::test_support::temporary_directory;
+use crate::test_support::{temporary_directory, write_executable};
 
 const OCR_REVIEW: &str = include_str!("../../.github/workflows/ocr-review.yml");
 const OCR_CALLER: &str = include_str!("../../.github/workflows/ocr.yml");
@@ -339,15 +338,6 @@ fn step_block(workflow: &str, step: &str, key: &str) -> String {
     }
 
     format!("{}\n", text.join("\n"))
-}
-
-fn write_executable(path: &Path, text: &str) {
-    fs::write(path, text).expect("write the fake command");
-    let mut permissions = fs::metadata(path)
-        .expect("the fake command exists")
-        .permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).expect("make the fake command executable");
 }
 
 fn search_path(folder: &Path) -> String {

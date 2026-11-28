@@ -1,13 +1,19 @@
-use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
+#[path = "../src/test_support.rs"]
+mod test_support;
+
+use test_support::{commit, git, write_file};
+
 #[test]
 fn an_empty_scope_prints_the_empty_sentinel() {
     let folder = repository();
-    let head = commit(folder.path(), &[("src/file.rs", "one\n")], "base");
+    write_file(folder.path(), "src/file.rs", "one\n");
+    commit(folder.path(), "base");
+    let head = head_commit(folder.path());
 
     let output = stomme(folder.path(), &scope_arguments(&head, &head, &head, &head));
 
@@ -22,8 +28,12 @@ fn an_empty_scope_prints_the_empty_sentinel() {
 #[test]
 fn a_scoped_run_prints_the_base_and_the_status_line() {
     let folder = repository();
-    let base = commit(folder.path(), &[("src/file.rs", "one\n")], "base");
-    let head = commit(folder.path(), &[("src/file.rs", "one\ntwo\n")], "head");
+    write_file(folder.path(), "src/file.rs", "one\n");
+    commit(folder.path(), "base");
+    let base = head_commit(folder.path());
+    write_file(folder.path(), "src/file.rs", "one\ntwo\n");
+    commit(folder.path(), "head");
+    let head = head_commit(folder.path());
 
     let output = stomme(folder.path(), &scope_arguments(&base, &base, &base, &head));
 
@@ -46,7 +56,9 @@ fn a_scoped_run_prints_the_base_and_the_status_line() {
 #[test]
 fn a_missing_reviewed_head_fails_without_a_base() {
     let folder = repository();
-    let head = commit(folder.path(), &[("src/file.rs", "one\n")], "base");
+    write_file(folder.path(), "src/file.rs", "one\n");
+    commit(folder.path(), "base");
+    let head = head_commit(folder.path());
     let missing = "0".repeat(40);
 
     let output = stomme(
@@ -67,7 +79,9 @@ fn a_missing_reviewed_head_fails_without_a_base() {
 #[test]
 fn reordered_flags_fall_through_to_the_usage_message() {
     let folder = repository();
-    let head = commit(folder.path(), &[("src/file.rs", "one\n")], "base");
+    write_file(folder.path(), "src/file.rs", "one\n");
+    commit(folder.path(), "base");
+    let head = head_commit(folder.path());
     let arguments = [
         "ocr-scope",
         "--reviewed-base",
@@ -98,8 +112,12 @@ fn a_broken_status_stream_keeps_the_base_and_succeeds() {
     use std::process::Stdio;
 
     let folder = repository();
-    let base = commit(folder.path(), &[("src/file.rs", "one\n")], "base");
-    let head = commit(folder.path(), &[("src/file.rs", "one\ntwo\n")], "head");
+    write_file(folder.path(), "src/file.rs", "one\n");
+    commit(folder.path(), "base");
+    let base = head_commit(folder.path());
+    write_file(folder.path(), "src/file.rs", "one\ntwo\n");
+    commit(folder.path(), "head");
+    let head = head_commit(folder.path());
     let read_only = File::open(folder.path().join("src/file.rs")).expect("open a read-only file");
 
     let output = Command::new(env!("CARGO_BIN_EXE_stomme"))
@@ -150,31 +168,7 @@ fn repository() -> TempDir {
     folder
 }
 
-fn commit(folder: &Path, files: &[(&str, &str)], message: &str) -> String {
-    for (path, text) in files {
-        let path = folder.join(path);
-        let parent = path.parent().expect("a fixture file has a parent");
-
-        fs::create_dir_all(parent).expect("create the fixture folder");
-        fs::write(path, text).expect("write the fixture file");
-    }
-
-    git(folder, &["add", "-A"]);
-    git(
-        folder,
-        &[
-            "-c",
-            "user.name=Stomme Test",
-            "-c",
-            "user.email=stomme@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-qm",
-            message,
-        ],
-    );
-
+fn head_commit(folder: &Path) -> String {
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(folder)
@@ -185,16 +179,6 @@ fn commit(folder: &Path, files: &[(&str, &str)], message: &str) -> String {
         .expect("git prints UTF-8")
         .trim()
         .to_string()
-}
-
-fn git(folder: &Path, arguments: &[&str]) {
-    let output = Command::new("git")
-        .args(arguments)
-        .current_dir(folder)
-        .output()
-        .expect("run git");
-
-    assert!(output.status.success(), "{arguments:?}: {output:?}");
 }
 
 fn stomme(folder: &Path, arguments: &[&str]) -> Output {

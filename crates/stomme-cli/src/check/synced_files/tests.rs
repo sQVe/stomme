@@ -6,7 +6,8 @@ use crate::config::{self, Installation};
 use crate::layer;
 use crate::ocr_rules::PROJECT_RULE_FILE;
 use crate::rule::Rule;
-use crate::test_support::{complete_project, write_file};
+use crate::test_project::complete_project;
+use crate::test_support::write_file;
 
 fn selection(root: &Path) -> Selection {
     match config::read(root, layer::catalog(), &config::FileRead::filesystem()) {

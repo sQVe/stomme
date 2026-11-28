@@ -2,7 +2,8 @@ use std::fs;
 
 use super::*;
 use crate::rule::Rule;
-use crate::test_support::{complete_project, write_file};
+use crate::test_project::complete_project;
+use crate::test_support::write_file;
 
 fn found(problems: &[Problem]) -> Vec<(&str, Rule)> {
     problems

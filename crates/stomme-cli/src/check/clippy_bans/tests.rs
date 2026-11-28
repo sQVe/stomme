@@ -3,7 +3,8 @@ use std::fs;
 
 use super::*;
 use crate::layer::{self, Catalog, PolicyFile, RUST, RustSource};
-use crate::test_support::{complete_project, write_file};
+use crate::test_project::complete_project;
+use crate::test_support::write_file;
 
 const RUST_BANS: &str = r#"disallowed-methods = [
   { path = "std::env::set_var", reason = "the environment is shared between threads" },

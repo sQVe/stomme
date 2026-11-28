@@ -193,15 +193,21 @@ fn run_scope_command(folder: &Path, root: &Path, refs: &ScopeRefs<'_>) -> anyhow
     let output = stomme_output(&mut command, "ocr-scope")?;
     let text = String::from_utf8(output.stdout)
         .context("ocr-scope printed a base commit that is not UTF-8")?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
-    scope_base(&text)
+    scope_base(&text, &stderr)
 }
 
-fn scope_base(text: &str) -> anyhow::Result<String> {
-    let base = text.trim();
+fn scope_base(stdout: &str, stderr: &str) -> anyhow::Result<String> {
+    let base = stdout.trim();
+    let stderr = stderr.trim();
 
     if base == "empty" {
-        anyhow::bail!("ocr-smoke: scope: ocr-scope found no unreviewed change");
+        anyhow::bail!("ocr-smoke: scope: ocr-scope found no unreviewed change; stderr:\n{stderr}");
+    }
+
+    if base.is_empty() {
+        anyhow::bail!("ocr-smoke: scope: ocr-scope printed no base commit; stderr:\n{stderr}");
     }
 
     Ok(base.to_string())

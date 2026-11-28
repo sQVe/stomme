@@ -4,14 +4,13 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+#[path = "../src/test_project.rs"]
+mod test_project;
 #[path = "../src/test_support.rs"]
-#[expect(
-    dead_code,
-    reason = "check_base uses a subset of the shared test helpers"
-)]
 mod test_support;
 
-use test_support::{commit, complete_project, git, write_file};
+use test_project::complete_project;
+use test_support::{commit, git, write_file};
 
 fn sync_project(root: &Path) {
     let output = stomme(root, &["sync"], None);

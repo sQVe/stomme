@@ -155,7 +155,7 @@ fn sync_refuses_dev_dependencies_that_are_not_an_object() {
 
 #[test]
 fn sync_writes_pins_and_a_second_sync_changes_nothing() {
-    let root = crate::test_support::complete_project();
+    let root = crate::test_project::complete_project();
     let manifest = json!({
         "name": "fixture",
         "devDependencies": { "@sqve/stomme-ts-style": "0.0.1" },

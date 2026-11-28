@@ -4,10 +4,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[path = "../src/test_fixtures.rs"]
+mod test_fixtures;
+#[path = "../src/test_project.rs"]
+mod test_project;
 #[path = "../src/test_support.rs"]
 mod test_support;
 
-use test_support::{commit, complete_project, copy_tree, git, with_crate_version, write_file};
+use test_fixtures::{copy_tree, with_crate_version};
+use test_project::complete_project;
+use test_support::{commit, git, write_file};
 
 fn sync_project(root: &Path) {
     let output = stomme(root, &["sync"]);
