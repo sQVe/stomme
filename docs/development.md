@@ -60,7 +60,8 @@
   `stomme ocr-scope --reviewed <ref> --reviewed-base <ref> --base <ref> --head <ref>` builds the
   review scope since the last complete OCR review. It prints the base commit, or `empty` when the
   scope is empty, and grafts the head onto that base so `ocr review --from <base> --to <head>`
-  reviews only the new lines.
+  reviews only the new lines. The graft writes `refs/replace/<head>` in the clone, so a caller that
+  runs OCR after the command removes it with `git replace -d <head>` when the review is done.
   Run `stomme check` on this repository with `cargo run -q -p stomme -- check`.
   `stomme init` creates a project in the current directory, which must be empty apart from `.git`:
 
